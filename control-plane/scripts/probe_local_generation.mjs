@@ -27,11 +27,15 @@
  *   node control-plane/scripts/probe_local_generation.mjs \
  *     --base-url http://127.0.0.1:11434 --model <model-name> [--runs 20]
  *
+ * A server started with a password (llama.cpp `--api-key`) is reached by
+ * setting COLLEX_LOCAL_LLM_API_KEY in the environment; it is sent as a
+ * bearer token and never printed.
+ *
  * Nothing privileged is sent: the prompts are synthetic Turkish sentences
  * written into this file, never a document from the Matter store.
  */
 
-import { argv, exit, stdout } from "node:process";
+import { argv, env, exit, stdout } from "node:process";
 
 function arg(name, fallback) {
   const at = argv.indexOf(`--${name}`);
@@ -42,6 +46,9 @@ const baseUrl = String(arg("base-url", "http://127.0.0.1:11434")).replace(/\/+$/
 const model = arg("model", undefined);
 const runs = Number(arg("runs", "20"));
 const timeoutMs = Number(arg("timeout-ms", "120000"));
+// Read from the environment only, never from a flag: a flag would put the
+// password on the command line and in the shell history.
+const apiKey = (env.COLLEX_LOCAL_LLM_API_KEY ?? "").trim();
 
 if (model === undefined) {
   stdout.write("--model is required (any OpenAI-compatible model name)\n");
@@ -117,7 +124,10 @@ async function callOnce(probe) {
   try {
     response = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(apiKey !== "" ? { authorization: `Bearer ${apiKey}` } : {}),
+      },
       body,
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -144,7 +154,10 @@ function percentile(values, p) {
 }
 
 const results = [];
-stdout.write(`probing ${baseUrl} with model "${model}" — ${runs} runs\n`);
+stdout.write(
+  `probing ${baseUrl} with model "${model}" — ${runs} runs` +
+    `${apiKey !== "" ? " (parola ortamdan)" : ""}\n`,
+);
 
 // 1. Cold call, reported separately: the first request pays for loading the
 //    weights, and averaging it into the rest hides both numbers.

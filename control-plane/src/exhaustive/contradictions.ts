@@ -68,7 +68,7 @@ export interface RelationVerdict {
   readonly subjectOverlap: number;
 }
 
-export const DETECTOR_VERSION = "contradiction-v1";
+export const DETECTOR_VERSION = "contradiction-v2";
 
 /**
  * How much of the two topic keys must overlap before a pair is COMPARED.
@@ -116,7 +116,7 @@ function compareValues(
       return {
         relation: "TENSION",
         rationale:
-          `Tarihler farklı (${left.normalizedValue} / ${right.normalizedValue})` +
+          `Tarihler farklı (${describe(left)} / ${describe(right)})` +
           " ama en az biri kesin gün bildirmiyor; aynı olayın farklı" +
           " kesinlikte kaydı olabilir.",
       };
@@ -126,15 +126,15 @@ function compareValues(
         relation: "TENSION",
         rationale:
           `Aynı ay içinde iki farklı gün geçiyor` +
-          ` (${left.normalizedValue} / ${right.normalizedValue}).`,
+          ` (${describe(left)} / ${describe(right)}).`,
       };
     }
     return {
       relation: "CONTRADICTION",
       rationale:
-        `Aynı konuda iki farklı tarih var:` +
-        ` ${left.normalizedValue} ve ${right.normalizedValue}.` +
-        " İkisi birden doğru olamaz.",
+        `Benzer bağlamda iki farklı tarih var:` +
+        ` ${describe(left)} ve ${describe(right)}.` +
+        " İkisi birden doğru olamaz — aynı olaya ilişkinse; bağlamı kaynaktan doğrulayın.",
     };
   }
 
@@ -157,12 +157,17 @@ function compareValues(
   return {
     relation: "CONTRADICTION",
     rationale:
-      `Aynı konuda iki farklı ${unit} var:` +
-      ` ${describe(left)} ve ${describe(right)}. İkisi birden doğru olamaz.`,
+      `Benzer bağlamda iki farklı ${unit} var:` +
+      ` ${describe(left)} ve ${describe(right)}.` +
+      " İkisi birden doğru olamaz — aynı şeye ilişkinse; bağlamı kaynaktan doğrulayın.",
   };
 }
 
 function describe(observation: ComparableObservation): string {
+  if (observation.kind === "date") {
+    const [year, month, day] = observation.normalizedValue.split("-");
+    if (year !== undefined && month !== undefined && day !== undefined) return `${day}.${month}.${year}`;
+  }
   if (observation.kind === "amount") {
     const kurus = Number(observation.normalizedValue);
     if (Number.isFinite(kurus)) {

@@ -1,6 +1,9 @@
 # Yerel üretim sağlayıcısı (isteğe bağlı)
 
 **Durum: yapılandırma ve sınır indi, HİÇBİR MODEL ÖLÇÜLMEDİ.**
+**W20:** sağlayıcı artık ürüne bağlı (cevap hattı, dosya incelemesi
+çıkarımı ve sentezi, rol yönlendirmesi) — ama **gerçek bir model yine
+çağrılmadı**; bütün model yolları betikli test çiftleriyle sınandı.
 Bu belgede hız, bellek veya kalite iddiası **yoktur**; ölçümü yapan betik
 aşağıda, ve çalıştırılana kadar hiçbir sayı hiçbir belgeye yazılamaz.
 
@@ -19,10 +22,15 @@ Yerel sağlayıcı iki iş için tasarlandı:
 2. **gerekçe denetimi** (`assess`) — "bu pasaj bu iddiayı gerçekten
    destekliyor mu?".
 
-**Taslak iddia YAZMAZ.** `draftClaims` bilerek reddeder: küçük bir yerel
-modele hukukî iddia kurdurmak, gerekçe kapısını geçmek değil onu boşa
-çıkarmak olur. Yanıt veremeyen bir yargıç **"desteklemiyor"** der — muhafazakâr
-yön, çünkü desteksiz bir iddia yargıç çalışmıyor diye kesinleşmemelidir.
+**W20: taslak iddiayı kanıt-önce yazar** (ADR-037, W19'daki "yazmaz"
+kararının yerini aldı). `draftClaims` yalnız kanıt paketindeki pasajları,
+kimlikleriyle görür; her iddia en az bir kanıt kimliği göstermek zorundadır.
+Model kendisine verilmeyen bir kimlik yazarsa kimlik **olduğu gibi**
+doğrulayıcıya gider ve `CITATION_INVALID` kaydı düşer — sessizce silmek,
+modelin atıf uydurduğunu gizlerdi. Her iddia mevcut doğrulayıcıdan
+muhafazakâr birleştirmeyle geçer. Yerel taslakçı hata verirse kural tabanlı
+taslakçıya dönülür (`LOCAL_DRAFTER_FALLBACK`); **buluta asla dönülmez**.
+Yanıt veremeyen bir yargıç hâlâ **"desteklemiyor"** der — muhafazakâr yön.
 
 ## Model bağımsızdır
 
@@ -59,6 +67,10 @@ Değerler hiçbir günlüğe, hata iletisine veya sağlık çıktısına yazılm
 |---|---|
 | `COLLEX_LOCAL_LLM_BASE_URL` | örn. `http://127.0.0.1:11434` |
 | `COLLEX_LOCAL_LLM_MODEL` | sunucunun tanıdığı model adı (zorunlu) |
+| `COLLEX_LOCAL_LLM_MODEL_ANSWER` | W20, isteğe bağlı: cevap taslakçısı için ayrı model |
+| `COLLEX_LOCAL_LLM_MODEL_VERIFIER` | W20, isteğe bağlı: gerekçe denetimi için ayrı model |
+| `COLLEX_LOCAL_LLM_MODEL_EXTRACTION` | W20, isteğe bağlı: dosya incelemesi çıkarımı için ayrı model |
+| `COLLEX_LOCAL_LLM_MODEL_SYNTHESIS` | W20, isteğe bağlı: dosya incelemesi değerlendirmesi için ayrı model |
 | `COLLEX_LOCAL_LLM_API_KEY` | ağdaki sunucu için bearer parolası |
 | `COLLEX_TRUSTED_LOCAL_HOSTS` | virgülle ayrılmış `host:port` listesi |
 | `COLLEX_LOCAL_LLM_CONTEXT_TOKENS` | varsayılan 8192 |
@@ -71,6 +83,9 @@ Varsayılan `ALLOW_CLOUD`'dur, çünkü bulut yapay zekâ zaten anahtarsız
 kapalıdır ve bu ayar mevcut kurulumların davranışını sessizce değiştirmez.
 
 ## Hedeflenen kurulum: M2 Mac mini (8 GB) — ÖLÇÜLMEDİ
+
+W20: adım adım kurulum, güvenlik duvarı ve Mac'te çalıştırılacak ölçüm
+komutları → [MAC-MINI-INFERENCE.md](MAC-MINI-INFERENCE.md).
 
 Amaçlanan yerleşim, Windows iş istasyonunun yanında duran küçük bir çıkarım
 kutusudur. **ColleX'in geri kalanı taşınmaz**: uygulama, veritabanı ve MCP

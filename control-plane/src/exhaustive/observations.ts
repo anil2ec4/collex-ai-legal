@@ -60,7 +60,7 @@ export interface PropositionDraft {
 }
 
 /** Version of these rules; stored on every row so a change invalidates reuse. */
-export const EXTRACTOR_VERSION = "extract-v1";
+export const EXTRACTOR_VERSION = "extract-v2";
 
 /** How many characters around a value become its quote. */
 const QUOTE_RADIUS = 160;
@@ -153,6 +153,107 @@ export function subjectKey(context: string): string {
   return stems.sort().slice(0, SUBJECT_STEMS).join(" ");
 }
 
+/** How many stems form a clause-scoped topic key (measured, see below). */
+export const TOPIC_STEMS = 4;
+
+function isBoundary(text: string, index: number): boolean {
+  const c = text[index];
+  if (c === "\n" || c === ",") return true;
+  if (c === "." || c === "!" || c === "?" || c === ";") {
+    // A dot inside "01.02.2023" or "45.000" is followed by a digit, never by
+    // whitespace, so dates and amounts never split a clause.
+    const next = text[index + 1];
+    return next === undefined || /\s/u.test(next);
+  }
+  return false;
+}
+
+/**
+ * The topic key of a value: the TOPIC_STEMS significant stems NEAREST to it
+ * inside its own clause (bounded by . ! ? ; , or a newline), sorted.
+ *
+ * W20 replaced the W19 key (stems of the ±160-character quote window,
+ * alphabetically first six). Measured on 11 labeled synthetic value pairs at
+ * the unchanged 0.4 overlap threshold, the W19 key decided 6/11 correctly —
+ * every "different subject" pair was compared, because the window was
+ * dominated by neighbouring text ("amaç artırmak bilgi …") — and this key
+ * decides 10/11 (the miss: "ihtar" vs "ihtarname" stem differently). That is
+ * a synthetic measurement, not a claim about real case files; the key still
+ * only decides what is COMPARED, never what is asserted.
+ */
+export function topicKeyAround(text: string, at: number, length: number): string {
+  let start = 0;
+  for (let i = at - 1; i >= 0; i -= 1) {
+    if (isBoundary(text, i)) {
+      start = i + 1;
+      break;
+    }
+  }
+  let end = text.length;
+  for (let i = at + length; i < text.length; i += 1) {
+    if (isBoundary(text, i)) {
+      end = i;
+      break;
+    }
+  }
+  const words: Array<{ stem: string; distance: number }> = [];
+  for (const match of text.slice(start, end).matchAll(/[\p{L}\p{N}]+/gu)) {
+    const index = start + (match.index ?? 0);
+    const raw = foldTurkishCase(match[0]);
+    if (raw.length < 3 || /\d/u.test(raw)) continue;
+    const stem = stemTurkish(raw);
+    if (stem.length < 3 || STOP_STEMS.has(stem)) continue;
+    const distance = index < at ? at - (index + match[0].length) : index - (at + length);
+    words.push({ stem, distance });
+  }
+  words.sort((a, b) => a.distance - b.distance);
+  const out: string[] = [];
+  for (const word of words) {
+    if (!out.includes(word.stem)) out.push(word.stem);
+    if (out.length >= TOPIC_STEMS) break;
+  }
+  return out.sort().join(" ");
+}
+
+/** Longest sentence used as a statement; a longer one falls back to the quote. */
+const MAX_STATEMENT_CHARS = 400;
+
+/**
+ * The sentence a value sits in, as shown to the reader (W20).
+ *
+ * The QUOTE stays the ±160-character window, because that is what a lawyer
+ * checks against the page. The STATEMENT is what a list shows: a window that
+ * starts in the previous paragraph ("… belgesidir ve …  11.03.2024") read as
+ * noise in the chronology. Both are exact substrings of the unit text.
+ */
+function sentenceOf(text: string, at: number, length: number, fallback: string): string {
+  const boundary = (index: number): boolean => {
+    const c = text[index];
+    if (c === "\n") return true;
+    if (c === "." || c === "!" || c === "?" || c === ";") {
+      const next = text[index + 1];
+      return next === undefined || /\s/u.test(next);
+    }
+    return false;
+  };
+  let start = 0;
+  for (let i = at - 1; i >= 0; i -= 1) {
+    if (boundary(i)) {
+      start = i + 1;
+      break;
+    }
+  }
+  let end = text.length;
+  for (let i = at + length; i < text.length; i += 1) {
+    if (boundary(i)) {
+      end = text[i] === "\n" ? i : i + 1;
+      break;
+    }
+  }
+  const sentence = text.slice(start, end).trim();
+  return sentence === "" || sentence.length > MAX_STATEMENT_CHARS ? fallback : sentence;
+}
+
 function isoOrUndefined(year: number, month: number, day: number): string | undefined {
   if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -212,8 +313,8 @@ export function extractPropositions(unitText: string): PropositionDraft[] {
     const { quote, startChar, endChar } = sliceQuote(unitText, at, match[0].length);
     push({
       kind: "date",
-      statement: quote,
-      subject: subjectKey(quote),
+      statement: sentenceOf(unitText, at, match[0].length, quote),
+      subject: topicKeyAround(unitText, at, match[0].length),
       predicate: "tarih",
       normalizedValue: iso,
       occurredOn: iso,
@@ -233,8 +334,8 @@ export function extractPropositions(unitText: string): PropositionDraft[] {
     const { quote, startChar, endChar } = sliceQuote(unitText, at, match[0].length);
     push({
       kind: "date",
-      statement: quote,
-      subject: subjectKey(quote),
+      statement: sentenceOf(unitText, at, match[0].length, quote),
+      subject: topicKeyAround(unitText, at, match[0].length),
       predicate: "tarih",
       normalizedValue: iso,
       occurredOn: iso,
@@ -250,8 +351,8 @@ export function extractPropositions(unitText: string): PropositionDraft[] {
     const { quote, startChar, endChar } = sliceQuote(unitText, at, match[0].length);
     push({
       kind: "amount",
-      statement: quote,
-      subject: subjectKey(quote),
+      statement: sentenceOf(unitText, at, match[0].length, quote),
+      subject: topicKeyAround(unitText, at, match[0].length),
       predicate: "tutar",
       normalizedValue: normalizeAmount(match[1] ?? ""),
       startChar,
@@ -267,8 +368,8 @@ export function extractPropositions(unitText: string): PropositionDraft[] {
     const { quote, startChar, endChar } = sliceQuote(unitText, at, match[0].length);
     push({
       kind: "ratio",
-      statement: quote,
-      subject: subjectKey(quote),
+      statement: sentenceOf(unitText, at, match[0].length, quote),
+      subject: topicKeyAround(unitText, at, match[0].length),
       predicate: "oran",
       normalizedValue: normalizeRatio(raw),
       startChar,

@@ -393,14 +393,64 @@ describe("LocalGenerationAdapter", () => {
     expect(judgement.score).toBe(0);
   });
 
-  it("refuses to draft claims: a small local model does not write law", async () => {
+  // W20 changed this contract on purpose. W19's adapter refused to draft at
+  // all; W20 wires the local model into the answer pipeline's drafting role.
+  // What must NOT change is the reason for the old test: a local model's
+  // text is never finalized on its own. These three tests pin that — no
+  // evidence means no call, claims may only carry ids the model was shown
+  // (and an invented id is passed through so the VERIFIER rejects it rather
+  // than being quietly repaired here), and the pipeline test
+  // (tests/pipeline/localAnswer.test.ts) proves every claim is verified.
+  it("drafts nothing and calls nothing when the evidence pack is empty", async () => {
+    let calls = 0;
     const adapter = new LocalGenerationAdapter({
       config: LOOPBACK,
       boundary: "LOCAL_ONLY",
-      fetchImpl: (async () => jsonResponse("{}")) as unknown as typeof fetch,
+      fetchImpl: (async () => {
+        calls += 1;
+        return jsonResponse("{}");
+      }) as unknown as typeof fetch,
     });
     await expect(
       adapter.draftClaims({ question: "q", pack: { items: [] } as never }),
+    ).resolves.toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it("drafts citation-first claims and passes an invented evidence id through for the verifier", async () => {
+    const adapter = new LocalGenerationAdapter({
+      config: LOOPBACK,
+      boundary: "LOCAL_ONLY",
+      fetchImpl: (async () =>
+        jsonResponse(
+          JSON.stringify({
+            claims: [
+              { text: "Ceza bir yıldan beş yıla kadar hapistir.", evidenceIds: ["ev-1"] },
+              { text: "Uydurma dayanak.", evidenceIds: ["ev-UYDURMA"] },
+              { text: "Kimliksiz iddia.", evidenceIds: [] },
+            ],
+          }),
+        )) as unknown as typeof fetch,
+    });
+    const claims = await adapter.draftClaims({
+      question: "Cezası nedir?",
+      pack: { items: [{ ref: { evidenceId: "ev-1", quote: "bir yıldan beş yıla kadar hapis" } }] } as never,
+    });
+    expect(claims.map((claim) => claim.evidenceIds)).toEqual([["ev-1"], ["ev-UYDURMA"]]);
+    expect(claims.every((claim) => claim.claimId.startsWith("local-"))).toBe(true);
+  });
+
+  it("a drafting failure surfaces as a typed error the pipeline can fall back from", async () => {
+    const adapter = new LocalGenerationAdapter({
+      config: LOOPBACK,
+      boundary: "LOCAL_ONLY",
+      fetchImpl: (async () => new Response("down", { status: 503 })) as unknown as typeof fetch,
+    });
+    await expect(
+      adapter.draftClaims({
+        question: "q",
+        pack: { items: [{ ref: { evidenceId: "ev-1", quote: "metin" } }] } as never,
+      }),
     ).rejects.toBeInstanceOf(LocalGenerationError);
   });
 

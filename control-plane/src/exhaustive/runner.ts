@@ -67,6 +67,12 @@ export interface ScopedDocument {
   readonly segments: readonly ScopedSegment[];
   /** Set when the file could not be read at all. */
   readonly extractionFailed?: boolean | undefined;
+  /**
+   * Code-point length of the canonical text when the text itself was not
+   * loaded (W20: coverage is recomputed on every progress poll, and loading
+   * whole documents for a length would be wasteful).
+   */
+  readonly canonicalLength?: number | undefined;
 }
 
 export interface ScopedSegment {
@@ -329,8 +335,10 @@ export function runReduce(
   ledger: readonly UnitLedgerRow[],
   observations: readonly ObservationRow[],
   relations: readonly RelationVerdict[],
+  extraGaps: readonly CoverageGap[] = [],
 ): ExhaustiveRunResult {
   const tally: CoverageTally = emptyTally();
+  const notProcessedByFile = new Map<string, number[]>();
   const filesWithDoneUnits = new Set<string>();
   const filesWithProblems = new Set<string>();
   const unitsByFile = new Map<string, UnitLedgerRow[]>();
@@ -361,15 +369,38 @@ export function runReduce(
         reason: row.skipReason ?? "EXCLUDED_BY_REQUEST",
       });
     } else {
-      // pending/running when the run stopped: NOT processed.
+      // pending/running when the run stopped: NOT processed. Named as such
+      // (W20) rather than as a failure, and compacted into ranges below so a
+      // run cancelled at unit 12 of 1 200 does not emit 1 188 gap rows.
       filesWithProblems.add(row.fileId);
-      tally.gaps.push({
-        fileId: row.fileId,
-        locator: `bölüm ${row.unitNo}`,
-        reason: "UNIT_FAILED",
-      });
+      const bucket = notProcessedByFile.get(row.fileId);
+      if (bucket === undefined) notProcessedByFile.set(row.fileId, [row.unitNo]);
+      else bucket.push(row.unitNo);
     }
   }
+  for (const [fileId, unitNos] of notProcessedByFile) {
+    const sorted = [...unitNos].sort((a, b) => a - b);
+    let from = sorted[0] as number;
+    let previous = from;
+    const flush = (to: number): void => {
+      tally.gaps.push({
+        fileId,
+        locator: from === to ? `bölüm ${from}` : `bölüm ${from}-${to}`,
+        reason: "UNIT_NOT_PROCESSED",
+      });
+    };
+    for (const unitNo of sorted.slice(1)) {
+      if (unitNo === previous + 1) {
+        previous = unitNo;
+        continue;
+      }
+      flush(previous);
+      from = unitNo;
+      previous = unitNo;
+    }
+    flush(previous);
+  }
+  tally.gaps.push(...extraGaps);
 
   for (const document of documents) {
     tally.filesTotal += 1;
@@ -441,6 +472,16 @@ export function runReduce(
         });
       } else if (segment.extractionMethod === "ocr") {
         tally.pagesOcr += 1;
+        // W20: a page read by local OCR below the confidence floor is
+        // counted as read but never as verified.
+        if (segment.extractionStatus === "SPARSE") {
+          tally.gaps.push({
+            fileId: document.fileId,
+            fileName: document.fileName,
+            locator: `s. ${segment.locatorLabel}`,
+            reason: "OCR_LOW_CONFIDENCE",
+          });
+        }
       } else {
         tally.pagesTextLayer += 1;
         // SPARSE is the extractor's own verdict that the page carried so
@@ -477,7 +518,7 @@ function uncoveredCodePoints(
   document: ScopedDocument,
   units: readonly UnitLedgerRow[],
 ): number {
-  const total = codePointLength(document.canonicalText);
+  const total = document.canonicalLength ?? codePointLength(document.canonicalText);
   if (total === 0) return 0;
   let covered = 0;
   for (const unit of units) covered += Math.max(0, unit.endChar - unit.startChar);

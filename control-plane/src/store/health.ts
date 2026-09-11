@@ -149,13 +149,16 @@ export interface DatabaseHealth {
  *   20260903100000_ai_audit_and_scale_indexes.sql  1  (W14 B-23)
  *   20260911100000_source_locators.sql             1  (W19 phase A)
  *   20260911110000_matter_analysis.sql             4  (W19 phases G+H)
+ *   20260912090000_durable_matter_analysis.sql     3  (W20 Matter Intelligence)
+ *   20260912100000_private_dense_vectors.sql       1  (W20 phase E)
+ *   20260912110000_review_tables.sql               4  (W20 review grid)
  * ENGRISK counted 17 on a restored database before the W14 migration; this
- * build ships 23. Re-measured against a real cluster by
+ * build ships 31. Re-measured against a real cluster by
  * `tests/ingestion/test_migrations_ledger.py` and `persistence.test.ts`, so
  * a dropped policy block — the ENGRISK E3 failure — is caught rather than
  * reported as `11/11 OK`.
  */
-export const EXPECTED_RLS_POLICIES = 23;
+export const EXPECTED_RLS_POLICIES = 31;
 
 export interface CheckDatabaseOptions {
   /** Probe budget in milliseconds (default 3000). */

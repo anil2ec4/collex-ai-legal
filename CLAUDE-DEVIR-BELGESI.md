@@ -262,6 +262,80 @@ Mevcut genel durum **PARTIAL**’dır. “Rakipleri tamamen gereksiz kıldı” 
 10. Canlı hukuk sonucu, doğrulanmamış mevzuat veya sentetik eval sonucu için
     pazarlama cümlesi üretme.
 
+## W20 durumu (11.09.2026) — dosya incelemesi kalıcı, yerel model hattı bağlı, özel anlamsal şerit çalışıyor
+
+W19'un "yalnız API'de, senkron, modelsiz" bıraktığı dosya incelemesi bu
+dalgada **gerçek bir iş sistemi** oldu. Özet (ayrıntı ve ölçümler:
+`docs/implementation/STATUS.md` W20 bölümü, kararlar: ADR-034..039):
+
+- **Kalıcı inceleme (ADR-034).** `POST /v1/matters/{id}/analysis` artık
+  **202** döner ve yalnız kimliği dondurup birimleri sayar; işi bir işçi
+  yapar (sunucunun içinde ya da `node control-plane/scripts/analysis_worker.mjs`).
+  Birimler kira (lease) ile alınır, gözlemler ve "bitti" işareti **tek
+  işlemde** yazılır, süresi dolan kira geri alınır, 3 denemeden sonra birim
+  kalıcı olarak "incelenemedi" sayılır, iptal ve ilerleme var. **Gerçek bir
+  süreç SIGKILL ile öldürülüp ikinci süreç koşuyu bitirdi** — sonuç kesintisiz
+  koşuyla aynı.
+- **Dondurulmuş kimlik ve sürüm anlık görüntüsü.** Koşu hangi dosya
+  sürümlerini okuduğunu saklar; belge değişirse koşu `stale` görünür ve
+  çözüm yeni koşudur. Eski koşu yeni metinle sessizce yeniden yazılmaz.
+- **Model önerir, uygulama yerini bulur (ADR-035).** Model alıntısı yalnız
+  bölümde **tam bir kez, birebir** geçiyorsa saklanır (çıkarıcı `mx-v2`);
+  ofsetleri uygulama hesaplar ve SHA-256 ile doğrular. Dosya zekâsı
+  (iddia, savunma, delil, olay, çelişki, açık soru…) ilişkisel tablolarda
+  durur ve **kaynağı olmayan kayıt veritabanına giremez** (tetikleyici).
+- **Görev dürüstlüğü.** Çelişkiler ve kronoloji modelsiz çalışır. "Dosyanın
+  tamamını incele", "İddia ve delilleri eşleştir", "Karşı tarafın gözüyle
+  incele" yerel model ister; model yoksa `409 MODEL_REQUIRED` ve konsolda
+  düğme değil açıklama görünür.
+- **Yerel model hattı (ADR-037).** Tek sağlayıcı fabrikası, roller (cevap,
+  denetim, çıkarım, değerlendirme), model adı kodda yok. Yerel taslakçı
+  **mevcut** cevap hattına bağlandı (paralel motor yok). `LOCAL_ONLY` artık
+  her yapay zekâ girişinde zorlanıyor; **yerelden buluta geri düşüş yok**.
+- **Özel anlamsal şerit (ADR-036).** Yüklenen belgelerin vektörleri yerel
+  E5 ile PostgreSQL'e (`app_private.chunk_vectors`) yazılıyor; arama dosya
+  kapsamında tam kosinüs. **pgvector gerekmez; kamu külliyatında ANN araması
+  DEĞİLDİR.** Gerçek E5 modeliyle anlamsal-yalnız bir isabet ölçüldü.
+- **Yerel OCR sınırı (ADR-038).** Tesseract + Poppler `PATH` üzerindeyse
+  kullanılır; hiçbir şey indirilmez. **Bu makinede kurulu değil** — taranmış
+  sayfa hâlâ "okunamadı" ve kapsam eksik.
+- **İnceleme tablosu kalıcı (ADR-039).** Mevcut tablo ekranı sunucuya
+  yazıyor; hücre bazında yeniden deneme, CSV aynen.
+- **Konsol.** Dosya sayfasına **"Dosya incelemesi"** sekmesi eklendi
+  (ilerleme, kapsam, okunamayan yerler, çelişkiler, kronoloji, kaynağa
+  giden atıflar). 1280/1024/820/640/390 px, açık/koyu temada DOM ölçümüyle
+  doğrulandı.
+- **Model karşılaştırma düzeneği** (`control-plane/scripts/bakeoff.mjs`,
+  `evals/bakeoff/`) ve **Mac mini rehberi**
+  (`docs/implementation/MAC-MINI-INFERENCE.md`).
+
+### W20'de yeni değişmezler (bunları bozma)
+
+- Birim gözlemleri ve "bitti" işareti yalnız `completeUnit` içinde, kira
+  denetimiyle, tek işlemde yazılır.
+- Bir üreticinin davranışı değişirse sürüm sabiti artırılır
+  (`EXTRACTOR_VERSION`, `DETECTOR_VERSION`, `MODEL_EXTRACTOR_VERSION`,
+  `INTEL_VERSION`) — sürüm koşu kimliğinin parçasıdır.
+- Model alıntısında bulanık eşleştirme YOK; iki kez geçen alıntı reddedilir.
+- Kaynaksız dosya zekâsı kaydı yok; tetikleyiciyi kapatma.
+- Model gerektiren görev modelsiz yarım yapılmaz, adıyla reddedilir.
+- Özel anlamsal şeridi "kamu külliyatında anlamsal arama" diye anlatma.
+
+### W20'de AÇIK kalanlar — kapatılmış gibi yazma
+
+- **Hiçbir gerçek dil modeli çağrılmadı.** Bütün model yolları betikli test
+  çiftleriyle sınandı. Hız, bellek, kalite sayısı YOK.
+- **M2 Mac mini ölçülmedi**; rehberdeki komutlar Mac'te çalıştırılmadı.
+- **Yerel OCR çalışma zamanı yok** (tesseract/pdftoppm kurulu değil); gerçek
+  OCR sınaması "atlandı" olarak raporlanır.
+- **Avukat etiketli altın vakalar yok**; bake-off yalnız sentetik vakalarla
+  düzenek denetimi yaptı.
+- **Konu anahtarı hâlâ sezgisel** (sentetik çiftlerde 10/11; bilinen bir
+  kaçırma `it.fails` ile sabit).
+- **W20 migrasyonları `collex_local`'a uygulanmadı.** `ColleX-Baslat.cmd`
+  bir sonraki açılışta `intake.cli --ensure-db` ile üçünü de ekler
+  (eklemeli, defter korumalı).
+
 ## W19 durumu (11.09.2026) — kanıt düzeyinde dosya zekâsı
 
 `STATUS.md` "W19" bölümü esas alınır; sayılar yalnız oradadır.

@@ -139,6 +139,11 @@ export const AI_CONSENT_MESSAGE =
   "çubuktaki “Bulut yapay zekâ” düğmesini açıp işlemi yeniden başlatın.";
 
 export interface AiRouterDeps {
+  /**
+   * W20: the data boundary in force. Under LOCAL_ONLY every POST under
+   * /v1/ai/* is refused with 403 BEFORE the handler runs.
+   */
+  dataBoundary?: () => "LOCAL_ONLY" | "ALLOW_CLOUD";
   config: AiConfig | null;
   /**
    * Audit ledger + ceiling source (B-23). Defaults to a bounded in-memory
@@ -369,6 +374,26 @@ function unexpectedFailure(c: Context, error: unknown, log: (line: string) => vo
 
 export function createAiRouter(deps: AiRouterDeps): Hono {
   const app = new Hono();
+  // W20: the data boundary is enforced HERE, before any handler: under
+  // LOCAL_ONLY no POST under /v1/ai/* runs, so no document byte reaches the
+  // cloud provider however the key is configured. GET (status, ledger)
+  // stays readable.
+  app.use("/v1/ai/*", async (c, next) => {
+    if (c.req.method !== "GET" && deps.dataBoundary?.() === "LOCAL_ONLY") {
+      return c.json(
+        {
+          error: {
+            kind: "DATA_BOUNDARY_LOCAL_ONLY",
+            message:
+              "Veri sınırı yalnız yerel: bulut yapay zekâ kullanılamaz;" +
+              " belge bu bilgisayardan dışarı gönderilmedi.",
+          },
+        },
+        403,
+      );
+    }
+    await next();
+  });
   const now = deps.now ?? (() => new Date());
   const tenantId = deps.tenantId ?? LOCAL_TENANT_ID;
   const log = deps.log ?? ((line: string) => process.stderr.write(`${line}\n`));

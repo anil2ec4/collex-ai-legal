@@ -76,7 +76,27 @@ export type CoverageGapReason =
    * own SPARSE verdict: probably an image with a header). Counted as read
    * for throughput, but NEVER as verified.
    */
-  | "SPARSE_PAGE";
+  | "SPARSE_PAGE"
+  /**
+   * W20: a unit that was never processed — the run was cancelled, or is
+   * still running, or stopped before reaching it. Distinct from UNIT_FAILED
+   * (which means it was attempted and failed every attempt): a lawyer should
+   * know whether the tool tried and could not, or simply did not get there.
+   */
+  | "UNIT_NOT_PROCESSED"
+  /**
+   * W20: every unit was read, but the model-assisted evaluation step (claim
+   * vs evidence weighing, red-team points) did not complete after its retry
+   * budget. The deterministic findings are stored; the evaluation is not,
+   * so the review is NOT complete.
+   */
+  | "SYNTHESIS_FAILED"
+  /**
+   * W20: a scanned page read by LOCAL OCR whose engine confidence was below
+   * the floor (intake/ocr.py LOW_CONFIDENCE). Its text is in the canonical
+   * text and citable, but nobody should rely on it unchecked.
+   */
+  | "OCR_LOW_CONFIDENCE";
 
 /**
  * The wire shape.
@@ -215,6 +235,16 @@ export function coverageSentenceTr(coverage: ProcessingCoverage): string {
   }
   if (coverage.analysisUnitsFailed > 0) {
     parts.push(`${coverage.analysisUnitsFailed} bölüm incelenemedi`);
+  }
+  const notProcessed =
+    coverage.analysisUnitsTotal -
+    coverage.analysisUnitsProcessed -
+    coverage.analysisUnitsFailed;
+  if (notProcessed > 0) {
+    parts.push(`${notProcessed} bölüm henüz işlenmedi`);
+  }
+  if (coverage.gaps.some((gap) => gap.reason === "SYNTHESIS_FAILED")) {
+    parts.push("değerlendirme aşaması tamamlanamadı");
   }
   return (
     parts.join("; ") +

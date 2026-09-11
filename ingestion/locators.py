@@ -105,6 +105,9 @@ class SegmentInput:
     #: what the PDF lane does so its own sparse/empty thresholds win.
     extraction_status: str | None = None
     ordinal: int | None = None
+    #: W20: the OCR engine's own confidence in [0, 1] for a page read by
+    #: OCR; None for every other extraction method.
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,8 @@ class SourceSegment:
     end_char: int
     extraction_method: str
     extraction_status: str
+    #: W20: OCR confidence (None unless extraction_method == 'ocr').
+    confidence: float | None = None
 
     @property
     def char_count(self) -> int:
@@ -136,6 +141,8 @@ class SourceSegment:
             "endChar": self.end_char,
             "extractionMethod": self.extraction_method,
             "extractionStatus": self.extraction_status,
+            # Only OCR pages carry one; other segments keep the W19 shape.
+            **({"confidence": self.confidence} if self.confidence is not None else {}),
         }
 
     @staticmethod
@@ -148,6 +155,7 @@ class SourceSegment:
             end_char=int(raw["endChar"]),
             extraction_method=str(raw["extractionMethod"]),
             extraction_status=str(raw["extractionStatus"]),
+            confidence=(float(raw["confidence"]) if raw.get("confidence") is not None else None),
         )
 
 
@@ -216,6 +224,7 @@ def build_segmented_canonical(
                 end_char=end,
                 extraction_method=item.extraction_method,
                 extraction_status=status,
+                confidence=item.confidence,
             )
         )
 

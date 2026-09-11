@@ -199,6 +199,22 @@ export interface AnswerPipelineOptions {
    * about and fails deterministic validation in the verifier.
    */
   cloud?: { drafter: DrafterPort; entailment: EntailmentPort; label: string };
+  /**
+   * Local model ports (W20): the configured local provider's `answer` and
+   * `verifier` roles (llm/providerFactory.ts). Used ONLY for a request that
+   * says `useLocalAi: true`. A local drafter failure falls back to the
+   * rule-based drafter (warning LOCAL_DRAFTER_FALLBACK) instead of costing
+   * the lawyer the answer; a model-written claim is verified exactly like a
+   * cloud-written one (possible paraphrase, conservative aggregation).
+   */
+  local?: { drafter: DrafterPort; entailment: EntailmentPort; label: string };
+  /**
+   * The data boundary in force (W20). Under LOCAL_ONLY a `useCloudAi`
+   * request is refused BEFORE any cloud port is touched (zero cloud calls)
+   * and the answer carries warning CLOUD_AI_REFUSED_LOCAL_ONLY. There is no
+   * silent fallback in either direction.
+   */
+  dataBoundary?: () => "LOCAL_ONLY" | "ALLOW_CLOUD";
   /** Retrieval limits forwarded to the corpus port. */
   limits?: CorpusSearchLimits;
   /**
@@ -245,6 +261,11 @@ export interface AnswerRequest {
    * cloud ports. Default false: nothing leaves the machine unless asked.
    */
   useCloudAi?: boolean;
+  /**
+   * Additive (W20): draft and verify with the configured LOCAL model.
+   * Takes precedence over `useCloudAi` when both are set.
+   */
+  useLocalAi?: boolean;
 }
 
 /**
@@ -396,6 +417,8 @@ export class AnswerPipeline {
   private readonly maxContraryLanes: number;
   private readonly coverageFloor: number;
   private readonly cloud: AnswerPipelineOptions["cloud"];
+  private readonly local: AnswerPipelineOptions["local"];
+  private readonly dataBoundary: () => "LOCAL_ONLY" | "ALLOW_CLOUD";
   private readonly limits: CorpusSearchLimits | undefined;
   private readonly timeBudgetMs: number;
   private readonly maxQuoteCodePoints: number;
@@ -417,6 +440,8 @@ export class AnswerPipeline {
     this.maxContraryLanes = options.maxContraryLanes ?? 4;
     this.coverageFloor = options.coverageFloor ?? DEFAULT_COVERAGE_FLOOR;
     this.cloud = options.cloud;
+    this.local = options.local;
+    this.dataBoundary = options.dataBoundary ?? (() => "ALLOW_CLOUD");
     this.limits = options.limits;
     this.timeBudgetMs = options.timeBudgetMs ?? DEFAULT_ANSWER_TIME_BUDGET_MS;
     this.maxQuoteCodePoints = options.maxQuoteCodePoints ?? DEFAULT_MAX_QUOTE_CODE_POINTS;
@@ -1024,10 +1049,29 @@ export class AnswerPipeline {
     }
 
     // ---- port selection (cloud AI is per-request consent) -----------------
-    const wantsCloud = request.useCloudAi === true;
-    const cloud = wantsCloud ? this.cloud : undefined;
-    if (wantsCloud && cloud === undefined) {
-      warnings.push(`AI_UNAVAILABLE:${AI_UNAVAILABLE_MESSAGE_TR}`);
+    // `cloud` below means "the model-assisted ports in use for this request",
+    // local or cloud; `assistKind` says which.
+    const wantsLocal = request.useLocalAi === true;
+    const wantsCloud = request.useCloudAi === true && !wantsLocal;
+    let cloud: { drafter: DrafterPort; entailment: EntailmentPort; label: string } | undefined;
+    let assistKind: "cloud" | "local" | undefined;
+    if (wantsLocal) {
+      if (this.local !== undefined) {
+        cloud = this.local;
+        assistKind = "local";
+      } else {
+        warnings.push(`LOCAL_AI_UNAVAILABLE:${LOCAL_AI_UNAVAILABLE_MESSAGE_TR}`);
+      }
+    } else if (wantsCloud) {
+      if (this.dataBoundary() === "LOCAL_ONLY") {
+        // Refused before any cloud port is touched: zero cloud calls.
+        warnings.push(`CLOUD_AI_REFUSED_LOCAL_ONLY:${CLOUD_AI_REFUSED_LOCAL_ONLY_MESSAGE_TR}`);
+      } else if (this.cloud !== undefined) {
+        cloud = this.cloud;
+        assistKind = "cloud";
+      } else {
+        warnings.push(`AI_UNAVAILABLE:${AI_UNAVAILABLE_MESSAGE_TR}`);
+      }
     }
     const drafter: DrafterPort = cloud?.drafter ?? this.drafter;
     // Over budget before drafting: no drafter call at all, and a cloud judge
@@ -1049,9 +1093,17 @@ export class AnswerPipeline {
         } catch (error) {
           drafterFailed = true;
           warnings.push(`DRAFTER_FAILED:${safeMessage(error)}`);
+          // W20: a local model that is down or answers garbage must not cost
+          // the lawyer the answer; the deterministic drafter still runs.
+          if (assistKind === "local") {
+            warnings.push("LOCAL_DRAFTER_FALLBACK");
+            produced = await this.drafter.draftClaims({ question: request.question, pack: admitted });
+          }
         }
       }
-      ctx.notes.push(`drafter=${cloud !== undefined ? "cloud" : "rule-based"}`);
+      ctx.notes.push(
+        `drafter=${drafterFailed && assistKind === "local" ? "rule-based(fallback)" : assistKind ?? "rule-based"}`,
+      );
       // Citation-first invariant: a drafter may only cite evidence in the pack.
       const known = new Set(admitted.items.map((item) => item.ref.evidenceId));
       const cleaned = produced.map((claim) => {
@@ -1101,7 +1153,7 @@ export class AnswerPipeline {
           coverage: coverageReport,
           // W14 B-31: the aggregation depends on WHO wrote the claim, because
           // only the rule-based drafter's claim text is provably the quotes.
-          drafter: aiUsed.drafter ? "cloud" : "rule-based",
+          drafter: aiUsed.drafter ? assistKind ?? "cloud" : "rule-based",
           temporal: {
             applicable: temporalComparison.applicable,
             comparisonPresent: temporalComparison.present,
@@ -1859,3 +1911,12 @@ function renderContrarySection(coverage: ContraryCoverage): string {
 
   return out.join("\n");
 }
+
+/** W20: `useLocalAi` asked for, but no local model is configured. */
+export const LOCAL_AI_UNAVAILABLE_MESSAGE_TR =
+  "Yerel dil modeli yapılandırılmadığı için yanıt kural tabanlı yöntemle hazırlandı.";
+
+/** W20: `useCloudAi` asked for under the LOCAL_ONLY data boundary. */
+export const CLOUD_AI_REFUSED_LOCAL_ONLY_MESSAGE_TR =
+  "Veri sınırı yalnız yerel olduğu için bulut yapay zekâ kullanılmadı;" +
+  " dosya bu bilgisayardan dışarı gönderilmedi.";

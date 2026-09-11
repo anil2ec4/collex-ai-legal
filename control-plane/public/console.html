@@ -1484,6 +1484,15 @@ button.gsrc {
 button.gsrc:hover { border-color: var(--seal); }
 .gridbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 14px 0 10px; }
 .gridpick { display: grid; gap: 6px; max-height: 240px; overflow: auto; padding: 4px 0; }
+/* W20 · Dosya incelemesi sekmesi */
+.anlz-sec h3 { font-family: var(--ui); font-size: var(--fs-sm); margin: 0 0 var(--sp-2); color: var(--ink); }
+.anlz-item { border-top: 1px solid var(--line); padding: var(--sp-2) 0; display: grid; gap: 6px; }
+.anlz-item:first-of-type { border-top: 0; }
+.anlz-title { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; overflow-wrap: anywhere; }
+.anlz-body { margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); overflow-wrap: anywhere; }
+.anlz-src { display: grid; gap: 4px; padding-left: 10px; border-left: 2px solid var(--line); }
+.anlz-quote { font-size: var(--fs-sm); color: var(--ink-soft); overflow-wrap: anywhere; }
+.anlz-runs .itemrow { align-items: center; }
 
 /* Şeritler: dosyasız çalışma (sarı), bilgi (soluk), arıza (kırmızı). */
 .strip {
@@ -3004,7 +3013,8 @@ details.tech .techline {
       </div>
       <div class="res3 broke" id="griddrop" role="status" hidden></div>
       <div class="runbar" id="gridbar" aria-hidden="true"><div class="sweep"></div></div>
-      <p class="expl-def" id="gridnote">Her hücre tek tek, sırayla hesaplanır ve her biri en çok 60 saniye sürer. Uzun sürerse “Durdur” ile kesebilirsiniz; o ana kadar dolan hücreler ekranda kalır.</p>
+      <p class="expl-def" id="gridnote">Tablo bu bilgisayarda saklanır: sayfayı kapatsanız ya da ColleX yeniden başlasa da kaldığı hücreden sürer. Hesaplanamayan bir hücreyi tek başına yeniden deneyebilirsiniz. “Belgedeki bütün …” sütunları belgenin tamamını okur; öteki sorular belgenin en ilgili pasajlarına bakar. “Durdur” ile kalan hücreleri durdurabilirsiniz; dolan hücreler ekranda kalır.</p>
+      <div id="gridrecent"></div>
     </section>
     <div class="scrollx card" id="gridout" aria-live="polite"></div>
   </section>
@@ -10710,6 +10720,7 @@ details.tech .techline {
 
   var MATTER_TABS = [
     ["belgeler", "Belgeler", "files"],
+    ["inceleme", "Dosya incelemesi", null],
     ["arastirmalar", "Araştırmalar", "answers"],
     ["taslaklar", "Taslaklar", "drafts"],
     ["zaman", "Zaman çizelgesi", "events"],
@@ -10840,7 +10851,7 @@ details.tech .techline {
       b.setAttribute("aria-selected", matterPageState.tab === t[0] ? "true" : "false");
       b.setAttribute("aria-controls", "mtab-panel");
       b.appendChild(document.createTextNode(t[1]));
-      b.appendChild(el("span", "cnt", String((items[t[2]] || []).length)));
+      if (t[2]) { b.appendChild(el("span", "cnt", String((items[t[2]] || []).length))); }
       b.addEventListener("click", function () { switchMatterTab(t[0]); });
       tabs.appendChild(b);
     });
@@ -10868,11 +10879,312 @@ details.tech .techline {
     panel.textContent = "";
     var tab = matterPageState.tab;
     if (tab === "belgeler") { renderMatterFiles(panel); }
+    else if (tab === "inceleme") { renderMatterAnalysis(panel); }
     else if (tab === "arastirmalar") { renderMatterAnswers(panel); }
     else if (tab === "taslaklar") { renderMatterDrafts(panel); }
     else if (tab === "zaman") { renderMatterTimeline(panel); }
     else if (tab === "sureler") { renderMatterDeadlines(panel); }
     else if (tab === "notlar") { renderMatterNotes(panel); }
+  }
+
+  /* ============ W20 · DOSYANIN TAMAMINI İNCELE ============
+     Sunucu her incelemeyi veritabanında bölüm bölüm yürütür; bu sekme yalnız
+     başlatır, ilerlemeyi gösterir ve sonucu kaynaklarıyla çizer. Modelsiz
+     yapılamayan bir incelemenin düğmesi hiç çizilmez; nedeni tek cümleyle
+     yazılır. "Tamamı okundu" cümlesi yalnız sunucunun hesapladığı okuma
+     kapsamından gelir; bu sayfa onu asla kendisi kurmaz. */
+  var ANALYSIS_POLL_MS = 1500;
+  var analysisState = { matterId: null, runId: null, timer: null };
+  var ANALYSIS_ACTIVE = ["queued", "mapping", "aggregating", "reducing"];
+  var GAP_TR = {
+    UNREADABLE_NO_TEXT: "okunamayan sayfa (metin yok)",
+    SPARSE_TEXT: "çok az metin çıkan sayfa",
+    SPARSE_PAGE: "çok az metin çıkan sayfa",
+    FILE_EXTRACTION_FAILED: "belge açılamadı",
+    UNIT_FAILED: "bu bölüm incelenemedi",
+    UNIT_NOT_PROCESSED: "bu bölüm henüz işlenmedi",
+    NO_ANALYSIS_UNITS: "belgede incelenecek bölüm bulunamadı",
+    TEXT_OUTSIDE_UNITS: "incelenmemiş metin",
+    EXCLUDED_BY_REQUEST: "incelemeden çıkarıldı",
+    NO_SOURCE_MAP: "sayfa eşlemesi yok (eski yükleme; belgeyi yeniden analiz edin)",
+    SYNTHESIS_FAILED: "değerlendirme aşaması tamamlanamadı",
+    OCR_LOW_CONFIDENCE: "taranmış sayfa düşük güvenle okundu"
+  };
+  var INTEL_SECTIONS = [
+    ["event", "Kronoloji"],
+    ["contradiction", "Çelişkiler"],
+    ["question", "Açık sorular"],
+    ["entity", "Taraflar ve kişiler"],
+    ["claim", "İddialar"],
+    ["defense", "Savunmalar"],
+    ["evidence", "Deliller"],
+    ["missing_support", "Desteği bulunamayan iddialar"],
+    ["legal_issue", "Hukukî meseleler"],
+    ["request", "Talepler"],
+    ["procedural_event", "Usul işlemleri"],
+    ["credibility_issue", "Güvenilirlik sorunları"],
+    ["fact", "Olgular"],
+    ["favorable_point", "Müvekkil lehine"],
+    ["unfavorable_point", "Müvekkil aleyhine"],
+    ["opposing_theory", "Karşı tarafın en güçlü tezi"],
+    ["weakness", "Zayıf noktalar"],
+    ["unsupported_proposition", "Dayanağı bulunamayan iddialarımız"],
+    ["contrary_evidence", "Aleyhe deliller"],
+    ["procedural_vulnerability", "Usul riskleri"],
+    ["hypothetical_argument", "Varsayımsal karşı argümanlar"]
+  ];
+  var SUPPORT_STATUS_TR = {
+    supported: ["Delille destekleniyor", "ok"],
+    opposed: ["Delil aleyhine", "bad"],
+    disputed: ["Deliller çelişiyor", "warn"],
+    ambiguous: ["Delil belirsiz", "warn"],
+    unsupported: ["Destek bulunamadı", "bad"]
+  };
+  var SOURCE_ROLE_TR = { support: " · destekleyen", oppose: " · aleyhe", ambiguous: " · belirsiz", mention: " · ayrıca geçtiği yer" };
+
+  function isoDateTR(iso, precision) {
+    var p = String(iso || "").split("-");
+    if (p.length !== 3) { return String(iso || ""); }
+    if (precision === "year") { return p[0]; }
+    if (precision === "month") { return p[1] + "." + p[0]; }
+    return p[2] + "." + p[1] + "." + p[0];
+  }
+
+  function renderMatterAnalysis(panel) {
+    var d = matterPageState.data;
+    var m = d.matter;
+    panel.appendChild(el("p", "screenlead",
+      "Bu sekmede dosyaya bağlı belgelerin tamamını bölüm bölüm okutursunuz; sonuçta ne kadarının okunduğu her zaman yazar."));
+    var controls = el("section", "card");
+    panel.appendChild(controls);
+    var runsBox = el("div", "anlz-runs");
+    runsBox.id = "anlz-runs";
+    panel.appendChild(runsBox);
+    var view = el("div");
+    view.id = "anlz-view";
+    panel.appendChild(view);
+    controls.appendChild(el("p", "statusline", "incelemeler hazırlanıyor…"));
+    getJson("/v1/matters/" + enc(m.id) + "/analysis/capabilities").then(function (res) {
+      controls.textContent = "";
+      if (res.status !== 200) { errCard(controls, "İnceleme açılamadı", errMessage(res)); return; }
+      var caps = res.body;
+      var available = caps.tasks.filter(function (t) { return t.available; });
+      var missing = caps.tasks.filter(function (t) { return !t.available; });
+      available.sort(function (a, b) { return (a.task === "full_review" ? 0 : 1) - (b.task === "full_review" ? 0 : 1); });
+      var role = document.createElement("input");
+      role.type = "text";
+      role.className = "tin";
+      role.id = "anlz-role";
+      role.maxLength = 100;
+      role.placeholder = "ör. davalı";
+      if (available.some(function (t) { return t.requiresModel; })) {
+        var lab = el("label", "fieldlabel", "Müvekkilin sıfatı (isteğe bağlı; lehe/aleyhe ayrımı ve karşı taraf incelemesi için)");
+        lab.htmlFor = "anlz-role";
+        controls.appendChild(lab);
+        controls.appendChild(role);
+      }
+      var buttons = el("div", "filebtns");
+      available.forEach(function (t) {
+        var b = ghostBtn(t.titleTr, function () { startAnalysis(m.id, t, role.value); }, t.task === "full_review" ? "primary" : "");
+        b.title = t.descriptionTr;
+        buttons.appendChild(b);
+      });
+      controls.appendChild(buttons);
+      if (missing.length) {
+        controls.appendChild(el("p", "expl-def",
+          "Şu incelemeler için yerel dil modeli gerekiyor ve şu an yapılandırılmamış: " +
+          missing.map(function (t) { return t.titleTr; }).join(", ") +
+          ". Bunlar modelsiz yarım yapılmaz; tarih, tutar ve oran çelişkileri ile kronoloji modelsiz çalışır."));
+      }
+      if (caps.model && caps.model.configured) {
+        controls.appendChild(el("p", "localnote", "Yerel dil modeli: " + caps.model.model + (caps.model.where ? " (" + caps.model.where + ")" : "")));
+      }
+    }).catch(function (error) { errCard(controls, "İnceleme açılamadı", humanError(error)); });
+    loadAnalysisRuns(m.id);
+    if (analysisState.matterId === m.id && analysisState.runId) { showAnalysisRun(m.id, analysisState.runId); }
+  }
+
+  function startAnalysis(matterId, task, role) {
+    var body = { task: task.task };
+    if (task.requiresModel && role && role.trim()) { body.clientRole = role.trim(); }
+    postJson("/v1/matters/" + enc(matterId) + "/analysis", body).then(function (res) {
+      if (res.status !== 202) { toast(errMessage(res), "bad"); return; }
+      analysisState = { matterId: matterId, runId: res.body.runId, timer: null };
+      toast(res.body.resumed
+        ? "Yarım kalan aynı inceleme sürdürülüyor."
+        : "İnceleme başladı. Sayfayı kapatsanız ya da ColleX yeniden başlasa da kaldığı yerden sürer.", "ok");
+      loadAnalysisRuns(matterId);
+      showAnalysisRun(matterId, res.body.runId);
+    }).catch(function (error) { toast(humanError(error), "bad"); });
+  }
+
+  function loadAnalysisRuns(matterId) {
+    var box = document.getElementById("anlz-runs");
+    if (!box) { return; }
+    getJson("/v1/matters/" + enc(matterId) + "/analysis").then(function (res) {
+      box.textContent = "";
+      if (res.status !== 200 || !res.body || !res.body.runs || !res.body.runs.length) { return; }
+      var card = el("section", "card");
+      card.appendChild(el("h3", null, "Önceki incelemeler"));
+      res.body.runs.slice(0, 10).forEach(function (r) {
+        var row = el("div", "itemrow");
+        row.appendChild(el("div", "when", fmtDateTR(r.createdAt) || "-"));
+        var g = el("div", "grow");
+        g.appendChild(el("div", null, r.taskTitle));
+        var sub = el("div", "sub");
+        var active = ANALYSIS_ACTIVE.indexOf(r.status) >= 0;
+        sub.appendChild(chip(active ? "sürüyor" : r.status === "cancelled" ? "durduruldu" : r.status === "failed" ? "tamamlanamadı" : "bitti", active ? "warn" : "mute"));
+        if (!active) {
+          sub.appendChild(document.createTextNode(" "));
+          sub.appendChild(chip(r.complete ? "dosyanın tamamı okundu" : "dosyanın tamamı okunmadı", r.complete ? "ok" : "bad"));
+        }
+        g.appendChild(sub);
+        row.appendChild(g);
+        var acts = el("div", "actions");
+        acts.appendChild(ghostBtn("Aç", function () {
+          analysisState = { matterId: matterId, runId: r.runId, timer: null };
+          showAnalysisRun(matterId, r.runId);
+        }, "small primary"));
+        row.appendChild(acts);
+        card.appendChild(row);
+      });
+      box.appendChild(card);
+    }).catch(function () { box.textContent = ""; });
+  }
+
+  function showAnalysisRun(matterId, runId) {
+    if (analysisState.timer) { clearTimeout(analysisState.timer); analysisState.timer = null; }
+    var view = document.getElementById("anlz-view");
+    if (!view) { return; }
+    getJson("/v1/matters/" + enc(matterId) + "/analysis/" + enc(runId)).then(function (res) {
+      if (!document.getElementById("anlz-view")) { return; }
+      view.textContent = "";
+      if (res.status !== 200) { errCard(view, "İnceleme açılamadı", errMessage(res)); return; }
+      var run = res.body;
+      var active = ANALYSIS_ACTIVE.indexOf(run.status) >= 0;
+      var card = el("section", "card");
+      card.appendChild(el("h3", null, run.taskTitle));
+      var p = run.progress || { done: 0, total: 0 };
+      card.appendChild(el("p", "statusline", active
+        ? p.done + "/" + p.total + " bölüm okundu" + (run.cancelRequested ? " — durduruluyor…" : "")
+        : run.status === "cancelled" ? "İnceleme durduruldu (" + p.done + "/" + p.total + " bölüm okunmuştu)."
+        : run.status === "failed" ? "İnceleme tamamlanamadı."
+        : "İnceleme bitti."));
+      if (active) {
+        var bar = el("div", "runbar on");
+        bar.setAttribute("aria-hidden", "true");
+        bar.appendChild(el("div", "sweep"));
+        card.appendChild(bar);
+        if (!run.cancelRequested) {
+          card.appendChild(ghostBtn("Durdur", function () {
+            postJson("/v1/matters/" + enc(matterId) + "/analysis/" + enc(runId) + "/cancel", {}).then(function (r2) {
+              if (r2.status !== 202) { toast(errMessage(r2), "bad"); return; }
+              toast("İnceleme durduruluyor; okunan bölümler saklanır.");
+              showAnalysisRun(matterId, runId);
+            });
+          }, "small"));
+        }
+      }
+      renderRunCoverage(card, run, active);
+      view.appendChild(card);
+      if (active) {
+        analysisState.timer = setTimeout(function () {
+          if (matterPageState.tab === "inceleme" && matterPageState.id === matterId && analysisState.runId === runId) {
+            showAnalysisRun(matterId, runId);
+          }
+        }, ANALYSIS_POLL_MS);
+      } else {
+        loadAnalysisRuns(matterId);
+        loadAnalysisFindings(matterId, runId, view);
+      }
+    }).catch(function (error) { errCard(view, "İnceleme açılamadı", humanError(error)); });
+  }
+
+  function renderRunCoverage(card, run, active) {
+    if (run.coverageSummary) { card.appendChild(el("p", null, run.coverageSummary)); }
+    if (run.stale) {
+      var st = el("div", "res3 broke");
+      st.setAttribute("role", "status");
+      st.appendChild(el("strong", "r3t", "Bu inceleme belgelerin eski sürümüne dayanıyor."));
+      st.appendChild(el("p", null, "Sonradan değişen belgeler: " + (run.sourceChanged || []).join(", ") + ". Güncel sonuç için incelemeyi yeniden başlatın."));
+      card.appendChild(st);
+    }
+    var cov = run.processingCoverage;
+    if (active || !cov || !run.exhaustiveClaimRefusedBecause) { return; }
+    var box = el("div", "res3 broke");
+    box.setAttribute("role", "status");
+    box.appendChild(el("strong", "r3t", "Dosyanın tamamı okunmadı; bu sonuç “bütün dosya” için söylenemez."));
+    var list = el("ul", "audnotices");
+    (cov.gaps || []).slice(0, 30).forEach(function (gp) {
+      list.appendChild(el("li", null, (gp.fileName || gp.fileId) + " — " + gp.locator + ": " + (GAP_TR[gp.reason] || gp.reason)));
+    });
+    if ((cov.gaps || []).length > 30) { list.appendChild(el("li", null, "ve " + (cov.gaps.length - 30) + " yer daha")); }
+    box.appendChild(list);
+    card.appendChild(box);
+  }
+
+  function loadAnalysisFindings(matterId, runId, view) {
+    getJson("/v1/matters/" + enc(matterId) + "/analysis/" + enc(runId) + "/findings").then(function (res) {
+      if (res.status !== 200 || !document.getElementById("anlz-view")) { return; }
+      var f = res.body;
+      var names = f.fileNames || {};
+      var synthesis = (f.summary && f.summary.synthesis) || {};
+      var limits = (f.limitsTr || []).concat(synthesis.notes || []);
+      if (synthesis.contraryAuthority && synthesis.contraryAuthority.reasonTr) { limits.push(synthesis.contraryAuthority.reasonTr); }
+      if (limits.length) {
+        var lim = el("section", "card");
+        lim.appendChild(el("h3", null, "Bu incelemenin sınırları"));
+        var ul = el("ul", "audnotices");
+        limits.forEach(function (t) { ul.appendChild(el("li", null, t)); });
+        lim.appendChild(ul);
+        view.appendChild(lim);
+      }
+      var shown = 0;
+      INTEL_SECTIONS.forEach(function (pair) {
+        var items = (f.items || []).filter(function (it) { return it.kind === pair[0]; });
+        if (!items.length) { return; }
+        if (pair[0] === "event") {
+          items.sort(function (a, b) { return String(a.occurredOn || "").localeCompare(String(b.occurredOn || "")); });
+        }
+        var sec = el("section", "card anlz-sec");
+        sec.appendChild(el("h3", null, pair[1] + " (" + items.length + ")"));
+        items.slice(0, 200).forEach(function (it) { sec.appendChild(renderIntelItem(it, names)); });
+        if (items.length > 200) { sec.appendChild(el("p", "expl-def", "İlk 200 tespit gösteriliyor; tamamı inceleme kaydında duruyor.")); }
+        view.appendChild(sec);
+        shown += items.length;
+      });
+      if (!shown) { emptyLine(view, "Bu incelemede gösterilecek bir tespit çıkmadı. Ne kadarının okunduğu yukarıda yazıyor."); }
+    }).catch(function (error) { errCard(view, "Sonuçlar alınamadı", humanError(error)); });
+  }
+
+  function renderIntelItem(it, names) {
+    var row = el("div", "anlz-item");
+    var head = el("div", "anlz-title");
+    if (it.occurredOn) { head.appendChild(chip(isoDateTR(it.occurredOn, it.datePrecision), "mute")); }
+    head.appendChild(el("span", null, it.title));
+    row.appendChild(head);
+    var chips = el("div", "partychips");
+    if (it.supportStatus && SUPPORT_STATUS_TR[it.supportStatus]) {
+      chips.appendChild(chip(SUPPORT_STATUS_TR[it.supportStatus][0], SUPPORT_STATUS_TR[it.supportStatus][1]));
+    }
+    if (it.hypothetical) { chips.appendChild(chip("Varsayım — belgeden çıkan bir tespit değil", "warn")); }
+    if (it.producer === "model") { chips.appendChild(chip("Yerel dil modelinin tespiti — alıntıdan doğrulayın", "mute")); }
+    if (it.partyRole) { chips.appendChild(chip(it.partyRole, "mute")); }
+    if (chips.childNodes.length) { row.appendChild(chips); }
+    if (it.body) { row.appendChild(el("p", "anlz-body", it.body)); }
+    (it.sources || []).slice(0, 6).forEach(function (src) {
+      var s2 = el("div", "anlz-src");
+      var label = (src.locator || ("konum " + src.startChar + "–" + src.endChar)) + " · " +
+        (names[src.fileId] || src.fileId) + (SOURCE_ROLE_TR[src.role] || "");
+      var btn = el("button", "gsrc", "Belgede aç — " + label);
+      btn.type = "button";
+      btn.addEventListener("click", function () { gotoDocument(src.fileId, src.chunkId ? { focusChunk: src.chunkId } : {}); });
+      s2.appendChild(btn);
+      s2.appendChild(el("q", "anlz-quote", cpTruncate(src.quote || "", 260)));
+      row.appendChild(s2);
+    });
+    if ((it.sources || []).length > 6) { row.appendChild(el("p", "expl-def", "ve " + (it.sources.length - 6) + " kaynak daha")); }
+    return row;
   }
 
   function postMatterItem(matterId, item, okText) {
@@ -11761,8 +12073,23 @@ details.tech .techline {
     "İhtarname gönderilmiş midir; tarihi nedir?",
     "Tarafların adları ve sıfatları nelerdir?",
     "Yetkili mahkeme veya tahkim kaydı var mıdır?",
-    "Ödeme vadesi ve gecikme faizi nasıl düzenlenmiştir?"
+    "Ödeme vadesi ve gecikme faizi nasıl düzenlenmiştir?",
+    "Belgedeki bütün tarihler (tamamı okunur)",
+    "Belgedeki bütün tutarlar (tamamı okunur)"
   ];
+  /* W20: bu iki sütun top-K cevap değildir; belgenin HER bölümü okunur ve
+     hücre, o belgenin okuma kapsamını da taşır. */
+  var GRID_EXTRACT = {
+    "Belgedeki bütün tarihler (tamamı okunur)": "extract_dates",
+    "Belgedeki bütün tutarlar (tamamı okunur)": "extract_amounts"
+  };
+  var GRID_SUPPORT_TR = {
+    verified: ["Kaynakla destekleniyor", "ok"],
+    partially_verified: ["Kısmen destekleniyor", "warn"],
+    unverified: ["Dayanak yetersiz", "bad"],
+    exhaustive_complete: ["Belgenin tamamı okundu", "ok"],
+    exhaustive_incomplete: ["Belge tam okunamadı", "bad"]
+  };
   var gridState = {
     wired: false, running: false, cancelled: false,
     files: [], questions: [], cells: {}, selected: {}
@@ -11774,6 +12101,7 @@ details.tech .techline {
     if (!gridState.wired) { wireGrid(); gridState.wired = true; }
     renderGridPresets();
     renderGridFiles();
+    renderGridRecent();
     var t = document.getElementById("gridtitle");
     if (t && t.focus) { t.focus(); }
   }
@@ -11786,6 +12114,7 @@ details.tech .techline {
     document.getElementById("gridstop").addEventListener("click", function () {
       gridState.cancelled = true;
       document.getElementById("gridtiming").textContent = "durduruluyor…";
+      if (gridState.tableId) { postJson("/v1/review-tables/" + enc(gridState.tableId) + "/cancel", {}); }
     });
     document.getElementById("gridcopy").addEventListener("click", function () {
       var text = gridCsv();
@@ -11949,6 +12278,31 @@ details.tech .techline {
     setBar("gridbar", true);
     renderGridTable();
 
+    /* W20: tablo sunucuda kalıcıdır. Sekme kapansa ya da ColleX yeniden
+       başlasa da hücreler kaldığı yerden hesaplanır; bu sayfa yalnız izler.
+       Tablo ucu olmayan eski bir sunucuda hücreler tarayıcıda sırayla
+       hesaplanır (aşağıdaki runGridInBrowser). */
+    var serverBody = {
+      title: "Izgara " + todayIso(),
+      fileIds: files.map(function (f) { return f.fileId; }),
+      questions: questions.map(function (q) { return GRID_EXTRACT[q] ? { text: q, mode: GRID_EXTRACT[q] } : q; }),
+      asOf: document.getElementById("asof").value || todayIso()
+    };
+    if (activeMatter && !document.getElementById("gridall").checked) { serverBody.matterId = activeMatter.id; }
+    gridState.tableId = null;
+    postJson("/v1/review-tables", serverBody).then(function (res) {
+      if (res.status === 202) { gridState.tableId = res.body.tableId; pollGridTable(); return; }
+      if (res.status === 404 || res.status === 405) { runGridInBrowser(files, questions); return; }
+      toast(errMessage(res), "bad");
+      finishGrid(0, files.length * questions.length);
+    }).catch(function (error) {
+      toast(humanError(error), "bad");
+      finishGrid(0, files.length * questions.length);
+    });
+  }
+
+  /* Eski sunucu (kalıcı tablo ucu yok): hücreler tarayıcıda, sırayla. */
+  function runGridInBrowser(files, questions) {
     var jobs = [];
     files.forEach(function (f) {
       questions.forEach(function (q, qi) { jobs.push({ file: f, q: q, qi: qi }); });
@@ -11987,6 +12341,99 @@ details.tech .techline {
       });
     };
     step();
+  }
+
+  function pollGridTable() {
+    var id = gridState.tableId;
+    if (!id) { return; }
+    getJson("/v1/review-tables/" + enc(id)).then(function (res) {
+      if (res.status !== 200 || gridState.tableId !== id) { return; }
+      applyGridTable(res.body);
+      renderGridTable();
+      var p = res.body.progress;
+      var settled = p.done + p.failed + p.cancelled;
+      document.getElementById("gridtiming").textContent = settled + "/" + p.total + " hücre";
+      document.getElementById("gridcount").textContent = settled + "/" + p.total;
+      var status = res.body.table.status;
+      if (status === "queued" || status === "running") {
+        gridState.pollTimer = setTimeout(pollGridTable, 1200);
+      } else {
+        if (status === "cancelled") { gridState.cancelled = true; }
+        finishGrid(settled, p.total);
+      }
+    }).catch(function () { gridState.pollTimer = setTimeout(pollGridTable, 2500); });
+  }
+
+  function applyGridTable(body) {
+    gridState.files = body.rows.map(function (r) { return { fileId: r.fileId, name: r.fileName || r.fileId }; });
+    gridState.questions = body.columns.map(function (c) { return c.question; });
+    gridState.cells = {};
+    body.cells.forEach(function (c) {
+      var row = body.rows[c.rowNo - 1];
+      if (!row) { return; }
+      var cell = gridCellOfStored(c);
+      if (cell) { gridState.cells[gridKey(row.fileId, c.columnNo - 1)] = cell; }
+    });
+  }
+
+  /* Sunucudaki bir hücreden ekrandaki hücre. Bekleyen hücre çizilmez
+     ("sırada…"); hesaplanamayan hücre nedenini ve kendi yeniden dene
+     düğmesini taşır. */
+  function gridCellOfStored(c) {
+    if (c.state === "pending" || c.state === "running") { return null; }
+    var at = { rowNo: c.rowNo, columnNo: c.columnNo };
+    if (c.state === "failed") { return { covered: false, error: true, retry: at, text: "Bu hücre hesaplanamadı — " + (c.error || "neden bilinmiyor") }; }
+    if (c.state === "cancelled") { return { covered: false, retry: at, text: "Durduruldu; bu hücre hesaplanmadı." }; }
+    var p = (c.provenance || [])[0] || null;
+    return {
+      covered: c.supportState !== "abstained" && c.supportState !== "no_evidence",
+      status: c.answerStatus,
+      text: cpTruncate(c.answerText || "", 400),
+      support: c.supportState,
+      chunkId: p && p.chunkId ? p.chunkId : "",
+      startChar: p ? p.startChar : "",
+      endChar: p ? p.endChar : "",
+      sha: p ? p.quoteSha256 : "",
+      runId: c.answerRunId || ""
+    };
+  }
+
+  function retryGridCell(at) {
+    if (!gridState.tableId) { return; }
+    postJson("/v1/review-tables/" + enc(gridState.tableId) + "/cells/" + at.rowNo + "/" + at.columnNo + "/retry", {}).then(function (res) {
+      if (res.status !== 202) { toast(errMessage(res), "bad"); return; }
+      toast("Hücre yeniden sıraya alındı; öteki hücreler yeniden hesaplanmaz.", "ok");
+      gridState.running = true;
+      gridState.cancelled = false;
+      setBar("gridbar", true);
+      pollGridTable();
+    });
+  }
+
+  function renderGridRecent() {
+    var host = document.getElementById("gridrecent");
+    if (!host) { return; }
+    var url = "/v1/review-tables" + (activeMatter ? "?matterId=" + enc(activeMatter.id) : "");
+    getJson(url).then(function (res) {
+      host.textContent = "";
+      if (res.status !== 200 || !res.body || !res.body.tables || !res.body.tables.length) { return; }
+      host.appendChild(el("div", "fieldlabel", "Kayıtlı tablolar"));
+      res.body.tables.slice(0, 8).forEach(function (t) {
+        var row = el("div", "itemrow");
+        row.appendChild(el("div", "when", fmtDateTR(t.createdAt) || "-"));
+        row.appendChild(el("div", "grow", t.title + (t.status === "queued" || t.status === "running" ? " — sürüyor" : "")));
+        var acts = el("div", "actions");
+        acts.appendChild(ghostBtn("Aç", function () {
+          gridState.tableId = t.tableId;
+          gridState.running = true;
+          gridState.cancelled = false;
+          setBar("gridbar", true);
+          pollGridTable();
+        }, "small"));
+        row.appendChild(acts);
+        host.appendChild(row);
+      });
+    }).catch(function () { host.textContent = ""; });
   }
 
   function finishGrid(done, total) {
@@ -12042,6 +12489,7 @@ details.tech .techline {
         wrap.appendChild(el("span", "gtext", cell.text));
         if (cell.covered) {
           if (cell.verdict) { wrap.appendChild(chip((VERDICT_TR[cell.verdict] || [cell.verdict])[0], (VERDICT_TR[cell.verdict] || ["", "mute"])[1])); }
+          else if (cell.support && GRID_SUPPORT_TR[cell.support]) { wrap.appendChild(chip(GRID_SUPPORT_TR[cell.support][0], GRID_SUPPORT_TR[cell.support][1])); }
           var src = el("button", "gsrc",
             "Belgede bu cümlenin geçtiği yeri aç — pasaj " + cpTruncate(cell.chunkId || "?", 14) +
             (cell.startChar === "" ? "" : " · konum " + cell.startChar + "–" + cell.endChar));
@@ -12052,6 +12500,10 @@ details.tech .techline {
           wrap.appendChild(src);
         } else {
           td.className = "miss";
+          if (cell.retry) {
+            var again = ghostBtn("Bu hücreyi yeniden dene", function () { retryGridCell(cell.retry); }, "small");
+            wrap.appendChild(again);
+          }
         }
         td.appendChild(wrap);
         tr.appendChild(td);
@@ -12064,6 +12516,8 @@ details.tech .techline {
 
   function csvField(v) {
     var t = String(v === undefined || v === null ? "" : v);
+    /* W20: = + - @ ile başlayan bir hücre Excel'de formüle dönmesin. */
+    if (/^[=+\-@\t\r]/.test(t)) { t = "'" + t; }
     return '"' + t.replace(/"/g, '""') + '"';
   }
 

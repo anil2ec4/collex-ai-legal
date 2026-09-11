@@ -54,6 +54,14 @@ LOCATORS_MIGRATION = "20260911100000_source_locators.sql"
 #: W19 phases G+H: exhaustive analysis ledger + derived Matter
 #: intelligence, with four RLS policies.
 ANALYSIS_MIGRATION = "20260911110000_matter_analysis.sql"
+#: W20: durable/resumable analysis (leases, observation keys, frozen run
+#: identity) + Matter Intelligence items/sources/links, three RLS policies.
+DURABLE_MIGRATION = "20260912090000_durable_matter_analysis.sql"
+#: W20 phase E: embedding-profile dimension range + pgvector-free private
+#: chunk vectors, one RLS policy.
+DENSE_MIGRATION = "20260912100000_private_dense_vectors.sql"
+#: W20: the persisted review grid, four RLS policies.
+REVIEW_MIGRATION = "20260912110000_review_tables.sql"
 
 
 def _db_unavailable() -> str | None:
@@ -138,6 +146,9 @@ def test_bootstrap_boundary_is_a_real_migration_and_newer_ones_declare_sentinels
         HEARING_MIGRATION,
         LOCATORS_MIGRATION,
         ANALYSIS_MIGRATION,
+        DURABLE_MIGRATION,
+        DENSE_MIGRATION,
+        REVIEW_MIGRATION,
     ]
     probes: dict[str, list[tuple[str, str]]] = {}
     by_path = {p.name: p for p in runnable_migrations()}
@@ -567,6 +578,8 @@ def test_half_applied_matters_migration_is_NOT_bootstrapped_and_gets_applied(fre
                 AI_AUDIT_MIGRATION,
                 HEARING_MIGRATION,
                 ANALYSIS_MIGRATION,
+                DURABLE_MIGRATION,
+                REVIEW_MIGRATION,
             ):
                 continue
             conn.execute(path.read_text(encoding="utf-8"))
@@ -593,6 +606,11 @@ def test_half_applied_matters_migration_is_NOT_bootstrapped_and_gets_applied(fre
             AI_AUDIT_MIGRATION,
             HEARING_MIGRATION,
             ANALYSIS_MIGRATION,
+            # W20: both depend on the matter tables the half-applied
+            # fixture withheld, so they apply after it; the dense
+            # migration does not and is bootstrapped instead.
+            DURABLE_MIGRATION,
+            REVIEW_MIGRATION,
         ]
 
         # And the policies the half-applied file skipped now exist.
@@ -610,9 +628,11 @@ def test_half_applied_matters_migration_is_NOT_bootstrapped_and_gets_applied(fre
 def test_complete_database_carries_the_expected_rls_policy_count(fresh_db):
     """B-05 (d): ``/v1/health rls.present == rls.expected`` on a full database.
 
-    18 = 12 policies from 20260826060000_rls.sql + 5 from the matters
+    31 = 12 policies from 20260826060000_rls.sql + 5 from the matters
     migration + 1 from the W14 AI audit ledger + 1 from the W19 source
-    locators migration + 4 from the W19 matter-analysis migration.
+    locators migration + 4 from the W19 matter-analysis migration + 3 from
+    the W20 durable-analysis migration + 1 from the W20 private dense
+    vectors migration + 4 from the W20 review-table migration = 31.
     ``control-plane/src/store/health.ts`` EXPECTED_RLS_POLICIES carries the
     same number and persistence.test.ts asserts it against a real cluster;
     this is the Python side of the same count. (ENGRISK measured 17 before
@@ -624,7 +644,7 @@ def test_complete_database_carries_the_expected_rls_policy_count(fresh_db):
             "select count(*) from pg_policies"
             " where schemaname in ('legal', 'app_private')"
         ).fetchone()[0]
-        assert present == 23
+        assert present == 31
 
 
 def test_two_concurrent_apply_passes_on_an_empty_database_both_succeed(fresh_db):

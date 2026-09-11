@@ -102,6 +102,8 @@ you are about to do.
 | [SUPABASE-SETUP.md](implementation/SUPABASE-SETUP.md) | How to apply the data plane to a real Supabase project — the only place the pgvector migrations may ever run; the migration ledger rules for a hosted target | Provisioning a real target |
 | [EXPORT.md](implementation/EXPORT.md) | The evidence-bundle → DOCX/Markdown exporter and the draft → DOCX / **UDF (deneysel)** exporter: contract, exit codes, verification chain, `K-n` citations, GG.AA.YYYY, ek-dogrulama | Working on exports |
 | [AI.md](implementation/AI.md) | Cloud AI (Anthropic): enablement (env NAMES only), what leaves the machine per endpoint, KVKK note, the three contracts (`analyze-document`, `ocr`, `draft-paragraph`), error map, the live-smoke script and its (empty) record | Touching anything that could send data off the machine |
+| [MAC-MINI-INFERENCE.md](implementation/MAC-MINI-INFERENCE.md) | **W20.** The M2 Mac mini (8 GB) as a LAN inference appliance: server (llama.cpp or Ollama), authentication, LAN binding, firewall, the Windows-side environment, the health probe and the exact measurement commands. **No number in it has been measured** | Setting up or measuring the local model box |
+| [LOCAL-OCR.md](implementation/LOCAL-OCR.md) | **W20.** The local OCR boundary (Tesseract + Poppler, detected on `PATH`, never downloaded), how OCR text lands in the physical page's own slot, low confidence as a coverage gap; **not installed on this machine** | Scanned PDFs |
 
 ### `implementation/waves/` — the lane reports (binding "as implemented" contracts)
 

@@ -17,6 +17,7 @@ import type { Sql, SqlRow } from "../store/db.js";
 import { asText, asTextOrNull } from "../store/db.js";
 import { fetchCanonicalText } from "../store/chunkStore.js";
 import { searchLegalCorpus } from "../retrieval/searchService.js";
+import type { DenseLane } from "../retrieval/hybrid.js";
 import {
   CORPUS_UNAVAILABLE,
   CORPUS_UNAVAILABLE_MESSAGE_TR,
@@ -39,7 +40,15 @@ function safeMessage(error: unknown): string {
 }
 
 /** Hybrid retrieval over the local corpus. Never throws. */
-export function createStoreRetrievalPort(sql: Sql): CorpusRetrievalPort {
+/**
+ * W20: `denseLane` wires a real semantic lane (embeddings/denseLane.ts)
+ * into the answer pipeline's retrieval. Absent = the NoopDenseLane default,
+ * reported as DISABLED.
+ */
+export function createStoreRetrievalPort(
+  sql: Sql,
+  options: { denseLane?: DenseLane } = {},
+): CorpusRetrievalPort {
   return {
     name: "postgres-hybrid",
     async search(request: CorpusSearchRequest): Promise<CorpusSearchResult> {
@@ -50,7 +59,7 @@ export function createStoreRetrievalPort(sql: Sql): CorpusRetrievalPort {
           asOf: request.asOf,
           ...(request.filters !== undefined ? { filters: request.filters } : {}),
           ...(request.limits !== undefined ? { limits: request.limits } : {}),
-        });
+        }, options.denseLane !== undefined ? { denseLane: options.denseLane } : {});
       } catch (error) {
         // searchLegalCorpus already contains its own failures; reaching here
         // means something outside it broke (pool torn down, driver bug). A

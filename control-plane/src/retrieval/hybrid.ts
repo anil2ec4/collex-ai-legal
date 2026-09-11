@@ -809,6 +809,10 @@ export async function searchPipeline(
         filters,
       });
       denseIds = [...new Set(raw.filter((id) => typeof id === "string" && id !== ""))];
+      // W20: a real lane updates its own state DURING the call (an
+      // embedder outage degrades it without throwing); report what it
+      // says now, not what it said before the query.
+      if (denseLane.state !== undefined) denseState = denseLane.state;
     } catch (error) {
       denseState = "FAILED";
       laneFailures.push(laneFailure("dense", error));

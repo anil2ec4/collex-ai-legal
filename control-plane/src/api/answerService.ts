@@ -126,6 +126,8 @@ export const answerRequestSchema = z
      * the rule-based drafter continues.
      */
     useCloudAi: z.boolean().optional(),
+    /** Additive (W20): draft + verify with the configured local model. */
+    useLocalAi: z.boolean().optional(),
     /**
      * Additive (W12-A, contract [M]): file the answer under this matter. The
      * matter must exist (404 MATTER_NOT_FOUND before any retrieval work).

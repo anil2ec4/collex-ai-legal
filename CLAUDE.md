@@ -261,6 +261,12 @@ at most annotated in place — never rewritten.
 | `control-plane/src/answer/` | `evidencePack.ts` (`DEFAULT_MAX_QUOTE_CODE_POINTS = 4000`: a longer passage is cut to the best question-lexeme window and offsets/quote/hash describe the shown window, `EvidenceItem.quoteTruncated`), `verifier.ts`, `renderer.ts` (the evidence-bundle contract), **`coverage.ts`** (question-coverage abstention gate: lexical, floor 0.4, `bypassed-by-reference`, ADR-017) |
 | `control-plane/src/exhaustive/` | **W19**: the exhaustive Matter analysis census. `units.ts` (analysis units = contiguous runs of whole chunks; code-point slicing), `observations.ts` (deterministic Turkish date/amount/ratio propositions + topic key), `contradictions.ts` (`CONTRADICTION/TENSION/CORROBORATION/INDEPENDENT/INSUFFICIENT_EVIDENCE`), `processingCoverage.ts` (**derived** `complete`, itemized gaps, `refuseExhaustiveClaim`), `runner.ts` (Map→Aggregate→Reduce, reuse keyed on `unitNo + sourceSha256`), `store.ts`, `routes.ts` (`POST/GET /v1/matters/{id}/analysis`) |
 | `control-plane/src/llm/` (W19 additions) | `endpointTrust.ts` (`LOCAL_PROCESS`/`TRUSTED_LOCAL_NETWORK`/`CLOUD`; private hosts need an explicit allow-list), `localGenerationConfig.ts`, `localGenerationAdapter.ts` (OpenAI-compatible, model-agnostic, boundary re-checked per call, refuses `draftClaims`) |
+| `control-plane/src/exhaustive/` (W20 additions) | `identity.ts` (frozen run identity sha256; content-addressed `observationKey`), `tasks.ts` (`TASK_SPECS`; model-required tasks answer `409 MODEL_REQUIRED`), `durableStore.ts` (`PgDurableAnalysisStore`: leased units via `for update skip locked`, lease-guarded completion, stale recovery, leased reduce stage, cancellation), `worker.ts` (`AnalysisWorker`, in-process or `scripts/analysis_worker.mjs`), `modelExtractor.ts` (`mx-v2`: a quote is kept only if it occurs exactly once, verbatim; app-derived offsets, sha256), `intelligence.ts` (relational Matter Intelligence, every item sourced) — ADR-034/035 |
+| `control-plane/src/embeddings/` | **W20** private dense lane (ADR-036): `vectorCodec.ts`, `chunkVectorStore.ts` (bytea float32 vectors keyed tenant→version→chunk→profile, stale by chunk sha, tenant-scoped job claims), `embeddingWorker.ts` (consumer of the `app_private.jobs` queue `embedding` + backfill), `denseLane.ts` (`ExactCosineDenseLane`: file-scoped exact cosine, truthful health) |
+| `control-plane/src/reviewTables/` | **W20** persisted review grid (ADR-039): `store.ts`, `worker.ts`, `routes.ts` (`/v1/review-tables*`, per-cell retry, CSV with formula guard) |
+| `control-plane/src/llm/providerFactory.ts` | **W20** one route table for the roles answer / verifier / matterExtraction / matterSynthesis, one shared request gate per endpoint, no model family in code (ADR-037) |
+| `control-plane/src/evals/bakeoff.ts`, `scripts/bakeoff.mjs` | **W20** local-model bake-off over `evals/bakeoff/*.jsonl` (`GOLD_FORMAT.md`); `--dry-run` is labelled a harness check, never a measurement, and the report never picks a winner |
+| `intake/ocr.py` | **W20** local OCR boundary (`TesseractCliProvider`, capability detection, `COLLEX_OCR`), ADR-038 |
 | `control-plane/src/matters/` | `types.ts`, `store.ts` (`PgMatterStore` / `InMemoryMatterStore`, `deriveMatterSummary`), `routes.ts` (`/v1/matters*`: CRUD, polymorphic items file/answer/draft/note/event/deadline/**hearing**, `/v1/matters/deadlines`, `items:batch` ≤ 50 with `dedupeKey` suppression, `/search` + `/v1/search/all`, `/activity`, `/hearings/{itemId}/prep`). **W14 files:** `ics.ts` (RFC 5545 generator — deadlines are all-day, hearings are timed with `TZID=Europe/Istanbul` and an embedded `VTIMEZONE`; folding at **75 OCTETS**, UTF-8 aware; `DEADLINE_DISCLAIMER` verbatim in every `DESCRIPTION`), `contacts.ts` + `contactsRoutes.ts` (B-42; one jsonb document under `app_private.settings`, `MAX_CONTACTS = 2000`; the conflict scan is a **POST** because a party name must not sit in a query string), `recordsRoutes.ts` (`DELETE /v1/answers/{runId}`, `DELETE /v1/drafts/{id}`, `GET /v1/drafts/{id}/versions/{n}`), `packageRoutes.ts` (B-30 HTTP end: writes the plan, shells to `export.cli --package`, **reads no bytes and computes no digest itself**) |
 | `control-plane/src/settings/` | `store.ts` (`PgSettingsStore` / `InMemorySettingsStore`, `DEFAULT_SETTINGS`, `normalizeSettings`), `routes.ts` (`GET/PUT /v1/settings`, full replace) |
 | `control-plane/src/deadlines/` | Pure TS, no I/O: `dates.ts` (strict `YYYY-MM-DD`, GG.AA.YYYY, HMK m.92/2 month clamping), `holidays.ts` (2429 s.K. fixed days, dini bayram 2025–2028 as data, adli tatil 20 Temmuz–31 Ağustos), `rules.ts` (**41 rules; 16 `dogrulandi` — the article text was pulled from mevzuat.gov.tr through the yargi-mevzuat MCP tools on 02.09.2026 — and 25 still `dogrulanmadi`**; every rule carries `nasilDogrulanir` (one sentence: which article to open and what to compare) and the three-valued `adliTatileTabi` (`true` / `false` / `"belirsiz"`, seven of them `"belirsiz"` — the computation then uses the SHORT, safe date and the interface shows both); `DEADLINE_DISCLAIMER` verbatim), `calc.ts` (`computeDeadline`), `routes.ts` (`/v1/deadlines/rules|holidays|compute`) |
@@ -367,6 +373,28 @@ ceiling.
 - **`LOCAL_ONLY` has no fallback** (ADR-033). A private LAN inference host
   must be listed explicitly; `llm/endpointTrust.ts` and
   `security/urlPolicy.ts` are OPPOSITE policies and must not be merged.
+- **`LOCAL_ONLY` is enforced at every AI entry point** (ADR-037): the
+  pipeline's `useCloudAi`, every non-GET `/v1/ai/*` (403
+  `DATA_BOUNDARY_LOCAL_ONLY`) and the cloud embedding provider. A failed
+  local drafter falls back to the rule-based drafter, never to a cloud model.
+- **Matter analysis is durable and lease-guarded** (ADR-034). A unit's
+  observations and its `done` flag are written in ONE transaction that
+  re-checks the lease (`completeUnit`); nothing else may mark a unit done.
+  Observations are idempotent by `observation_key`; reduce reads only
+  persisted observations. A producer whose behaviour changes bumps its
+  version constant (`EXTRACTOR_VERSION`, `DETECTOR_VERSION`,
+  `MODEL_EXTRACTOR_VERSION`, `INTEL_VERSION`) because the version is part
+  of the frozen run identity.
+- **The model proposes, the application locates** (ADR-035). A model quote
+  is stored only if it occurs EXACTLY ONCE, verbatim (NFC only), in its
+  unit; offsets are derived by the application and re-hashed. Never add
+  fuzzy matching. No Matter Intelligence item may exist without a source —
+  a deferred constraint trigger enforces it; do not disable it.
+- **Model-required tasks are refused, not downgraded** (`409
+  MODEL_REQUIRED`); the console shows them as text, never as buttons.
+- **The private dense lane is file-scoped exact cosine** (ADR-036). It is
+  NOT public-corpus ANN search and must not be described as such; without
+  a file scope it returns nothing.
 - **RLS resolves tenancy through the owning document** (ADR-011). Do not add a
   child table with a plain grant and no policy; that was a P0 leak.
 - **Temporal close-on-append lives in the database** (ADR-012). Do not move it

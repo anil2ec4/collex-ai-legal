@@ -1909,3 +1909,247 @@ data policy.
   defaults to `ALLOW_CLOUD`, so existing installs are unchanged.
 
 ---
+
+## ADR-034 — Durable Matter analysis: leased units, a frozen run identity, and immutable version snapshots
+
+- **Status:** accepted (2026-09-11, W20)
+- **Context:** W19's census (ADR-032) ran synchronously inside the HTTP
+  request. It persisted per-unit results, so an interrupted run could be
+  re-issued, but nothing resumed it: a crashed server left units `running`
+  forever, there was no retry budget, no cancellation, no progress to poll,
+  and a model-assisted run (minutes to hours on a small appliance) could not
+  be expressed at all. Two runs over the same scope could also race each
+  other, and the run did not record which document versions it had read.
+- **Candidates:** (a) keep the synchronous route and raise the timeout —
+  cannot survive a restart and ties a lawyer's browser tab to the work;
+  (b) an in-memory queue — loses everything on restart, the exact case this
+  wave exists for; (c) a job table in PostgreSQL with leases, owned by a
+  worker that may run in the server process or as its own process.
+- **Decision:** (c), in `20260912090000_durable_matter_analysis.sql` (additive
+  — no older migration was edited) and `control-plane/src/exhaustive/
+  {durableStore,worker,identity}.ts`.
+  1. **POST returns 202 with the run id; nothing is analysed in the request.**
+     The route only freezes the identity, takes the census of units and
+     returns. `GET …/analysis/{runId}` is the progress view.
+  2. **Units are claimed with `for update skip locked` and a lease**
+     (`lease_owner`, `lease_expires_at`). A unit's observations are inserted
+     and the unit is marked `done` **in one transaction, guarded by the
+     lease**: a worker that lost its lease cannot write (it gets
+     `LeaseLostError` and stops), so a stalled worker waking up late cannot
+     double-write over the unit's new owner.
+  3. **Stale recovery is a state transition, not a guess.** A `running` unit
+     whose lease expired goes back to `pending` — or to `failed` with a
+     Turkish reason when `attempts >= max_attempts` (3). Retries back off via
+     `available_at`. A unit that exhausts its budget is a terminal
+     `UNIT_FAILED` gap, never a silent skip.
+  4. **Reduce is its own leased stage** and is claimed only when no unit is
+     `pending` or `running`. It reads ONLY persisted observations (never
+     in-memory state from the map stage), so a reduce after a restart sees
+     exactly what a reduce without one would have.
+  5. **Observation identity is content-addressed.** `observation_key` =
+     sha256 over (run, unit, origin, producer version, kind, offsets,
+     value), with a unique index and `on conflict do nothing`: a unit
+     processed twice (crash after insert, before `done`) cannot duplicate a
+     finding.
+  6. **The run identity is frozen and hashed**: tenant, matter, task, the
+     sorted file ids AND their document-version ids, unit-builder version,
+     extractor version, model schema version and model id. At most one
+     ACTIVE run may hold an identity (unique partial index); a concurrent
+     POST with the same identity joins the existing run instead of starting
+     a second one.
+  7. **Source replacement = immutable snapshot + stale flag + new run.** A run
+     reads the versions it froze; if a document is replaced mid-run, the
+     worker's per-unit sha check refuses to analyse the new text under the
+     old identity, and the run view reports `stale: true` with the changed
+     files listed in `sourceChanged`; the remedy is a new run. A finished run
+     is never silently rewritten against new text.
+  8. **Cancellation is cooperative and final**: `cancel_requested_at` is set
+     by the route, the worker sweeps it into `cancelled`, and a cancelled run
+     is never `complete`.
+- **Coverage stays derived** (ADR-032 unchanged): three reasons were added —
+  `UNIT_NOT_PROCESSED` (compacted ranges of units still pending/running when
+  the view is read), `SYNTHESIS_FAILED` (the reduce-stage model step failed;
+  deterministic findings are kept but the run may not claim the model part)
+  and `OCR_LOW_CONFIDENCE` (ADR-038).
+- **Evidence:** `control-plane/tests/exhaustive/durableRun.test.ts` (lease
+  loss, stale recovery, retry exhaustion, cancellation, identity join,
+  source replacement, duplicate-insert idempotency),
+  `durableProcess.test.ts` (**a real child process is killed with
+  `SIGKILL` mid-run and a second worker process finishes the run** — same
+  findings as an uninterrupted run), `exhaustiveHttp.test.ts` (202 +
+  polling through the mounted app).
+- **Rollback:** the W19 tables are untouched and the W19 columns keep their
+  meaning; stopping the worker leaves runs `queued`, which the view reports
+  as not processed.
+
+---
+
+## ADR-035 — The model proposes, the application locates: exact-quote extraction and evidence-bound Matter Intelligence
+
+- **Status:** accepted (2026-09-11, W20)
+- **Context:** W19's extractor was deterministic and could only see dates,
+  amounts and ratios. Claims, defenses, evidence, legal issues and the
+  claim↔evidence map need a model — and a model will paraphrase, re-flow
+  whitespace, invent a plausible quote, or "fix" a typo in the source. Any
+  of those, stored as an offset into the document, is a fabricated citation.
+- **Candidates:** (a) trust the model's offsets — models cannot count code
+  points; (b) fuzzy-match the model's quote — a similarity score turns a
+  near-miss into a citation, which ADR-023 already forbids for drafts;
+  (c) the model returns a verbatim quote and the application finds it.
+- **Decision:** (c), in `control-plane/src/exhaustive/modelExtractor.ts`.
+  The model's output is parsed against a strict schema (unknown keys and
+  kinds rejected). For each item the application searches the unit's
+  canonical text for the quote **exactly** (NFC only — no whitespace
+  folding, no case folding); zero or multiple matches reject the item
+  (`rejected_quotes` / `invalid_items` counters on the unit); a match gets
+  **app-derived code-point offsets**, is re-sliced from the canonical text
+  and re-hashed (sha256) before it is stored. Quotes shorter than 8 code
+  points are rejected as ambiguous. Every stored record carries the
+  provider, model id, schema version and the model's confidence.
+- **Matter Intelligence is relational, never a JSON blob.**
+  `app_private.matter_intel_items` (entities, events, propositions, claims,
+  defenses, evidence, legal issues, contradictions, open questions, and the
+  red-team kinds), `matter_intel_sources` (role `basis/mention/support/
+  oppose/ambiguous`, pointing at an observation → a verified span) and
+  `matter_intel_links`. A **deferred constraint trigger refuses to commit an
+  item without at least one source**: an unsourced conclusion cannot exist
+  in the database, whatever the application code does. Intelligence is
+  rebuilt by the reduce stage from persisted observations and is replaced
+  wholesale on a re-run; a changed source marks it stale (ADR-034 §7).
+- **Task honesty.** `contradictions` and `chronology` are deterministic and
+  always available. `claim_evidence`, `full_review` and `red_team` REQUIRE a
+  model: without a configured local model the route answers `409
+  MODEL_REQUIRED` and the console shows the task as text with the reason,
+  not as a button. None of them is quietly downgraded to the deterministic
+  subset while keeping its name. Contradiction rationale is conditional
+  ("aynı olaya ilişkinse … bağlamı kaynaktan doğrulayın"), never a verdict.
+- **Evidence:** `control-plane/tests/exhaustive/modelTasks.test.ts` (fake
+  quotes, re-flowed whitespace, duplicate matches, out-of-schema items,
+  sourceless items refused by the database trigger, model-change refusal,
+  MODEL_REQUIRED), `tests/evals/bakeoff.test.ts` (the same validator scores
+  models: re-flowed whitespace scores quote validity 0).
+- **Consequences:** a weaker model yields FEWER items, never wrong offsets.
+  **No real model has been called in this wave**; every model path is
+  exercised with scripted test doubles.
+
+---
+
+## ADR-036 — Private dense lane: exact cosine over locally stored vectors, stale by hash, no pgvector
+
+- **Status:** accepted (2026-09-11, W20; supersedes the "dense lane off"
+  state recorded under ADR-031)
+- **Context:** ADR-031 made dense results safe to consume, but no lane was
+  wired: `legal.embedding_profiles` pinned `dimensions = 1024` while the
+  local E5 model produces 384, pgvector is not installed on the lawyer's
+  machine, and there was no worker to produce vectors.
+- **Candidates:** (a) require pgvector — a prerequisite this product has
+  refused since W14; (b) an external vector database — a second store to
+  back up, secure and keep consistent; (c) store float32 vectors as `bytea`
+  and score exactly in the application, scoped to the files in question.
+- **Decision:** (c), in `20260912100000_private_dense_vectors.sql` (the
+  dimension CHECK is REPLACED by a range check 1..8192 in a new migration;
+  the old file is untouched) and `control-plane/src/embeddings/`.
+  Vectors are keyed tenant → document version → chunk → profile, stored
+  L2-normalized little-endian float32, and carry the chunk's sha256: a
+  vector whose chunk text changed is STALE and is not used. The worker is a
+  consumer of the existing `app_private.jobs` queue (`kind='embedding'`),
+  batched, resumable and idempotent (upsert per chunk+profile), with a
+  backfill for versions that have none. The E5 prompt prefixes
+  (`query:` / `passage:`) are part of the profile.
+- **Scope, honestly:** this is **private (uploaded-document) dense search
+  with exact cosine over the file scope**. It is NOT an ANN index and it is
+  NOT public-corpus semantic search; without a file scope the lane returns
+  nothing. Health reports `ACTIVE` / `DEGRADED` / `DISABLED` / `FAILED` with
+  a live probe latency, never a configured-therefore-working claim.
+- **Evidence:** `control-plane/tests/embeddings/denseLane.test.ts`
+  (staleness, tenant/version scoping, stale-job requeue, health states),
+  `realE5.test.ts` (**the real multilingual-e5-small ONNX model** embeds a
+  query with no lexical overlap and the lane finds the passage — a
+  semantic-only hit, measured, not mocked).
+- **Rollback:** start the server without `--with-local-embeddings`; the lane
+  reports `DISABLED` and the lexical lanes are unchanged.
+
+---
+
+## ADR-037 — One provider factory, role routing, and LOCAL_ONLY enforced at every AI entry point
+
+- **Status:** accepted (2026-09-11, W20; extends ADR-033)
+- **Context:** W19 built a trusted local adapter but wired it into nothing;
+  the answer pipeline still chose between the rule-based drafter and the
+  cloud lane, `/v1/ai/*` and cloud embeddings ignored `LOCAL_ONLY`, and
+  each future caller would have constructed its own adapter with its own
+  concurrency gate.
+- **Decision:** `control-plane/src/llm/providerFactory.ts` resolves ONE
+  route table from the environment — roles `answer`, `verifier`,
+  `matterExtraction`, `matterSynthesis`, each optionally with its own model
+  (`COLLEX_LOCAL_LLM_MODEL_<ROLE>`), all sharing one request gate per
+  endpoint so an 8 GB appliance never sees two concurrent generations. No
+  model family is named in code. The local drafter is wired into the
+  **existing** `AnswerPipeline` (no parallel answer engine) and drafts
+  citation-first: it is shown only the evidence pack, with its ids, and a
+  claim must name at least one id. An id it was NOT given is deliberately
+  passed through unchanged, so the existing verifier sees it and records
+  `CITATION_INVALID` — silently dropping it would hide that the model
+  invented a citation. Every model-written claim then goes through the
+  existing verifier/entailment gate with the conservative aggregation. `LOCAL_ONLY` is now enforced at every AI entry:
+  `useCloudAi` is refused before any cloud code runs
+  (`CLOUD_AI_REFUSED_LOCAL_ONLY`), every non-GET `/v1/ai/*` returns `403
+  DATA_BOUNDARY_LOCAL_ONLY`, and the cloud embedding provider is refused
+  (`EMBEDDING_REFUSED_LOCAL_ONLY`). **There is no local→cloud fallback**: a
+  failed local drafter falls back to the rule-based drafter
+  (`LOCAL_DRAFTER_FALLBACK`), never to a cloud model.
+- **Supersedes** ADR-033's "the drafter port is deliberately NOT
+  implemented": the drafter now exists, but it is citation-first and gated —
+  it cannot introduce an evidence id or finalize an unsupported claim.
+- **Evidence:** `control-plane/tests/pipeline/localAnswer.test.ts` (a cloud
+  transport that FAILS THE TEST if called under `LOCAL_ONLY`; dead local
+  model → rule-based, cloud calls 0), `tests/llm/localGeneration.test.ts`.
+- **Rollback:** unset `COLLEX_LOCAL_LLM_*`; the route table reports
+  `not_configured` and the pipeline is the W19 pipeline.
+
+---
+
+## ADR-038 — Local OCR is a detected capability, never a download, and OCR text lands in the page's own slot
+
+- **Status:** accepted (2026-09-11, W20)
+- **Decision:** `intake/ocr.py` defines an `OcrProvider` boundary and one
+  implementation (`TesseractCliProvider`: `pdftoppm` → `tesseract … tsv`),
+  enabled only when both binaries are already on `PATH`
+  (`COLLEX_OCR=auto|off|tesseract`). Nothing is installed or downloaded by
+  the product. OCR text is written into the scanned page's own segment
+  (same page number, `extraction_method='ocr'`, engine confidence), so a
+  citation still reads "s. N" of the physical page. Confidence below 0.60
+  is stored as `SPARSE` and surfaces as the `OCR_LOW_CONFIDENCE` coverage
+  gap. Cloud OCR stays a separate, consented route and is refused under
+  `LOCAL_ONLY`.
+- **Evidence:** `tests/intake/test_ocr.py` (fake provider; page mapping,
+  low confidence, provider failure, fail-closed when absent),
+  `control-plane/tests/exhaustive/ocrCoverage.test.ts`. The real-binary
+  smoke test **skips on this machine** because neither binary is installed —
+  an environment blocker recorded as such, not a pass.
+
+---
+
+## ADR-039 — The review grid is a persisted, per-cell job, and its exhaustive columns reuse analysis units
+
+- **Status:** accepted (2026-09-11, W20)
+- **Context:** the W14 review grid ran entirely in the browser: closing the
+  tab lost the work, a failed cell could not be retried alone, and an
+  "extract all dates" column was really a top-k retrieval question.
+- **Decision:** `20260912110000_review_tables.sql` +
+  `control-plane/src/reviewTables/`. The EXISTING grid UI posts to
+  `POST /v1/review-tables` (no new table UI was built); rows pin a document
+  version; each cell is a leased job (`pending → running → done/failed`,
+  attempts, stale recovery) processed by a worker;
+  `POST /v1/review-tables/{tableId}/cells/{rowNo}/{columnNo}/retry` retries
+  one cell; CSV export stays (with the formula-injection guard and a
+  UTF-8 BOM). `answer` columns go through the existing `AnswerPort` scoped
+  to the row's file; `extract_dates|amounts|ratios` columns go through the
+  analysis-unit census, so their cell says `exhaustive_complete` only when
+  every unit of that document was read — a scanned page makes it
+  `exhaustive_incomplete`. When the server store is unavailable the grid
+  falls back to the old in-browser run and says so.
+- **Evidence:** `control-plane/tests/reviewTables/reviewTables.test.ts`,
+  `tests/pipeline/consoleW20.test.ts`.
+
+---

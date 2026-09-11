@@ -96,7 +96,9 @@ def backfill(dsn: str, *, apply: bool, tenant_id: str | None, store_dir: Path) -
             data = original.read_bytes()
             try:
                 verified = quarantine.verify_upload(original.name, data)
-                outcome = extract_mod.extract_text(verified.kind, data)
+                # ocr=None: a pre-W19 document was never OCR'd, so its map
+                # must be rebuilt exactly as it was ingested.
+                outcome = extract_mod.extract_text(verified.kind, data, ocr=None)
             except Exception as exc:  # noqa: BLE001 - per-document isolation
                 report["skipped"].append(
                     {"fileId": row["file_id"], "reason": f"{type(exc).__name__}"}

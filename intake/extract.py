@@ -47,6 +47,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from intake.errors import ExtractionFailedError
+from intake.ocr import LOW_CONFIDENCE, OcrPageResult, OcrProvider, resolve_ocr_provider
 from ingestion.locators import (
     SegmentInput,
     SourceSegment,
@@ -154,7 +155,11 @@ def _tidy(blocks: list[str]) -> str:
     return "\n\n".join(cleaned)
 
 
-def extract_pdf(data: bytes) -> ExtractionOutcome:
+#: Sentinel: resolve the OCR provider from the environment (COLLEX_OCR).
+_DETECT: object = object()
+
+
+def extract_pdf(data: bytes, ocr: OcrProvider | None | object = _DETECT) -> ExtractionOutcome:
     from pypdf import PdfReader
 
     try:
@@ -181,6 +186,28 @@ def extract_pdf(data: bytes) -> ExtractionOutcome:
     if pages == 0:
         raise ExtractionFailedError("PDF sayfa içermiyor")
 
+    # W20 phase 10: pages with NO text layer go through the local OCR
+    # boundary when a local engine exists. The recognized text is placed in
+    # the page's OWN slot below (same page number, extraction_method 'ocr'),
+    # so provenance stays "s. N" of the original PDF. A page OCR cannot read
+    # stays UNREADABLE; with no engine at all nothing changes.
+    provider = resolve_ocr_provider() if ocr is _DETECT else ocr
+    ocr_results: dict[int, OcrPageResult] = {}
+    ocr_failed: list[int] = []
+    if provider is not None:
+        for index, text in enumerate(page_texts):
+            if text.strip():
+                continue
+            try:
+                result = provider.ocr_page(data, index)
+            except Exception:  # noqa: BLE001 - one page never sinks the file
+                ocr_failed.append(index + 1)
+                continue
+            if result.text.strip():
+                ocr_results[index] = result
+            else:
+                ocr_failed.append(index + 1)
+
     total_chars = sum(len(t.strip()) for t in page_texts)
     empty_pages = tuple(
         index + 1
@@ -194,7 +221,7 @@ def extract_pdf(data: bytes) -> ExtractionOutcome:
         sparse_pages=tuple(index + 1 for index, text in enumerate(page_texts)
                            if PDF_MIN_CHARS_PER_PAGE <= len(text.strip()) < PDF_SPARSE_CHARS_PER_PAGE),
     )
-    if stats.pages_with_text == 0:
+    if stats.pages_with_text == 0 and not ocr_results:
         # Fail closed: this is (most likely) a scanned PDF and this mode
         # has no OCR. Never pretend an empty text layer is the document.
         raise ExtractionFailedError(
@@ -214,11 +241,30 @@ def extract_pdf(data: bytes) -> ExtractionOutcome:
             "tamamının okunduğu doğrulanmadı; aslını kontrol edin. Çıkarılan kısa "
             "metin korundu, görüntü içeriğine OCR uygulanmadı."
         )
-    if empty_pages:
+    # Pages that neither the text layer nor local OCR could read.
+    unread = tuple(p for p in empty_pages if (p - 1) not in ocr_results)
+    if unread:
         # Mixed scan: ingest what has a text layer, say exactly what has
         # not. Machine code first (console dictionary), then the sentence.
-        warnings.append(f"{SCANNED_PAGES_CODE}:{len(empty_pages)}")
-        warnings.append(scanned_pages_warning(stats))
+        warnings.append(f"{SCANNED_PAGES_CODE}:{len(unread)}")
+        if ocr_results or ocr_failed:
+            listed = ", ".join(str(p) for p in unread[:_SCANNED_PAGES_LISTED])
+            warnings.append(
+                f"{len(unread)} sayfa ne metin katmanıyla ne yerel OCR ile okunabildi"
+                f" (sayfa {listed}); bu sayfalar okunmamış sayılır."
+            )
+        else:
+            warnings.append(scanned_pages_warning(stats))
+    if ocr_results:
+        read = sorted(index + 1 for index in ocr_results)
+        listed = ", ".join(str(p) for p in read[:_SCANNED_PAGES_LISTED])
+        warnings.append(f"OCR_PAGES:{len(read)}")
+        warnings.append(
+            f"{len(read)} sayfa yerel OCR ile okundu (sayfa {listed}); OCR metni"
+            " hata içerebilir, alıntıları belgenin aslıyla karşılaştırın."
+        )
+    if ocr_failed:
+        warnings.append(f"OCR_FAILED_PAGES:{len(ocr_failed)}")
     # Build the canonical text and the page map in ONE pass, so every
     # code-point range in the result can name the physical page it came
     # from. The per-page status is decided by THIS lane's thresholds (the
@@ -226,7 +272,9 @@ def extract_pdf(data: bytes) -> ExtractionOutcome:
     empty_set = set(stats.empty_pages)
     sparse_set = set(stats.sparse_pages)
     blocks = [
-        SegmentInput(
+        _ocr_block(index, ocr_results[index])
+        if index in ocr_results
+        else SegmentInput(
             locator_kind="page",
             locator_label=str(index + 1),
             text=text,
@@ -263,6 +311,25 @@ def extract_pdf(data: bytes) -> ExtractionOutcome:
     return ExtractionOutcome(
         text=canonical, pages=pages, warnings=warnings,
         page_stats=stats, segments=segments,
+    )
+
+
+def _ocr_block(index: int, result: OcrPageResult) -> SegmentInput:
+    """A page read by local OCR, in its own page slot."""
+    stripped = result.text.strip()
+    unsure = (
+        (result.confidence is not None and result.confidence < LOW_CONFIDENCE)
+        or len(stripped) < PDF_SPARSE_CHARS_PER_PAGE
+    )
+    return SegmentInput(
+        locator_kind="page",
+        locator_label=str(index + 1),
+        text=result.text,
+        extraction_method="ocr",
+        # Low confidence: counted as read, never as verified (SPARSE).
+        extraction_status="SPARSE" if unsure else "EXTRACTED",
+        ordinal=index + 1,
+        confidence=result.confidence,
     )
 
 
@@ -386,9 +453,13 @@ _EXTRACTORS = {
 }
 
 
-def extract_text(kind: str, data: bytes) -> ExtractionOutcome:
-    """Dispatch to the extractor for a quarantine-verified kind."""
-    outcome = _EXTRACTORS[kind](data)
+def extract_text(kind: str, data: bytes, ocr: OcrProvider | None | object = _DETECT) -> ExtractionOutcome:
+    """Dispatch to the extractor for a quarantine-verified kind.
+
+    ``ocr`` only matters for PDFs: the default resolves a LOCAL engine from
+    the environment (none on a machine without one); ``None`` disables it.
+    """
+    outcome = extract_pdf(data, ocr) if kind == "pdf" else _EXTRACTORS[kind](data)
     if not outcome.text.strip():
         raise ExtractionFailedError(
             f"{kind} dosyasından metin çıkarılamadı (boş içerik)",

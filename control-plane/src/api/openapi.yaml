@@ -3808,10 +3808,18 @@ paths:
         "tüm çelişkiler" or "dosyanın tamamı".
 
 
-        The census is written to `app_private.matter_analysis_units` BEFORE
-        any analysis begins, so a crash leaves a run that knows how much work
-        it had. Re-running the same matter reuses units whose text and
-        extractor version are unchanged.
+        W20 (changed on purpose): the route no longer runs the analysis. It
+        freezes the run's IDENTITY (tenant, matter, task, files, pinned
+        document VERSION ids, unit builder, extractor, model schema, model)
+        and its whole CENSUS in one transaction, answers 202 with the run,
+        and the durable worker processes units under leases — observations
+        and the unit's done flag are committed together, so a crash at unit
+        846 resumes at unit 846. A request for exactly the same work joins
+        the ACTIVE run (`resumed: true`); a finished run is never reused, and
+        a task never resumes another task's run. Poll GET .../{runId}. A
+        model-required task (claim_evidence, full_review, red_team) with no
+        local model configured is refused with 409 MODEL_REQUIRED — it is
+        never downgraded to its deterministic part.
       parameters:
         - name: matterId
           in: path
@@ -3826,12 +3834,14 @@ paths:
             schema:
               $ref: "#/components/schemas/MatterAnalysisRequest"
       responses:
-        "201":
-          description: The run finished; coverage says how much was read
+        "202":
+          description: >-
+            Run created (or the identical active run joined); coverage is LIVE
+            and cannot read complete until every unit is done
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MatterAnalysisResult"
+                $ref: "#/components/schemas/MatterAnalysisRun"
         "400":
           description: INVALID_REQUEST
           content:
@@ -3846,8 +3856,9 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "409":
           description: >-
-            MATTER_EMPTY (no documents) or FILES_OUTSIDE_MATTER (a named file
-            is not linked to this matter)
+            MATTER_EMPTY (no documents), FILES_OUTSIDE_MATTER (a named file
+            is not linked to this matter) or MODEL_REQUIRED (the task needs
+            the local model and none is configured)
           content:
             application/json:
               schema:
@@ -3923,6 +3934,356 @@ paths:
                 $ref: "#/components/schemas/MatterAnalysisRun"
         "404":
           description: MATTER_NOT_FOUND or RUN_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/matters/{matterId}/analysis/capabilities:
+    get:
+      operationId: getMatterAnalysisCapabilities
+      summary: Hangi incelemeler şu an yapılabilir
+      description: >
+        W20 task honesty. contradictions and chronology are deterministic and
+        always available. claim_evidence, full_review and red_team need the
+        configured LOCAL model (llm/providerFactory.ts); without one they are
+        `available: false` with the reason, and POST refuses them with 409
+        MODEL_REQUIRED instead of returning their deterministic subset.
+      parameters:
+        - name: matterId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Tasks with availability, limits and the model in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatterAnalysisCapabilities"
+        "404":
+          description: MATTER_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/matters/{matterId}/analysis/{runId}/findings:
+    get:
+      operationId: getMatterAnalysisFindings
+      summary: Bir incelemenin tespitleri (Matter Intelligence), kaynaklarıyla
+      description: >
+        Every item carries one or more SOURCES: the stored observation's
+        document version, code-point offsets, exact quote, quote sha256,
+        locator ("s. 3") and the chunk it starts in. The database refuses to
+        commit an item without a source (deferred constraint trigger).
+        Available once the run is finished (done / cancelled / failed); an
+        active run answers 409 RUN_NOT_FINISHED with its progress.
+      parameters:
+        - name: matterId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Run view plus items, links, value relations and file names
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatterAnalysisFindings"
+        "404":
+          description: RUN_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: RUN_NOT_FINISHED
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/matters/{matterId}/analysis/{runId}/cancel:
+    post:
+      operationId: cancelMatterAnalysis
+      summary: İncelemeyi durdur
+      description: >
+        Requests cancellation. The worker stops claiming units of the run;
+        finished units and their observations are kept; untouched units stay
+        UNIT_NOT_PROCESSED, so the run's coverage can never read complete.
+      parameters:
+        - name: matterId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Cancellation requested
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runId, status]
+                properties:
+                  runId: { type: string, format: uuid }
+                  status: { type: string, enum: [cancelling] }
+        "404":
+          description: RUN_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: RUN_NOT_ACTIVE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/matters/{matterId}/intelligence:
+    get:
+      operationId: getMatterIntelligence
+      summary: Dosyanın en son inceleme sonuçları, bayat olup olmadıklarıyla
+      description: >
+        The latest FINISHED run per task. Derived intelligence is a cache:
+        when a source file has a newer version than the one the run read,
+        `stale` is true and `sourceChanged` names the files; a new run
+        rebuilds it.
+      parameters:
+        - name: matterId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Latest result per task
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [matterId, tasks]
+                properties:
+                  matterId: { type: string, format: uuid }
+                  tasks:
+                    type: array
+                    items:
+                      type: object
+                      required: [task, runId, complete, stale, sourceChanged]
+                      properties:
+                        task: { type: string }
+                        taskTitle: { type: string }
+                        runId: { type: string, format: uuid }
+                        finishedAt: { type: string, format: date-time, nullable: true }
+                        complete: { type: boolean }
+                        coverageSummary: { type: string, nullable: true }
+                        stale: { type: boolean }
+                        sourceChanged:
+                          type: array
+                          items: { type: string }
+                        items:
+                          type: object
+                          additionalProperties: { type: integer }
+  # ------------------------------------------------ review tables (W20 grid)
+  /v1/review-tables:
+    post:
+      operationId: createReviewTable
+      summary: Belge × soru tablosu — kalıcı ve kaldığı yerden süren
+      description: >
+        W20: the console grid, persisted. One cell per (document × question),
+        each with a lease and a retry budget, so a closed tab or a restart
+        never loses a finished cell and one failed cell can be retried alone.
+        Column mode `answer` is targeted retrieval through the SAME answer
+        pipeline (one call per cell, scoped to that document); the
+        `extract_*` modes read EVERY analysis unit of the document's pinned
+        version and carry that document's processing coverage. With a
+        `matterId`, every file must belong to the matter (409
+        FILES_OUTSIDE_MATTER); unknown files are 409 FILES_NOT_FOUND.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewTableRequest"
+      responses:
+        "202":
+          description: Table created; cells queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tableId, status, progress]
+                properties:
+                  tableId: { type: string, format: uuid }
+                  status: { type: string, enum: [queued] }
+                  progress:
+                    $ref: "#/components/schemas/ReviewTableProgress"
+        "400":
+          description: INVALID_REQUEST
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: MATTER_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: FILES_OUTSIDE_MATTER or FILES_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    get:
+      operationId: listReviewTables
+      summary: Kayıtlı tablolar
+      parameters:
+        - name: matterId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Recent tables, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tables]
+                properties:
+                  tables:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReviewTableSummary"
+  /v1/review-tables/{tableId}:
+    get:
+      operationId: getReviewTable
+      summary: Tablonun tanımı, belgeleri, soruları ve her hücresi
+      parameters:
+        - name: tableId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The table
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewTable"
+        "404":
+          description: TABLE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/review-tables/{tableId}/cells/{rowNo}/{columnNo}/retry:
+    post:
+      operationId: retryReviewTableCell
+      summary: Tek bir hücreyi yeniden dene
+      description: Re-queues ONE finished, failed or cancelled cell. Nothing else is recomputed.
+      parameters:
+        - name: tableId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: rowNo
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: columnNo
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "202":
+          description: The cell is pending again
+        "404":
+          description: TABLE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: CELL_BUSY (the cell is being computed right now)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/review-tables/{tableId}/cancel:
+    post:
+      operationId: cancelReviewTable
+      summary: Kalan hücreleri durdur
+      parameters:
+        - name: tableId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Cancellation requested; pending cells become cancelled
+        "404":
+          description: TABLE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: TABLE_NOT_ACTIVE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/review-tables/{tableId}/export.csv:
+    get:
+      operationId: exportReviewTable
+      summary: Tabloyu indir (Excel'de açılır)
+      description: >
+        UTF-8 with a byte-order mark, semicolon-separated. Every cell keeps
+        its provenance (locations and quote fingerprints) and its coverage
+        verdict. A field starting with = + - @ is prefixed with an apostrophe
+        so it can never execute as a spreadsheet formula.
+      parameters:
+        - name: tableId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: CSV attachment
+          content:
+            text/csv:
+              schema: { type: string }
+        "404":
+          description: TABLE_NOT_FOUND
           content:
             application/json:
               schema:
@@ -4432,7 +4793,19 @@ components:
             When the server has no ANTHROPIC_API_KEY the request continues
             rule-based with an `AI_UNAVAILABLE:<Türkçe>` warning. The
             coverage gate runs BEFORE the drafter, so an uncovered question
-            never reaches the cloud.
+            never reaches the cloud. W20: under COLLEX_DATA_BOUNDARY=LOCAL_ONLY
+            the cloud ports are never touched and the answer carries
+            `CLOUD_AI_REFUSED_LOCAL_ONLY:<Türkçe>`.
+        useLocalAi:
+          type: boolean
+          description: >
+            W20: draft and verify with the configured LOCAL model (the
+            `answer` and `verifier` roles of llm/providerFactory.ts). Takes
+            precedence over `useCloudAi`. A local drafter failure falls back
+            to the rule-based drafter (`LOCAL_DRAFTER_FALLBACK`); with no
+            local model the request continues rule-based with
+            `LOCAL_AI_UNAVAILABLE:<Türkçe>`. Model-written claims are verified
+            like cloud-written ones (possible paraphrase).
         matterId:
           type: string
           format: uuid
@@ -9753,6 +10126,14 @@ components:
             type: string
             minLength: 1
             maxLength: 200
+        clientRole:
+          type: string
+          minLength: 2
+          maxLength: 100
+          description: >-
+            The client's procedural role ("davalı", ...). Used only to split
+            favorable/unfavorable points (full_review) and to aim red_team;
+            without it the result says the split was not made.
     CoverageGap:
       type: object
       required: [fileId, locator, reason]
@@ -9856,6 +10237,7 @@ components:
           description: Turkish, in terms of the two values.
         subjectOverlap:
           type: number
+          nullable: true
           minimum: 0
           maximum: 1
           description: >-
@@ -9870,48 +10252,238 @@ components:
       type: object
       required: [fileId, statement]
       properties:
+        observationId: { type: string, format: uuid }
         fileId: { type: string }
         statement: { type: string }
-    MatterAnalysisResult:
-      type: object
-      required:
-        - runId
-        - matterId
-        - task
-        - status
-        - processingCoverage
-        - coverageSummary
-        - exhaustiveClaimRefusedBecause
-        - findings
-      properties:
-        runId: { type: string, format: uuid }
-        matterId: { type: string, format: uuid }
-        task: { type: string }
-        status: { type: string }
-        processingCoverage:
-          $ref: "#/components/schemas/ProcessingCoverage"
-        coverageSummary:
-          type: string
-          description: >-
-            The one sentence the product is allowed to say about how much it
-            read, produced in exactly one place in the code.
-        exhaustiveClaimRefusedBecause:
+        locator:
           type: string
           nullable: true
-          description: >-
-            Non-null exactly when an exhaustive claim ("tüm çelişkiler",
-            "dosyanın tamamı") must NOT be rendered.
-        findings:
+          description: Where in the file the statement is (for example "s. 2"); null when the file has no source map.
+    MatterAnalysisProgress:
+      type: object
+      required: [total, pending, running, done, failed, skipped]
+      properties:
+        total: { type: integer, minimum: 0 }
+        pending: { type: integer, minimum: 0 }
+        running: { type: integer, minimum: 0 }
+        done: { type: integer, minimum: 0 }
+        failed: { type: integer, minimum: 0 }
+        skipped: { type: integer, minimum: 0 }
+    MatterAnalysisCapabilities:
+      type: object
+      required: [model, tasks]
+      properties:
+        model:
           type: object
-          required: [observations, relations]
+          required: [configured]
           properties:
-            observations:
-              type: integer
-              minimum: 0
+            configured: { type: boolean }
+            model: { type: string }
+            where: { type: string }
+        tasks:
+          type: array
+          items:
+            type: object
+            required: [task, titleTr, descriptionTr, requiresModel, available, limitsTr]
+            properties:
+              task: { type: string }
+              titleTr: { type: string }
+              descriptionTr: { type: string }
+              requiresModel: { type: boolean }
+              available: { type: boolean }
+              messageTr: { type: string }
+              limitsTr:
+                type: array
+                items: { type: string }
+    IntelSource:
+      type: object
+      required: [role, observationId, fileId, documentVersionId, startChar, endChar, quote, quoteSha256, origin]
+      properties:
+        role: { type: string, enum: [basis, mention, support, oppose, ambiguous] }
+        observationId: { type: string, format: uuid }
+        fileId: { type: string }
+        documentVersionId: { type: string, format: uuid }
+        startChar: { type: integer, minimum: 0, description: Unicode code point offset }
+        endChar: { type: integer, minimum: 1 }
+        quote: { type: string }
+        quoteSha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+        locator: { type: string, nullable: true }
+        origin: { type: string, enum: [deterministic, model] }
+        chunkId: { type: string, nullable: true }
+    IntelItem:
+      type: object
+      required: [itemId, kind, title, hypothetical, producer, sources]
+      properties:
+        itemId: { type: string, format: uuid }
+        kind: { type: string }
+        key: { type: string }
+        title: { type: string }
+        body: { type: string, nullable: true }
+        occurredOn: { type: string, format: date, nullable: true }
+        datePrecision: { type: string, nullable: true }
+        partyRole: { type: string, nullable: true }
+        stance: { type: string, nullable: true }
+        supportStatus: { type: string, nullable: true }
+        hypothetical:
+          type: boolean
+          description: True exactly for kind hypothetical_argument, which is never a finding.
+        confidence: { type: number, nullable: true }
+        producer: { type: string, enum: [deterministic, model] }
+        producerVersion: { type: string }
+        modelId: { type: string, nullable: true }
+        attributes: { type: object, additionalProperties: true }
+        sources:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/IntelSource"
+    MatterAnalysisFindings:
+      allOf:
+        - $ref: "#/components/schemas/MatterAnalysisRun"
+        - type: object
+          required: [items, links, relations, fileNames]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/IntelItem"
+            links:
+              type: array
+              items:
+                type: object
+                required: [fromItemId, toItemId, linkKind, producer]
+                properties:
+                  fromItemId: { type: string, format: uuid }
+                  toItemId: { type: string, format: uuid }
+                  linkKind: { type: string }
+                  rationale: { type: string, nullable: true }
+                  producer: { type: string }
             relations:
               type: array
               items:
                 $ref: "#/components/schemas/ObservationRelation"
+            fileNames:
+              type: object
+              additionalProperties: { type: string }
+    ReviewTableRequest:
+      type: object
+      additionalProperties: false
+      required: [fileIds, questions]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        matterId: { type: string, format: uuid }
+        fileIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { type: string, minLength: 1, maxLength: 200 }
+        questions:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            oneOf:
+              - type: string
+                minLength: 1
+                maxLength: 1000
+              - type: object
+                additionalProperties: false
+                required: [text]
+                properties:
+                  text: { type: string, minLength: 1, maxLength: 1000 }
+                  mode:
+                    type: string
+                    enum: [answer, extract_dates, extract_amounts, extract_ratios]
+                    default: answer
+        asOf: { type: string, format: date }
+        useLocalAi: { type: boolean }
+    ReviewTableProgress:
+      type: object
+      required: [total, pending, running, done, failed, cancelled]
+      properties:
+        total: { type: integer, minimum: 0 }
+        pending: { type: integer, minimum: 0 }
+        running: { type: integer, minimum: 0 }
+        done: { type: integer, minimum: 0 }
+        failed: { type: integer, minimum: 0 }
+        cancelled: { type: integer, minimum: 0 }
+    ReviewTableSummary:
+      type: object
+      required: [tableId, title, status, createdAt]
+      properties:
+        tableId: { type: string, format: uuid }
+        matterId: { type: string, format: uuid, nullable: true }
+        title: { type: string }
+        status: { type: string, enum: [queued, running, done, cancelled] }
+        options: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time, nullable: true }
+        cancelRequested: { type: boolean }
+    ReviewTable:
+      type: object
+      required: [table, columns, rows, cells, progress]
+      properties:
+        table:
+          $ref: "#/components/schemas/ReviewTableSummary"
+        columns:
+          type: array
+          items:
+            type: object
+            required: [columnNo, question, mode]
+            properties:
+              columnNo: { type: integer, minimum: 1 }
+              question: { type: string }
+              mode: { type: string, enum: [answer, extract_dates, extract_amounts, extract_ratios] }
+        rows:
+          type: array
+          items:
+            type: object
+            required: [rowNo, fileId]
+            properties:
+              rowNo: { type: integer, minimum: 1 }
+              fileId: { type: string }
+              fileName: { type: string, nullable: true }
+              documentVersionId: { type: string, format: uuid, nullable: true }
+        cells:
+          type: array
+          items:
+            type: object
+            required: [rowNo, columnNo, state, attempts, provenance]
+            properties:
+              rowNo: { type: integer, minimum: 1 }
+              columnNo: { type: integer, minimum: 1 }
+              state: { type: string, enum: [pending, running, done, failed, cancelled] }
+              attempts: { type: integer, minimum: 0 }
+              answerStatus: { type: string, nullable: true }
+              answerText: { type: string, nullable: true }
+              supportState:
+                type: string
+                nullable: true
+                enum: [verified, partially_verified, unverified, abstained, no_evidence, exhaustive_complete, exhaustive_incomplete]
+              provenance:
+                type: array
+                items:
+                  type: object
+                  required: [fileId, documentVersionId, startChar, endChar, quoteSha256]
+                  properties:
+                    fileId: { type: string }
+                    documentVersionId: { type: string }
+                    chunkId: { type: string }
+                    startChar: { type: integer, minimum: 0 }
+                    endChar: { type: integer, minimum: 1 }
+                    quoteSha256: { type: string }
+                    locator: { type: string }
+              processingCoverage:
+                allOf:
+                  - $ref: "#/components/schemas/ProcessingCoverage"
+                nullable: true
+              answerRunId: { type: string, nullable: true }
+              generatorVersion: { type: string, nullable: true }
+              error: { type: string, nullable: true }
+        progress:
+          $ref: "#/components/schemas/ReviewTableProgress"
+        modesTr: { type: object, additionalProperties: { type: string } }
+        supportTr: { type: object, additionalProperties: { type: string } }
     MatterAnalysisRun:
       type: object
       required: [runId, matterId, task, status, createdAt]
@@ -9931,6 +10503,25 @@ components:
           nullable: true
         coverageSummary: { type: string, nullable: true }
         exhaustiveClaimRefusedBecause: { type: string, nullable: true }
+        taskTitle: { type: string }
+        cancelRequested: { type: boolean }
+        resumed:
+          type: boolean
+          description: POST only — true when the identical active run was joined.
+        progress:
+          $ref: "#/components/schemas/MatterAnalysisProgress"
+        stale:
+          type: boolean
+          description: A source file has a newer version than the one this run read.
+        sourceChanged:
+          type: array
+          items: { type: string }
+        summary: { type: object, additionalProperties: true }
+        model: { type: string, nullable: true }
+        limitsTr:
+          type: array
+          items: { type: string }
+        links: { type: object, additionalProperties: { type: string } }
     AnswerScope:
       type: object
       additionalProperties: false

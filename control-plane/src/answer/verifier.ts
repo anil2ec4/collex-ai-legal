@@ -164,7 +164,7 @@ export interface VerifyOptions {
    * "cloud" means it may be a paraphrase, and the conservative pre-W14
    * aggregation is kept.
    */
-  drafter?: "rule-based" | "cloud";
+  drafter?: "rule-based" | "cloud" | "local";
   /**
    * The temporal contract (additive, W14 B-09). `applicable` is true when the
    * question asked which text applied on a date (an explicit as-of, or a
@@ -282,7 +282,7 @@ async function aggregateEntailment(
   validItems: readonly EvidenceItem[],
   perItem: readonly EvidenceEntailment[],
   port: EntailmentPort,
-  drafter: "rule-based" | "cloud",
+  drafter: "rule-based" | "cloud" | "local",
 ): Promise<{
   score: number;
   aggregation: EntailmentAggregation;
@@ -346,8 +346,10 @@ async function aggregateEntailment(
   }
 
   // --- unsegmented, several passages --------------------------------------
-  if (drafter === "cloud" || port.assessSet === undefined) {
-    if (drafter === "cloud") {
+  // W20: a LOCAL model's claim is a possible paraphrase too, so it gets
+  // the same conservative aggregation as a cloud claim.
+  if (drafter !== "rule-based" || port.assessSet === undefined) {
+    if (drafter !== "rule-based") {
       reasons.push(`${ENTAILMENT_UNSEGMENTED_CLOUD_CLAIM}:${draft.claimId}`);
     }
     return { score: maxScore, aggregation: "max", reasons, unusedEvidenceIds: [] };
@@ -527,7 +529,7 @@ export async function verifyAnswer(
       // The rule-based drafter's claim text IS the quotes, so the axis is a
       // tautology in the default mode (ARCH W2, measured: a single-passage
       // claim scores exactly 1.000). Only a cloud judge measures anything.
-      entailmentMeasured: drafterKind === "cloud",
+      entailmentMeasured: drafterKind !== "rule-based",
     });
     overallReasons.push(...reasons);
   }

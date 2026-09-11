@@ -38,6 +38,7 @@
  */
 
 import { inspect } from "node:util";
+import { classifyEndpoint, type DataBoundary } from "../llm/endpointTrust.js";
 
 // ---------------------------------------------------------------------------
 // Ortam değişkeni ADLARI (değerler hiçbir yere yazılmaz)
@@ -93,7 +94,9 @@ export type EmbeddingDisabledReason =
   /** Yerel adres http(s) ile başlamıyor. */
   | "EMBEDDING_BASE_URL_INVALID"
   /** `EMBEDDING_PROMPT_STYLE` üç bilinen değerden biri değil. */
-  | "EMBEDDING_PROMPT_STYLE_INVALID";
+  | "EMBEDDING_PROMPT_STYLE_INVALID"
+  /** W20: a cloud embedding endpoint under the LOCAL_ONLY data boundary. */
+  | "EMBEDDING_REFUSED_LOCAL_ONLY";
 
 const DISABLED_MESSAGE_TR: Readonly<Record<EmbeddingDisabledReason, string>> =
   Object.freeze({
@@ -116,6 +119,9 @@ const DISABLED_MESSAGE_TR: Readonly<Record<EmbeddingDisabledReason, string>> =
     EMBEDDING_PROMPT_STYLE_INVALID:
       "Anlam benzerliğine göre sıralama KAPALI: metin karşılaştırma hizmetinin" +
       " metin biçimi ayarı tanınmadı.",
+    EMBEDDING_REFUSED_LOCAL_ONLY:
+      "Anlam benzerliğine göre sıralama KAPALI: veri sınırı yalnız yerel ve metin" +
+      " karşılaştırma hizmeti bu bilgisayarda değil; metin dışarı gönderilmedi.",
   });
 
 /** Avukat Türkçesiyle, kapalı olmanın nedenini söyleyen tek cümle. */
@@ -394,4 +400,28 @@ export function formatDocumentText(
   if (style === "e5") return `passage: ${document}`;
   if (style === "raw") return document;
   return `title: ${title} | text: ${document}`;
+}
+
+/**
+ * W20: the data boundary applied to an embedding provider.
+ *
+ * Sending passages to an embedding API IS sending the file. Under LOCAL_ONLY
+ * an embedding endpoint that is not on this machine (or on the explicitly
+ * trusted LAN) is refused and the feature reports itself off, with a reason,
+ * instead of quietly shipping text to the cloud. ALLOW_CLOUD leaves the
+ * resolution untouched.
+ */
+export function applyDataBoundaryToEmbedding(
+  resolution: EmbeddingResolution,
+  boundary: DataBoundary,
+  trustedLocalHosts: readonly string[] = [],
+): EmbeddingResolution {
+  if (!resolution.enabled || boundary !== "LOCAL_ONLY") return resolution;
+  const decision = classifyEndpoint(resolution.config.baseUrl, { trustedLocalHosts });
+  if (decision.ok && decision.trust !== "CLOUD") return resolution;
+  return {
+    enabled: false,
+    reason: "EMBEDDING_REFUSED_LOCAL_ONLY",
+    message: embeddingDisabledMessageTr("EMBEDDING_REFUSED_LOCAL_ONLY"),
+  };
 }

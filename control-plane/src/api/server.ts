@@ -120,7 +120,13 @@ import type { Draft } from "../drafting/types.js";
 import { createMattersRouter } from "../matters/routes.js";
 import { createMatterPackageRouter } from "../matters/packageRoutes.js";
 import { createExhaustiveRouter } from "../exhaustive/routes.js";
-import { PgExhaustiveStore } from "../exhaustive/store.js";
+import { PgDurableAnalysisStore, type DurableAnalysisStore } from "../exhaustive/durableStore.js";
+import { createReviewTableRouter } from "../reviewTables/routes.js";
+import { PgReviewTableStore } from "../reviewTables/store.js";
+import type { WorkerModelRoutes } from "../exhaustive/worker.js";
+import type { ModelRouteTable } from "../llm/providerFactory.js";
+import { readTrustedLocalHosts } from "../llm/localGenerationConfig.js";
+import { applyDataBoundaryToEmbedding } from "../retrieval/embeddingConfig.js";
 import {
   resolveDataBoundary,
   resolveLocalGenerationConfig,
@@ -354,6 +360,21 @@ export interface ApiDependencies {
    * files.
    */
   uploadsDir?: string;
+
+  // ---- W20 ----------------------------------------------------------------
+
+  /**
+   * Model routes resolved once at startup (llm/providerFactory.ts). Absent
+   * means no local model: health reads it, the exhaustive worker and the
+   * answer pipeline use its roles.
+   */
+  modelRoutes?: ModelRouteTable;
+  /** Durable exhaustive analysis: store + worker (serve.mjs starts it). */
+  exhaustive?: { store?: DurableAnalysisStore; worker?: { kick(): void } };
+  /** Dense lane health (W20 phase E), when a local embedding lane is wired. */
+  denseHealth?: () => Promise<Record<string, unknown>>;
+  /** The persisted review grid: store + worker (serve.mjs starts it). */
+  reviewTables?: { store?: PgReviewTableStore; worker?: { kick(): void } };
 }
 
 /**
@@ -524,6 +545,15 @@ function toSearchHits(data: unknown): SearchHit[] {
     ...(row.text !== undefined ? { snippet: row.text } : {}),
     ...(row.url !== undefined ? { sourceUrl: row.url } : {}),
   }));
+}
+
+/** The two exhaustive-analysis roles of a resolved model route table. */
+function workerRoutes(table: ModelRouteTable | undefined): WorkerModelRoutes {
+  if (table === undefined) return {};
+  return {
+    extraction: table.roles.matterExtraction,
+    synthesis: table.roles.matterSynthesis,
+  };
 }
 
 export function createApp(deps: ApiDependencies): Hono {
@@ -849,6 +879,12 @@ export function createApp(deps: ApiDependencies): Hono {
       // health endpoint that dials a model on every poll would make the
       // console's own refresh a load generator.
       localAi: localGenerationHealth(),
+      // W20 phase E: the dense lane says ACTIVE only when it can embed a
+      // query right now; otherwise DEGRADED/DISABLED/FAILED, never a guess.
+      dense:
+        deps.denseHealth !== undefined
+          ? await deps.denseHealth()
+          : { state: "DISABLED", reasonTr: "Anlamsal arama şeridi yapılandırılmadı." },
       // The data boundary in force. LOCAL_ONLY means a cloud provider is
       // refused even when one is configured — the console shows this so a
       // lawyer can see where their file is allowed to go.
@@ -884,7 +920,21 @@ export function createApp(deps: ApiDependencies): Hono {
     trust: string | null;
     reason: string | null;
     liveTested: false;
+    roles?: Record<string, string>;
   } {
+    // W20: when serve.mjs resolved the model routes, health reports THAT
+    // table (what the product actually uses), roles included.
+    if (deps.modelRoutes !== undefined) {
+      const table = deps.modelRoutes;
+      return {
+        state: table.status,
+        model: table.models.answer ?? null,
+        trust: table.trust,
+        reason: table.messageTr ?? table.warnings[0] ?? null,
+        liveTested: false,
+        roles: { ...table.models } as Record<string, string>,
+      };
+    }
     const resolved = resolveLocalGenerationConfig();
     if (resolved.kind === "NOT_CONFIGURED") {
       return { state: "not_configured", model: null, trust: null, reason: null, liveTested: false };
@@ -1635,8 +1685,27 @@ export function createApp(deps: ApiDependencies): Hono {
     app.route(
       "/",
       createExhaustiveRouter({
-        store: new PgExhaustiveStore(deps.sql),
+        // W20: the durable store; the worker that drains it is started by
+        // serve.mjs. Without a worker a run is created and stays queued,
+        // which is visible in its progress rather than faked.
+        store: deps.exhaustive?.store ?? new PgDurableAnalysisStore(deps.sql),
         matters: matterStore,
+        worker: deps.exhaustive?.worker,
+        models: () => workerRoutes(deps.modelRoutes),
+      }),
+    );
+  }
+
+  // W20: the review grid, persisted (review_tables). Like the exhaustive
+  // routes it needs the database; the worker that fills the cells runs in
+  // serve.mjs, so a closed tab or a restart never loses a finished cell.
+  if (deps.sql !== undefined) {
+    app.route(
+      "/",
+      createReviewTableRouter({
+        store: deps.reviewTables?.store ?? new PgReviewTableStore(deps.sql),
+        matters: matterStore,
+        worker: deps.reviewTables?.worker,
       }),
     );
   }
@@ -1660,6 +1729,7 @@ export function createApp(deps: ApiDependencies): Hono {
     "/",
     createAiRouter({
       config: deps.ai ?? null,
+      dataBoundary: () => resolveDataBoundary(),
       ...(filesStore !== undefined ? { files: filesStore } : {}),
       drafts: draftStore,
       revise,
@@ -1718,7 +1788,16 @@ export function createApp(deps: ApiDependencies): Hono {
         ...(deps.sql !== undefined ? { db: (await reportDatabaseHealth(deps.sql)).db } : {}),
       }),
       ...(deps.sourcesLibrary !== undefined ? { library: deps.sourcesLibrary } : {}),
-      ...(deps.sourcesEmbedding !== undefined ? { embedding: deps.sourcesEmbedding } : {}),
+      // W20: a cloud embedding endpoint is refused under LOCAL_ONLY.
+      ...(deps.sourcesEmbedding !== undefined
+        ? {
+            embedding: applyDataBoundaryToEmbedding(
+              deps.sourcesEmbedding,
+              resolveDataBoundary(),
+              readTrustedLocalHosts(),
+            ),
+          }
+        : {}),
     }),
   );
   app.route(

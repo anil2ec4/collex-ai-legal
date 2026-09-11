@@ -59,7 +59,8 @@ def segment_row(
         segment.end_char,
         segment.extraction_method,
         segment.extraction_status,
-        confidence,
+        # W20: an OCR page's own confidence unless the caller overrides it.
+        confidence if confidence is not None else segment.confidence,
         Json(metadata or {}),
     )
 

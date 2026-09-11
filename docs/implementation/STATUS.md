@@ -1,5 +1,130 @@
 # Current status
 
+## 11.09.2026 — W20: "beyin gerçek oldu" — kalıcı dosya incelemesi, yerel model hattı, özel anlamsal şerit
+
+W19 dosya incelemesini **sayım** yaptı ama senkron, modelsiz ve yalnız
+API'de bıraktı. W20 onu **kalıcı bir iş sistemine** çevirdi, yerel model
+sağlayıcısını ürüne bağladı, yüklenen belgeler için gerçek bir anlamsal şerit
+kurdu ve bunları mevcut ekranlara taşıdı. Kararlar: **ADR-034..039**.
+Eklemeli: üç yeni migrasyon (eski dosyaların hiçbiri değişmedi), araç yüzeyi
+aynı (54). Tek sözleşme kırılması bilinçlidir: `POST /v1/matters/{id}/analysis`
+artık **202** ve koşu kimliği döner (iş arka planda yürür).
+
+**(A) Kalıcı inceleme (ADR-034).** `20260912090000_durable_matter_analysis.sql`
++ `exhaustive/{durableStore,worker,identity}.ts`. Birimler kira ile
+(`for update skip locked`) alınır; gözlemler ve "bitti" işareti **kira
+denetimiyle tek işlemde** yazılır; süresi dolan kira geri alınır, 3 denemede
+kalıcı başarısızlık; değerlendirme (reduce) ayrı ve kiralı bir aşamadır ve
+**yalnız kalıcı gözlemlerden** okur; gözlem kimliği içerik adreslidir (tekrar
+yazılamaz); iptal ve ilerleme var. Koşu kimliği (kiracı, dosya, görev, dosya
+ve **sürüm** kimlikleri, üretici sürümleri, model) dondurulur; aynı kimlikle
+ikinci istek mevcut koşuya katılır. Belge değişirse koşu `stale` görünür;
+eski koşu yeni metinle sessizce yeniden yazılmaz.
+
+**(B) Model önerir, uygulama yerini bulur (ADR-035).** Model alıntısı yalnız
+bölümde **tam bir kez, birebir** (yalnız NFC) geçiyorsa saklanır; ofseti
+uygulama hesaplar, SHA-256 ile doğrular; model kimliği, sağlayıcı, şema
+sürümü ve güven puanı kayda geçer. Dosya zekâsı (kişi/kurum, olay, önerme,
+iddia, savunma, delil, hukukî sorun, çelişki, açık soru, karşı taraf
+okumaları) **ilişkisel** tablolardadır; **kaynaksız kayıt veritabanına
+giremez** (ertelenmiş kısıt tetikleyicisi).
+
+**(C) Görev dürüstlüğü.** Çelişkiler ve kronoloji modelsiz. "Dosyanın
+tamamını incele", "İddia ve delilleri eşleştir", "Karşı tarafın gözüyle
+incele" model ister: model yoksa `409 MODEL_REQUIRED`, konsolda düğme değil
+açıklama. Çelişki gerekçesi koşulludur ("aynı olaya ilişkinse … bağlamı
+kaynaktan doğrulayın"). Konu anahtarı v2: değerin **kendi cümleciği**
+içindeki en yakın dört kök.
+
+**(D) Özel anlamsal şerit (ADR-036).** `20260912100000_private_dense_vectors.sql`
+boyut kısıtını (eski dosyaya dokunmadan) 1..8192 aralığına çevirdi ve yerel
+E5 profilini (`e5-small-384-v1`) ekledi. Vektörler `app_private.chunk_vectors`
+içinde (kiracı → sürüm → parça → profil, parça sha'sıyla bayatlık), işçi
+mevcut `app_private.jobs` kuyruğunu tüketir. Arama **dosya kapsamında tam
+kosinüs**tür: **pgvector gerekmez, kamu külliyatında ANN araması değildir.**
+
+**(E) Sağlayıcı fabrikası ve `LOCAL_ONLY` (ADR-037).** Tek rota tablosu, dört
+rol, uç başına tek istek kuyruğu, kodda model adı yok. Yerel taslakçı
+**mevcut** cevap hattına bağlı; `LOCAL_ONLY` her yapay zekâ girişinde
+zorlanır; **yerelden buluta geri düşüş yok**.
+
+**(F) Yerel OCR sınırı (ADR-038)**, **(G) kalıcı inceleme tablosu (ADR-039)**,
+**(H) konsol**: dosya sayfasında "Dosya incelemesi" sekmesi (ilerleme,
+kapsam, okunamayan yerler, çelişkiler, kronoloji, kaynağa giden atıflar);
+mevcut tablo ekranı sunucuya yazar, hücre bazında yeniden dener. **(I)**
+model karşılaştırma düzeneği (`scripts/bakeoff.mjs`, `evals/bakeoff/`) ve
+**(J)** Mac mini rehberi (`MAC-MINI-INFERENCE.md`).
+
+### Ölçüldü (11.09.2026, W20 kapanışı)
+
+| # | Komut | Ölçülen çıktı | Exit |
+|---|---|---|---:|
+| W20-1 | `control-plane> npx tsc --noEmit` | **temiz** | 0 |
+| W20-2 | `control-plane> npx vitest run` | **160 dosya · 2 883 geçti · 0 DÜŞTÜ · 6 atlandı (2 889)** · 38,8 sn. W19 kapanışı: 149 dosya · 2 798 geçti · 6 atlandı → **+11 dosya / +85 test**. Altı atlama W19'dakiyle aynı ters işaretleyicilerdir | 0 |
+| W20-3 | `.venv/Scripts/python.exe -m pytest tests evals/tests -q` | **1 477 geçti · 1 atlandı** · 171,9 sn (W19: 1 469). Atlanan tek test gerçek OCR sınamasıdır: bu makinede `tesseract`/`pdftoppm` yok — **ortam engeli, geçti sayılmaz** | 0 |
+| W20-4 | `.venv/Scripts/python.exe scripts/db_local_check.py` | **19/19 PASS**, **18 migrasyon** (15 → +`20260912090000_durable_matter_analysis.sql` +`20260912100000_private_dense_vectors.sql` +`20260912110000_review_tables.sql`) | 0 |
+| W20-5 | `.venv/Scripts/python.exe scripts/smoke_check.py` | `offline smoke checks passed: **54 tools** …` — araç yüzeyi değişmedi | 0 |
+| W20-6 | `openapi.yaml` (pyyaml + `$ref` yürüyüşü) | **82 yol / 99 işlem / 157 şema** (W19: 73/89/149). Çözülmeyen `$ref` **0**, referans verilmeyen şema **0**, tekrar eden `operationId` **0**, CR baytı **0** | — |
+| W20-7 | RLS politika sayısı | **23 → 31** (+3 kalıcı inceleme/dosya zekâsı, +1 vektör, +4 inceleme tablosu); `EXPECTED_RLS_POLICIES` ve Python testleri aynı sayıyı taşır | — |
+| W20-8 | **Kabul A — gerçek süreç öldürme** (`tests/exhaustive/durableProcess.test.ts`) | İşçi **ayrı bir süreçte** çalışırken `SIGKILL` ile öldürüldü; ikinci işçi süreci koşuyu bitirdi; bitmiş birimler yeniden işlenmedi, bulgular kesintisiz koşuyla **aynı** | 0 |
+| W20-9 | **Kabul F — gerçek yerel E5** (`tests/embeddings/realE5.test.ts`) | multilingual-e5-small (ONNX int8, CPU) gerçek bir yüklemenin parçalarını gömdü; soruyla **hiç ortak sözcüğü olmayan** pasaj yalnız anlamsal şeritten geldi, sağlık `ACTIVE`. Ölçülen kosinüs: soru ↔ hedef pasaj **0,8930**, en yakın ilgisiz pasaj **0,8242** | 0 |
+| W20-10 | Konu anahtarı v2 (`tests/exhaustive/topicKey.test.ts`, sentetik çiftler) | Doğru eşleşen çift **6/11 → 10/11**; kalan bilinen kaçırma `it.fails` ile sabit | 0 |
+| W20-11 | **Gerçek sunucu, uçtan uca** (`collex_w20_verify`, port 8978; kullanıcının 8787'deki süreci ve `collex_local` hiç kullanılmadı) | `/v1/health` → **migrations 18/18**, **RLS 31/31**, **54 araç**, `localAi.state:"not_configured"`, anlamsal şerit **`ACTIVE`** (canlı yoklama **7–29 ms**, 6 vektör, eksik 0). Üç sentetik PDF (biri taranmış sayfalı) yüklendi. `full_review` → **409 `MODEL_REQUIRED`**. `contradictions` ve `chronology` → **202**, işçi bitirdi, **`complete:false`** ve boşluk kalem kalem: `taranmis_ek.pdf — s. 2: UNREADABLE_NO_TEXT`. Bulunan çelişkiler: "Benzer bağlamda iki farklı tarih var: **01.05.2023 ve 01.02.2023** …" ve "… iki farklı tutar var: **32.000 TL ve 45.000 TL** …", her biri iki belgeye `s. N` atıflı. İnceleme tablosu `extract_dates`: iki belge **`exhaustive_complete`**, taranmış belge **`exhaustive_incomplete`** | 0 |
+| W20-12 | **Konsol, gerçek sunucuda** (1280/1024/820/640/390 px × açık/koyu) | "Dosya incelemesi" sekmesi ve tablo ekranı: yeni bileşenlerde taşan öğe **0**, metin taşması **0**, en düşük metin karşıtlığı **7,21:1** (koyu) / **7,54:1** (açık). Tarayıcı paneli gizli olduğu için ölçüm ekran görüntüsüyle değil **DOM ölçümüyle** yapıldı. Sayfa düzeyinde 1280 ve 820 px'te üst çubuktaki marka logosundan gelen 35–43 px'lik yatay taşma **W20 öncesi işaretlemeyle birebir aynıdır** (W20 dokunmadı) | — |
+
+### Kendi çekişmeli denetimimde bulunan ve kapatılanlar
+
+- **İki kez geçen model alıntısı ilk yere iğneleniyordu** (yalnız sayısı
+  kaydediliyordu). Tek metin, iki konum: tahmin edilmiş bir sayfa
+  doğrulanmış atıf gibi görünürdü. Artık reddediliyor; çıkarıcı `mx-v2`.
+- **Gömme işi alma kiracıya bağlı değildi.** Paylaşılan `app_private.jobs`
+  tablosunda kiracı sütunu yok; bir kiracının işçisi başkasının işini alıp,
+  gömecek bir şey bulamadan "başarılı" kapatabilirdi. Tek kiracılı kurulumda
+  ulaşılamaz, yine de kapatıldı (sürümün sahibi belgeye bağlanarak).
+- **`openapi.yaml` bir düzenleme betiğiyle CRLF'e çevrilmişti** (W19 0 CR
+  ölçmüştü) ve W19'un senkron yanıt şeması sahipsiz kalmıştı. İkisi de
+  düzeltildi; ilişki şeması artık bulgular yanıtında gerçekten kullanılıyor.
+- **Ölçüm betiği parolalı sunucuya bağlanamıyordu** — artık parolayı
+  yalnız ortam değişkeninden okuyor ve hiçbir yere yazmıyor.
+- İki kapı beklentisi eskimişti (ürün değil): defter testinin uygulanan
+  migrasyon listesi ve `db_local_check`'in profil sayısı — artık **tam
+  anahtar kümesi** denetleniyor.
+- Denetlenip sağlam bulunanlar: kira kaybında yazma engeli, bayat kira geri
+  alımı, gözlem tekrarı, sürüm anlık görüntüsü, kiracı süzgeçleri (inceleme,
+  vektör, tablo), `LOCAL_ONLY` girişleri, taslakçının uydurduğu kanıt
+  kimliğinin doğrulayıcıya `CITATION_INVALID` olarak ulaşması, model
+  çıktısındaki gözlem kimliklerinin bilinen kaynaklarla sınanması, OCR
+  alt süreçlerinin kabuksuz ve zaman aşımlı çağrılması, CSV formül koruması,
+  günlüklerde belge metni ve parola bulunmaması.
+
+### Gerçek ve sahte — hangi çağrı neydi
+
+| Yüzey | Bu dalgada |
+|---|---|
+| Yerel dil modeli (cevap, çıkarım, değerlendirme, karşılaştırma) | **Hiç gerçek çağrı yok.** Hepsi betikli test çiftleri; bake-off yalnız `--dry-run` ile koştu ve rapor kendini "ölçüm değil" diye etiketledi |
+| Yerel E5 gömme | **Gerçek** (ONNX, CPU): W20-9 ve W20-11 |
+| OCR | **Sahte sağlayıcı**; gerçek sınama ortam engeliyle atlandı |
+| PostgreSQL, işçi süreçleri, HTTP sunucusu | **Gerçek** (geçici veritabanları, port 8978) |
+| Bulut yapay zekâ | Çağrılmadı; `LOCAL_ONLY` testlerinde çağrılırsa testi düşüren sahte taşıyıcı kullanıldı, çağrı sayısı **0** |
+
+### W20'nin AÇIK bıraktıkları — kapatılmış gibi yazma
+
+- **Hiçbir gerçek model ölçülmedi**; M2 Mac mini bu ortamdan ölçülemez.
+  Komutlar `MAC-MINI-INFERENCE.md` 6. adımda; çalıştırılana kadar hız,
+  bellek ya da kalite sayısı yazılamaz.
+- **Yerel OCR çalışma zamanı yok** (tesseract/pdftoppm kurulu değil):
+  taranmış sayfa bugün de `UNREADABLE` ve kapsam eksik.
+- **Avukat etiketli bake-off vakası yok**; 20 sentetik vaka yalnız düzeneği
+  sınar, hukukî kaliteyi değil.
+- **Konu anahtarı hâlâ sezgisel**; gerçek Türk dosyalarında ölçülmedi.
+- **Model gerektiren üç görev** bu makinede kullanılamaz (model yok) — bu
+  bir eksik değil, dürüst bir ret; ama avukat açısından o görevler yok.
+- **W20 migrasyonları `collex_local`'a uygulanmadı.** `ColleX-Baslat.cmd`
+  bir sonraki açılışta `intake.cli --ensure-db` ile üçünü ekler (eklemeli,
+  defter korumalı); `/v1/health` o zaman **18/18** ve **31/31** göstermelidir.
+- Konsolda üst çubuk logosunun 1280/820 px'teki küçük yatay taşması W20
+  öncesinden kalmadır ve bu dalgada ele alınmadı.
+
 ## 11.09.2026 — W19: kanıt düzeyinde dosya zekâsı (sayfa izi, dosya kapsamı, sayım)
 
 Bu dalga ürünün temel iddiasını değiştirdi: artık yalnız **akıcı bir cevap**

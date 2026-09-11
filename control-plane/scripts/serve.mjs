@@ -571,6 +571,16 @@ const { resolveAiConfig, createAiPorts } = await importControlPlane("src/ai/conf
 const backupRunner = await importControlPlane("src/backup/runner.ts");
 const { PgAiLedger } = await importControlPlane("src/ai/ledger.ts");
 const { FileLocalLibrary } = await importControlPlane("src/sources/localLibrary.ts");
+const { resolveModelRoutes, localModelLabel } = await importControlPlane("src/llm/providerFactory.ts");
+const { resolveDataBoundary } = await importControlPlane("src/llm/localGenerationConfig.ts");
+const { PgDurableAnalysisStore } = await importControlPlane("src/exhaustive/durableStore.ts");
+const { AnalysisWorker } = await importControlPlane("src/exhaustive/worker.ts");
+const { createEmbeddingPort } = await importControlPlane("src/retrieval/semanticRerank.ts");
+const { PgChunkVectorStore, LOCAL_E5_PROFILE } = await importControlPlane("src/embeddings/chunkVectorStore.ts");
+const { EmbeddingWorker } = await importControlPlane("src/embeddings/embeddingWorker.ts");
+const { ExactCosineDenseLane } = await importControlPlane("src/embeddings/denseLane.ts");
+const { PgReviewTableStore } = await importControlPlane("src/reviewTables/store.ts");
+const { ReviewTableWorker } = await importControlPlane("src/reviewTables/worker.ts");
 const { serve } = await import("@hono/node-server");
 
 /** Launcher-side view of the MCP child, for /v1/health + /v1/research/health. */
@@ -590,6 +600,10 @@ const dbHealthLine = persistent
 // W12: cloud AI is OFF unless ANTHROPIC_API_KEY is set; the key itself is
 // never logged (AiConfig keeps it out of every serialization path).
 const aiConfig = resolveAiConfig(process.env);
+// W20: the data boundary is read ONCE here and handed to every consumer.
+// Under LOCAL_ONLY the answer pipeline refuses `useCloudAi` before any
+// cloud port is touched and /v1/ai/* refuses every POST.
+const dataBoundary = resolveDataBoundary(process.env);
 const cloud = aiConfig !== null
   ? (({ drafter, entailment, label }) => ({ drafter, entailment, label }))(createAiPorts(aiConfig))
   : undefined;
@@ -620,14 +634,97 @@ const backupPort = {
   last: () => backupRunner.readLastBackup(backupRoot),
 };
 
-const app = createApp({
-  answerPipeline: new AnswerPipeline({
-    retrieval: createStoreRetrievalPort(sql),
+// W20: ONE place resolves the local model roles (answer, verifier, matter
+// extraction, matter synthesis). A refused or absent endpoint leaves every
+// role empty; nothing falls back to the cloud.
+const modelRoutes = resolveModelRoutes(process.env);
+const localPorts =
+  modelRoutes.roles.answer !== undefined && modelRoutes.roles.verifier !== undefined
+    ? {
+        drafter: modelRoutes.roles.answer,
+        entailment: modelRoutes.roles.verifier,
+        label: localModelLabel(modelRoutes.roles.answer),
+      }
+    : undefined;
+
+// W20: the durable exhaustive-analysis worker. Only on the real schema: a
+// census that could not survive a restart would be the W19 bug again. A
+// hard kill (taskkill /F) needs no cleanup here — the next start recovers
+// the expired leases and continues at the next unfinished unit.
+// The W20 tables must exist before a worker polls them: ColleX-Baslat.cmd
+// runs `intake.cli --ensure-db` first, but a server started by hand against
+// an older schema must not spin on missing relations every second. Health
+// already names the missing migrations; the workers simply stay off.
+const w20Schema = persistent
+  ? await sql`select to_regclass('app_private.matter_intel_items') is not null
+                 and to_regclass('app_private.chunk_vectors') is not null
+                 and to_regclass('app_private.review_table_cells') is not null as ok`
+      .then((rows) => rows[0]?.ok === true)
+      .catch(() => false)
+  : false;
+if (persistent && !w20Schema) {
+  console.log("uyarı: dosya incelemesi ve inceleme tablosu için veritabanı şeması eksik —"
+    + " intake.cli --ensure-db ile tamamlayın; arka plan işleri kapalı.");
+}
+const analysisStore = w20Schema ? new PgDurableAnalysisStore(sql) : null;
+const analysisWorker =
+  analysisStore !== null
+    ? new AnalysisWorker({
+        store: analysisStore,
+        models: () => ({
+          extraction: modelRoutes.roles.matterExtraction,
+          synthesis: modelRoutes.roles.matterSynthesis,
+        }),
+        // Structured events only; never document text.
+        log: (event) => {
+          if (event.event !== "unit-done") console.log(`analiz: ${JSON.stringify(event)}`);
+        },
+      })
+    : null;
+
+// W20 phase E: a REAL dense lane for private uploads when the local
+// embedding server runs (--with-local-embeddings) on the real schema. It
+// embeds through the SAME local E5 server the related-search reranker
+// uses; the worker consumes the `embedding` jobs ingestion has always
+// queued and backfills anything missing. Without the flag the lane stays
+// the NoopDenseLane and health says DISABLED.
+const denseEmbedding =
+  persistent && args.localEmbeddingsPort !== null
+    ? localEmbeddingResolution(args.localEmbeddingsPort)
+    : null;
+const denseEmbedder =
+  denseEmbedding !== null && denseEmbedding.enabled ? createEmbeddingPort(denseEmbedding.config) : null;
+const vectorStore = denseEmbedder !== null && w20Schema ? new PgChunkVectorStore(sql) : null;
+const denseLane =
+  vectorStore !== null
+    ? new ExactCosineDenseLane({ store: vectorStore, embedder: denseEmbedder, profile: LOCAL_E5_PROFILE })
+    : null;
+const embeddingWorker =
+  vectorStore !== null
+    ? new EmbeddingWorker({ store: vectorStore, embedder: denseEmbedder, profile: LOCAL_E5_PROFILE })
+    : null;
+
+// The ONE answer pipeline: served by /v1/answer and used by the review
+// grid's worker, so a grid cell is answered exactly as a question is.
+const answerPipeline = new AnswerPipeline({
+    retrieval: createStoreRetrievalPort(sql, denseLane !== null ? { denseLane } : {}),
     texts: createStoreTextPort(sql),
     versionFacts: createStoreVersionFactsPort(sql),
     producer: "collex control-plane (scripts/serve.mjs)",
     ...(cloud !== undefined ? { cloud } : {}),
-  }),
+    ...(localPorts !== undefined ? { local: localPorts } : {}),
+    dataBoundary: () => dataBoundary,
+});
+
+// W20: the persisted review grid's worker (real schema only).
+const reviewStore = w20Schema ? new PgReviewTableStore(sql) : null;
+const reviewWorker =
+  reviewStore !== null && analysisStore !== null
+    ? new ReviewTableWorker({ store: reviewStore, answer: answerPipeline, documents: analysisStore })
+    : null;
+
+const app = createApp({
+  answerPipeline,
   filesDsn: args.dsn,
   python: { path: venvPython(), repoRoot: REPO_ROOT },
   // W14 L-VERIFY V-4: the ONE originals directory. `VAR_DIR` is already the
@@ -640,6 +737,14 @@ const app = createApp({
   mcpState: getMcpState,
   sql,
   dbName,
+  modelRoutes,
+  ...(reviewStore !== null && reviewWorker !== null
+    ? { reviewTables: { store: reviewStore, worker: reviewWorker } }
+    : {}),
+  ...(denseLane !== null ? { denseHealth: async () => ({ ...(await denseLane.health()), worker: embeddingWorker?.status() ?? null }) } : {}),
+  ...(analysisStore !== null && analysisWorker !== null
+    ? { exhaustive: { store: analysisStore, worker: analysisWorker } }
+    : {}),
   demoCorpus: dbName === "collex_demo",
   ai: aiConfig,
   ...(answerStore !== null ? { answerStore } : {}),
@@ -663,6 +768,10 @@ const app = createApp({
     ? { sourcesEmbedding: localEmbeddingResolution(args.localEmbeddingsPort) }
     : {}),
 });
+
+analysisWorker?.start();
+embeddingWorker?.start();
+reviewWorker?.start();
 
 let shuttingDown = false;
 let server = null;
@@ -702,6 +811,9 @@ const shutdown = () => {
   // pool closes; a hard kill cannot run this — see W12-A §7.
   const finish = async () => {
     try {
+      await analysisWorker?.stop();
+      await embeddingWorker?.stop();
+      await reviewWorker?.stop();
       await answerStore?.flush?.();
       await draftStore?.flush?.();
     } catch {

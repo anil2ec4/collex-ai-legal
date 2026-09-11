@@ -1435,10 +1435,20 @@ def check_hearing_kind_and_indexes() -> str:
 def apply_and_verify_seed() -> str:
     psql_apply(SEED_FILE)
     with connect(DBNAME) as conn:
-        profiles = conn.execute(
-            "select count(*) from legal.embedding_profiles"
-        ).fetchone()[0]
-        assert profiles == 2, f"expected 2 embedding profiles, got {profiles}"
+        # The exact set, not a count: the two seed profiles plus the local
+        # E5 profile that 20260912100000_private_dense_vectors.sql adds (W20,
+        # 384 dimensions, allowed by the new 1..8192 range check).
+        profiles = dict(conn.execute(
+            "select profile_key, dimensions from legal.embedding_profiles"
+        ).fetchall())
+        expected_profiles = {
+            "bge-m3-1024-v1": 1024,
+            "voyage-4-1024-v1": 1024,
+            "e5-small-384-v1": 384,
+        }
+        assert profiles == expected_profiles, (
+            f"expected embedding profiles {expected_profiles}, got {profiles}"
+        )
 
         total = conn.execute(
             "select count(*)"
