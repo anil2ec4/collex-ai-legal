@@ -1,0 +1,282 @@
+{
+  "schema": "collex.answer.evidence-bundle/v1",
+  "question": "İnternet ilanı üzerinden kapora alınıp edimin yerine getirilmemesi dolandırıcılık suçunu oluşturur mu?",
+  "asOf": "2026-08-20",
+  "status": "QUALIFIED",
+  "finalizable": true,
+  "verifiedAt": "2026-08-20T09:05:00Z",
+  "reasons": [
+    "Bir tespitte çelişen otorite bulunduğu için cevap ŞERHLİ olarak işaretlenmiştir.",
+    "Bir tespit doğrulanabilir kaynak bulunamadığı için kaynaksız olarak ayrılmıştır."
+  ],
+  "claims": [
+    {
+      "claimId": "c1-dolandiricilik-unsurlari",
+      "text": "Dolandırıcılık suçunun oluşabilmesi için hilenin sözleşmenin kurulması aşamasında bulunması ve mağduru aldatmaya elverişli olması gerekir; gerçekte var olmayan bir malın satılıkmış gibi ilan edilmesi bu niteliktedir.",
+      "material": true,
+      "evidenceIds": [
+        "ev-tck-157",
+        "ev-y15-2024-1187"
+      ],
+      "treatment": "supported",
+      "verdict": "SUPPORTED",
+      "contraryEvidenceIds": [],
+      "reasons": [],
+      "confidence": {
+        "retrieval": 0.94,
+        "entailment": 0.9,
+        "authority": 0.96,
+        "currentness": 1.0,
+        "coverage": 0.88
+      }
+    },
+    {
+      "claimId": "c2-edimin-ifa-edilmemesi",
+      "text": "Gerçekte mevcut olan bir malın satışında edimin sonradan yerine getirilmemesi tek başına dolandırıcılık suçunu oluşturmaz; uyuşmazlık hukuki nitelikte kabul edilir.",
+      "material": true,
+      "evidenceIds": [
+        "ev-y15-2024-1187"
+      ],
+      "treatment": "conflicted",
+      "verdict": "CONFLICTING_AUTHORITIES",
+      "contraryEvidenceIds": [
+        "ev-y15-2024-2356"
+      ],
+      "reasons": [
+        "Aynı dairenin iki kararı, başlangıçtaki hile şartını farklı somut olaylarda farklı sonuca bağlamıştır; içtihat birliği tespit edilememiştir."
+      ],
+      "confidence": {
+        "retrieval": 0.86,
+        "entailment": 0.74,
+        "authority": 0.8,
+        "currentness": 1.0,
+        "coverage": 0.55
+      }
+    },
+    {
+      "claimId": "c3-kisisel-veri-acik-riza",
+      "text": "Pazarlama amaçlı arama için kişisel verinin işlenmesi, ilgili kişinin açık rızası veya kanunda sayılan bir işleme şartı bulunmadıkça hukuka aykırıdır.",
+      "material": false,
+      "evidenceIds": [
+        "ev-kvkk-2025-1834"
+      ],
+      "treatment": "qualified",
+      "verdict": "PARTIAL_SOURCE_COVERAGE",
+      "contraryEvidenceIds": [],
+      "reasons": [
+        "Tespit yalnız tek bir kurul kararına dayanmaktadır; kanun metni ayrıca doğrulanmalıdır."
+      ],
+      "confidence": {
+        "retrieval": 0.71,
+        "entailment": 0.83,
+        "authority": 0.55,
+        "currentness": 1.0,
+        "coverage": 0.4
+      }
+    },
+    {
+      "claimId": "c4-teselsul-iddiasi",
+      "text": "Aynı yöntemle birden çok kişiye karşı işlenen eylemlerde zincirleme suç hükümlerinin ne şekilde uygulanacağı.",
+      "material": true,
+      "evidenceIds": [],
+      "treatment": "unsupported",
+      "verdict": "INSUFFICIENT_EVIDENCE",
+      "contraryEvidenceIds": [],
+      "reasons": [
+        "Korpusta bu tespiti doğrulayan pasaj bulunamadı; tespit kaynaksızdır."
+      ],
+      "confidence": {
+        "retrieval": 0.12,
+        "entailment": 0.0,
+        "authority": 0.0,
+        "currentness": 0.0,
+        "coverage": 0.0
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "evidenceId": "ev-tck-157",
+      "documentId": "doc-kanun_5237_v2",
+      "documentVersionId": "ver-kanun_5237_v2",
+      "chunkId": "chunk-kanun_5237_v2-1538",
+      "source": "MEVZUAT",
+      "sourceUrl": "https://example.invalid/fixture/kanun/5237",
+      "title": "Türk Ceza Kanunu (sentetik alıntı)",
+      "locator": {
+        "startChar": 1538,
+        "endChar": 1763,
+        "article": "157"
+      },
+      "quote": "MADDE 157 - (1) Hileli davranışlarla bir kimseyi aldatıp, onun veya başkasının zararına olarak, kendisine veya başkasına bir yarar sağlayan kişiye üç yıldan yedi yıla kadar hapis ve on bin güne kadar adli para cezası verilir.",
+      "quoteSha256": "f771a0e232b6695a68ac0bd7df0ed5401a090d1821cea344c8d32e9fd90e846f",
+      "contentSha256": "228ba656af20af822d617dd9c3113947a4907238aaf704b0536aa5c91d494d45",
+      "retrievedAt": "2026-08-20T09:00:00Z",
+      "authority": {
+        "tier": 1,
+        "label": "Kanun",
+        "rationale": "sentetik fixture için elle atanmıştır",
+        "score": 1.0
+      },
+      "currentness": {
+        "status": "IN_FORCE",
+        "score": 1.0,
+        "asOf": "2026-08-20",
+        "rationale": "sentetik fixture için elle atanmıştır"
+      },
+      "stance": "supporting",
+      "retrievalScore": 0.94,
+      "synthetic": true,
+      "legislationNo": "5237"
+    },
+    {
+      "evidenceId": "ev-y15-2024-1187",
+      "documentId": "doc-yargitay_karar_1",
+      "documentVersionId": "ver-yargitay_karar_1",
+      "chunkId": "chunk-yargitay_karar_1-787",
+      "source": "BEDESTEN",
+      "sourceUrl": "https://example.invalid/fixture/yargitay/2024-1187",
+      "title": "Yargıtay 15. Ceza Dairesi E. 2023/4521 K. 2024/1187 (sentetik)",
+      "locator": {
+        "startChar": 787,
+        "endChar": 1345
+      },
+      "quote": "GEREKÇE: Dolandırıcılık suçunun oluşabilmesi için failin hileli davranışlarla bir kimseyi aldatması, mağdurun veya başkasının zararına olarak kendisine veya başkasına yarar sağlaması gerekir. Somut olayda sanığın gerçekte var olmayan bir aracı mevcutmuş gibi ilan etmesi, başka ilanlardan alınan fotoğrafları kullanması ve kapora tahsilinden hemen sonra iletişimi kesmesi karşısında, hilenin sözleşmenin kurulması aşamasında ve başlangıçtan itibaren mevcut olduğu, eylemin TCK'nın 157/1 maddesi kapsamında dolandırıcılık suçunu oluşturduğu kabul edilmelidir.",
+      "quoteSha256": "382bb2c46b814d8181011d8ba9abbf882cb4b34b6017f0c8f3b317b5f6c2b2f5",
+      "contentSha256": "9f71dada176aa848afaf69ddd24b398791f8cd357e8dceecd8dfa4c9bf89ea8a",
+      "retrievedAt": "2026-08-20T09:00:00Z",
+      "authority": {
+        "tier": 4,
+        "label": "Yüksek mahkeme dairesi kararı",
+        "rationale": "sentetik fixture için elle atanmıştır",
+        "score": 0.64
+      },
+      "currentness": {
+        "status": "IN_FORCE",
+        "score": 1.0,
+        "asOf": "2026-08-20",
+        "rationale": "sentetik fixture için elle atanmıştır"
+      },
+      "stance": "supporting",
+      "retrievalScore": 0.88,
+      "synthetic": true,
+      "court": "Yargıtay 15. Ceza Dairesi",
+      "decisionDate": "2024-03-12",
+      "docketNo": "2023/4521",
+      "decisionNo": "2024/1187"
+    },
+    {
+      "evidenceId": "ev-y15-2024-2356",
+      "documentId": "doc-yargitay_karar_2",
+      "documentVersionId": "ver-yargitay_karar_2",
+      "chunkId": "chunk-yargitay_karar_2-733",
+      "source": "BEDESTEN",
+      "sourceUrl": "https://example.invalid/fixture/yargitay/2024-2356",
+      "title": "Yargıtay 15. Ceza Dairesi E. 2023/7810 K. 2024/2356 (sentetik)",
+      "locator": {
+        "startChar": 733,
+        "endChar": 1231
+      },
+      "quote": "GEREKÇE: Dolandırıcılık suçunun oluşabilmesi için hilenin, sözleşmenin kurulması aşamasında ve mağduru aldatmaya elverişli nitelikte bulunması gerekir. Somut olayda satışa konu araç gerçekte mevcut olup sanığın başlangıçta aldatma kastıyla hareket ettiğine ilişkin her türlü şüpheden uzak, kesin ve inandırıcı delil bulunmamaktadır. Edimin sonradan yerine getirilmemesi sözleşmeye aykırılık niteliğinde olup uyuşmazlık hukuki niteliktedir; TCK'nın 157 nci maddesindeki suçun unsurları oluşmamıştır.",
+      "quoteSha256": "abed397deea3c557ba2479edd61d8ba65c102dd25ba6c2fd79f203513fbe7633",
+      "contentSha256": "d9c4c7b552d345dc3f0932bc768d20aa2206452018688d2f6e43751c9652d424",
+      "retrievedAt": "2026-08-20T09:00:00Z",
+      "authority": {
+        "tier": 4,
+        "label": "Yüksek mahkeme dairesi kararı",
+        "rationale": "sentetik fixture için elle atanmıştır",
+        "score": 0.64
+      },
+      "currentness": {
+        "status": "IN_FORCE",
+        "score": 1.0,
+        "asOf": "2026-08-20",
+        "rationale": "sentetik fixture için elle atanmıştır"
+      },
+      "stance": "contrary",
+      "retrievalScore": 0.85,
+      "synthetic": true,
+      "court": "Yargıtay 15. Ceza Dairesi",
+      "decisionDate": "2024-06-24",
+      "docketNo": "2023/7810",
+      "decisionNo": "2024/2356"
+    },
+    {
+      "evidenceId": "ev-kvkk-2025-1834",
+      "documentId": "doc-kvkk_karar_1",
+      "documentVersionId": "ver-kvkk_karar_1",
+      "chunkId": "chunk-kvkk_karar_1-583",
+      "source": "KVKK",
+      "sourceUrl": "https://example.invalid/fixture/kvkk/2025-1834",
+      "title": "KVKK Kurul Kararı 2025/1834 (sentetik)",
+      "locator": {
+        "startChar": 583,
+        "endChar": 1069
+      },
+      "quote": "GEREKÇE: 6698 sayılı Kişisel Verilerin Korunması Kanununun 5 inci maddesi uyarınca kişisel veriler ilgili kişinin açık rızası olmaksızın işlenemez. Somut olayda pazarlama amaçlı arama bakımından Kanunun 5 inci maddesinin ikinci fıkrasında sayılan işleme şartlarından herhangi birinin bulunmadığı ve açık rızanın da alınmadığı anlaşılmıştır. Veri sorumlusunun üçüncü kişiden temin ettiği veriyi hukuka uygunluk denetimi yapmaksızın işlemesi, veri güvenliği yükümlülüklerine de aykırıdır.",
+      "quoteSha256": "9121858fb97d1d6cb0559e286baee72ff66985fd4d4001b6056b7ebc8fc17d61",
+      "contentSha256": "dfcda982635fa9383ecc71e93342612f09763d00f5ebd6fdf22c7d9cb75c00cb",
+      "retrievedAt": "2026-08-20T09:00:00Z",
+      "authority": {
+        "tier": 6,
+        "label": "Kurul kararı",
+        "rationale": "sentetik fixture için elle atanmıştır",
+        "score": 0.4
+      },
+      "currentness": {
+        "status": "IN_FORCE",
+        "score": 1.0,
+        "asOf": "2026-08-20",
+        "rationale": "sentetik fixture için elle atanmıştır"
+      },
+      "stance": "supporting",
+      "retrievalScore": 0.71,
+      "synthetic": true,
+      "court": "Kişisel Verileri Koruma Kurulu",
+      "decisionDate": "2025-11-20",
+      "decisionNo": "2025/1834"
+    },
+    {
+      "evidenceId": "ev-filler-dilekce",
+      "documentId": "doc-filler_dilekce",
+      "documentVersionId": "ver-filler_dilekce",
+      "chunkId": "chunk-filler_dilekce-610",
+      "source": "TENANT_UPLOAD",
+      "sourceUrl": "https://example.invalid/fixture/tenant/dilekce-2026-0001",
+      "title": "Kira bedelinin tespiti dilekçesi (sentetik, alakasız doküman)",
+      "locator": {
+        "startChar": 610,
+        "endChar": 677
+      },
+      "quote": "HUKUKİ NEDENLER: 6098 sayılı Türk Borçlar Kanunu ve ilgili mevzuat.",
+      "quoteSha256": "50e8272a5ab13afc953ed7772ec88bfcff5353e444a76d587b4efbe378b39809",
+      "contentSha256": "47063e7600bfe29c9bbc71e0cadcb0dd089f97eba8179f085461b7b95cbe9ace",
+      "retrievedAt": "2026-08-20T09:00:00Z",
+      "authority": {
+        "tier": 7,
+        "label": "Taraf beyanı / dilekçe",
+        "rationale": "sentetik fixture için elle atanmıştır",
+        "score": 0.28
+      },
+      "currentness": {
+        "status": "UNKNOWN",
+        "score": 0.5,
+        "asOf": "2026-08-20",
+        "rationale": "sentetik fixture için elle atanmıştır"
+      },
+      "stance": "neutral",
+      "retrievalScore": 0.21,
+      "synthetic": true
+    }
+  ],
+  "texts": {
+    "ver-kanun_5237_v2": "İKİNCİ KİTAP\nÖzel Hükümler\n\nONUNCU BÖLÜM\nMalvarlığına Karşı Suçlar\n\nMADDE 141 - (1) Zilyedinin rızası olmadan başkasına ait taşınır bir malı, kendisine veya başkasına bir yarar sağlamak maksadıyla bulunduğu yerden alan kimseye bir yıldan üç yıla kadar hapis cezası verilir.\n(2) Ekonomik bir değer taşıyan her türlü enerji de, taşınır mal sayılır.\n\nMADDE 148 - (1) Bir başkasını, kendisinin veya yakınının hayatına, vücut veya cinsel dokunulmazlığına yönelik bir saldırı gerçekleştireceğinden ya da malvarlığı itibarıyla büyük bir zarara uğratacağından bahisle tehdit ederek, mağduru borç altına sokabilecek bir senedi vermeye mecbur kılan kişi, altı yıldan on yıla kadar hapis cezası ile cezalandırılır.\n\nMADDE 155 - (1) Başkasına ait olup da, muhafaza etmek veya belirli bir şekilde kullanmak üzere zilyedliği kendisine devredilmiş olan mal üzerinde, kendisinin veya başkasının yararına olarak, zilyedliğin devri amacı dışında tasarrufta bulunan veya bu devir olgusunu inkar eden kişiye, altı aydan iki yıla kadar hapis ve adli para cezası verilir.\n(2) Suçun, meslek ve sanat, ticaret veya hizmet ilişkisinin ya da hangi nedenden doğmuş olursa olsun, başkasının mallarını idare etmek yetkisinin gereği olarak tevdi ve teslim edilmiş eşya hakkında işlenmesi halinde, bir yıldan yedi yıla kadar hapis ve üç bin güne kadar adli para cezasına hükmolunur.\n\nMADDE 156 - (1) Bir hukuki ilişkiye dayanan alacağını tahsil amacıyla tehdit veya cebir kullanan kişi hakkında, yalnızca tehdit veya kasten yaralama suçuna ilişkin hükümler uygulanır.\n\nMADDE 157 - (1) Hileli davranışlarla bir kimseyi aldatıp, onun veya başkasının zararına olarak, kendisine veya başkasına bir yarar sağlayan kişiye üç yıldan yedi yıla kadar hapis ve on bin güne kadar adli para cezası verilir.\n\nMADDE 158 - (1) Dolandırıcılık suçunun;\na) Dini inanç ve duyguların istismar edilmesi suretiyle,\nb) Kişinin içinde bulunduğu tehlikeli durum veya zor şartlardan yararlanmak suretiyle,\nc) Bilişim sistemlerinin, banka veya kredi kurumlarının araç olarak kullanılması suretiyle,\nişlenmesi halinde, üç yıldan on yıla kadar hapis ve beş bin güne kadar adli para cezasına hükmolunur.\n(2) Kamu görevlileriyle ilişkisinin olduğundan, onlar nezdinde hatırı sayıldığından bahisle ve belli bir işin gördürüleceği vaadiyle aldatarak, başkasından menfaat temin eden kişi, birinci fıkra hükmüne göre cezalandırılır.\n\nMADDE 159 - (1) Dolandırıcılığın, bir hukuki ilişkiye dayanan alacağı tahsil amacıyla işlenmesi halinde, şikayet üzerine, altı aydan bir yıla kadar hapis veya adli para cezasına hükmolunur.\n\nMADDE 168 - (1) Hırsızlık, mala zarar verme, güveni kötüye kullanma, dolandırıcılık ve karşılıksız yararlanma suçları tamamlandıktan sonra ve fakat bu nedenle hakkında kovuşturma başlamadan önce, failin, azmettirenin veya yardım edenin bizzat pişmanlık göstererek mağdurun uğradığı zararı aynen geri verme veya tazmin suretiyle tamamen gidermesi halinde, verilecek cezanın üçte ikisine kadarı indirilir.\n",
+    "ver-yargitay_karar_1": "T.C. YARGITAY\n15. Ceza Dairesi\nEsas No: 2023/4521\nKarar No: 2024/1187\nTarih: 12.03.2024\n\nÖZET: İnternet üzerinden gerçekte var olmayan bir aracı satılık olarak ilan edip kapora adı altında para tahsil eden sanığın eyleminin, başlangıçtan itibaren hileli davranış içerdiği ve 5237 sayılı TCK'nın 157 nci maddesindeki dolandırıcılık suçunu oluşturduğu hakkında.\n\nOLAY: Sanık, bir ilan sitesinde gerçekte mevcut olmayan 2019 model bir aracı satılık olarak göstermiş, araca ait başka bir ilandan aldığı fotoğrafları kullanmış ve katılandan kapora adı altında 25.000 TL'yi banka havalesi yoluyla tahsil ettikten sonra telefonlarını kapatarak iletişimi kesmiştir. Katılanın şikayeti üzerine başlatılan soruşturmada sanığın aynı yöntemle başka kişilerden de para tahsil ettiği belirlenmiştir.\n\nGEREKÇE: Dolandırıcılık suçunun oluşabilmesi için failin hileli davranışlarla bir kimseyi aldatması, mağdurun veya başkasının zararına olarak kendisine veya başkasına yarar sağlaması gerekir. Somut olayda sanığın gerçekte var olmayan bir aracı mevcutmuş gibi ilan etmesi, başka ilanlardan alınan fotoğrafları kullanması ve kapora tahsilinden hemen sonra iletişimi kesmesi karşısında, hilenin sözleşmenin kurulması aşamasında ve başlangıçtan itibaren mevcut olduğu, eylemin TCK'nın 157/1 maddesi kapsamında dolandırıcılık suçunu oluşturduğu kabul edilmelidir.\n\nHÜKÜM: Yerel mahkemenin sanığın TCK'nın 157/1 maddesi uyarınca cezalandırılmasına ilişkin hükmünün ONANMASINA, 12.03.2024 tarihinde oy birliğiyle karar verildi.\n",
+    "ver-yargitay_karar_2": "T.C. YARGITAY\n15. Ceza Dairesi\nEsas No: 2023/7810\nKarar No: 2024/2356\nTarih: 24.06.2024\n\nÖZET: Gerçekte mevcut olan aracın satışı konusunda anlaşma kurulduktan sonra kaporanın iade edilmemesi ve aracın teslim edilmemesinden ibaret eylemde başlangıçta hileli davranış bulunmadığı, uyuşmazlığın hukuki nitelikte olduğu ve 5237 sayılı TCK'nın 157 nci maddesindeki dolandırıcılık suçunun unsurlarının oluşmadığı hakkında.\n\nOLAY: Sanık, maliki olduğu ve fiilen mevcut bulunan aracı katılana satmayı kabul etmiş, kapora olarak 25.000 TL almış, ancak daha sonra aracı teslim etmemiş ve kaporayı da iade etmemiştir. Sanık savunmasında satıştan vazgeçtiğini, kapora borcunu kabul ettiğini ancak ödeme güçlüğü içinde olduğunu beyan etmiştir.\n\nGEREKÇE: Dolandırıcılık suçunun oluşabilmesi için hilenin, sözleşmenin kurulması aşamasında ve mağduru aldatmaya elverişli nitelikte bulunması gerekir. Somut olayda satışa konu araç gerçekte mevcut olup sanığın başlangıçta aldatma kastıyla hareket ettiğine ilişkin her türlü şüpheden uzak, kesin ve inandırıcı delil bulunmamaktadır. Edimin sonradan yerine getirilmemesi sözleşmeye aykırılık niteliğinde olup uyuşmazlık hukuki niteliktedir; TCK'nın 157 nci maddesindeki suçun unsurları oluşmamıştır.\n\nHÜKÜM: Sanığın beraatine ilişkin yerel mahkeme hükmünün ONANMASINA, 24.06.2024 tarihinde oy çokluğuyla karar verildi.\n",
+    "ver-kvkk_karar_1": "KİŞİSEL VERİLERİ KORUMA KURULU KARARI\nKarar Tarihi: 20.11.2025\nKarar No: 2025/1834\n\nÖZET: Veri sorumlusu bir banka tarafından ilgili kişinin cep telefonu numarasının, açık rızası bulunmaksızın pazarlama amaçlı aranmak suretiyle işlenmesi hakkında.\n\nOLAY: İlgili kişi, müşterisi olmadığı bir bankanın kendisini ticari amaçla aradığını, telefon numarasını bu bankayla hiçbir zaman paylaşmadığını ve aramaların açık rızası olmaksızın yapıldığını belirterek Kurula şikayette bulunmuştur. Veri sorumlusu savunmasında numaranın bir iş ortağı aracılığıyla temin edildiğini beyan etmiştir.\n\nGEREKÇE: 6698 sayılı Kişisel Verilerin Korunması Kanununun 5 inci maddesi uyarınca kişisel veriler ilgili kişinin açık rızası olmaksızın işlenemez. Somut olayda pazarlama amaçlı arama bakımından Kanunun 5 inci maddesinin ikinci fıkrasında sayılan işleme şartlarından herhangi birinin bulunmadığı ve açık rızanın da alınmadığı anlaşılmıştır. Veri sorumlusunun üçüncü kişiden temin ettiği veriyi hukuka uygunluk denetimi yapmaksızın işlemesi, veri güvenliği yükümlülüklerine de aykırıdır.\n\nHÜKÜM: Veri sorumlusu banka hakkında Kanunun 18 inci maddesi uyarınca 500.000 TL idari para cezası uygulanmasına, hukuka aykırı işlenen kişisel verilerin imha edilmesine ve sonucundan Kurula bilgi verilmesine karar verilmiştir.\n",
+    "ver-filler_dilekce": "SAYIN İSTANBUL 3. SULH HUKUK MAHKEMESİ HAKİMLİĞİNE\n\nDAVACI: Ayşe Yılmaz (sentetik kişi)\nVEKİLİ: Av. Mehmet Demir (sentetik kişi)\nDAVALI: Mert Kaya (sentetik kişi)\nKONU: Kira bedelinin tespiti istemimizden ibarettir.\n\nAÇIKLAMALAR:\n1. Davacı müvekkil, İstanbul ili Kadıköy ilçesinde bulunan taşınmazın malikidir. Taşınmaz, 01.09.2021 tarihli kira sözleşmesi ile davalıya konut olarak kiralanmıştır.\n2. Sözleşmede kararlaştırılan kira bedeli, emsal taşınmazların kira bedellerinin oldukça altında kalmıştır. Tarafların yenileme dönemlerinde anlaşamaması nedeniyle kira bedelinin mahkemece tespiti gerekmektedir.\n\nHUKUKİ NEDENLER: 6098 sayılı Türk Borçlar Kanunu ve ilgili mevzuat.\n\nSONUÇ VE İSTEM: Yukarıda açıklanan nedenlerle, dava konusu taşınmazın aylık kira bedelinin emsallere uygun şekilde tespitine karar verilmesini saygılarımızla vekaleten arz ve talep ederiz.\n"
+  },
+  "synthetic": true,
+  "syntheticNotice": "Kaynaklar evals/fixtures/corpus altındaki sentetik test korpusundan üretilmiştir; gerçek Türk mevzuatı veya gerçek mahkeme kararı değildir.",
+  "producer": "collex-control-plane (sentetik fixture üreticisi)"
+}

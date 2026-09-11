@@ -1,0 +1,36 @@
+# Gitleaks configuration for yargi-mevzuat-mcp-independent.
+#
+# Context: on 2026-08-26 an audit confirmed hardcoded fallback API credentials
+# in COMMITTED history (Brave Search token via cb318fa/v0.1.3; Tavily key via
+# c3bc9e1/v0.1.5, duplicated by 7f78f87/v0.2.1; a vendored copy via
+# e900bc0/e26f09a). See docs/security/incident-2026-08-26-embedded-tokens.md.
+# Secret scanning is therefore a required CI gate (see .github/workflows/ci.yml).
+
+title = "yargi-mevzuat-mcp-independent gitleaks config"
+
+[extend]
+# Start from the built-in gitleaks default ruleset and only add allowlists.
+useDefault = true
+
+[allowlist]
+description = "Documented non-secret placeholders and quarantined pre-fix baseline"
+
+paths = [
+  # The dirty-baseline backup intentionally preserves the user's PRE-FIX
+  # working-tree state (including the old fallback values inside
+  # dirty-tracked.patch). It lives OUTSIDE this repository, at workspace level
+  # one directory up (../_baseline-backup/), so gitleaks will normally never
+  # see it. This entry is a defensive guard in case it is ever copied into the
+  # repo by mistake. THAT DIRECTORY MUST NEVER BE COMMITTED; delete or secure
+  # it once the dirty state is committed and the keys are rotated.
+  '''_baseline-backup/''',
+]
+
+regexes = [
+  # .env.example placeholder patterns only — these are documentation values,
+  # never real keys. Real keys must never appear in tracked files at all.
+  '''sk-or-v1-your_[A-Za-z0-9_\-]*''',
+  '''sk-or-v1-xxx[A-Za-z0-9_\-]*''',
+  '''your_brave_api_token_here''',
+  '''your_tavily_api_key_here''',
+]

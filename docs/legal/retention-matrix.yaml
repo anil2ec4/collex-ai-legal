@@ -1,0 +1,84 @@
+# Saklama / İmha Matrisi (Retention Matrix) — ŞABLON
+#
+# HUKUKÇU İNCELEMESİ GEREKLİ — şablondur; nihai hukuki değerlendirme değildir.
+# Durum: TASLAK.
+#
+# Amaç: her veri kategorisi için saklama süresi, imha yöntemi ve türetilmiş
+# kopyaların (embedding, özet, cache, backup) aynı politikaya bağlanması.
+# Notlar (brief §12.3):
+# - Silme/yok etme/anonimleştirme kayıtlarının saklanma süresi ve periyodik
+#   imha politikası güncel resmî metinden uygulanmalıdır.
+# - Tenant/matter silme; object, chunk, embedding, summary, cache ve derived
+#   evidence üzerinde de geçmelidir (kabul kapısı).
+# - Backup deletion/expiry kullanıcıya açıklanır.
+
+meta:
+  status: draft
+  requires_lawyer_review: true
+  last_updated: "2026-08-26"
+  periodic_destruction_policy: null # TODO: periyodik imha dönemi (hukukçu)
+
+retention_entries:
+  - data_category: account_identity # kullanıcı kimlik/iletişim
+    class: L1
+    retention_period: null # TODO
+    retention_basis: null # TODO (ör. sözleşme + mevzuat süresi)
+    destruction_method: null # TODO (silme/yok etme/anonimleştirme)
+    derived_copies: [logs, backups]
+    notes: null
+
+  - data_category: matter_uploads # müvekkil belgeleri (L2/L3)
+    class: L2_L3
+    retention_period: null # TODO (tenant talimatına bağlı olabilir)
+    retention_basis: null # TODO
+    destruction_method: null # TODO
+    derived_copies: [chunks, embeddings, summaries, ocr_output, cache, evidence, backups]
+    notes: "Tenant/matter silme türetilmiş kopyaların TAMAMINI kapsamalı."
+
+  - data_category: public_corpus_documents # resmî karar/mevzuat kopyaları
+    class: L0
+    retention_period: null # TODO (kaynak hakkı incelemesine bağlı; source-register.yaml)
+    retention_basis: null # TODO
+    destruction_method: null # TODO (takedown süreciyle uyumlu)
+    derived_copies: [snapshots, versions, chunks, embeddings, indexes]
+    notes: "Takedown talebi geldiğinde tüm türevler üzerinden yürür."
+
+  - data_category: research_runs_and_audit # sorgu, plan, claim, evidence ref
+    class: L1_L2
+    retention_period: null # TODO
+    retention_basis: null # TODO (hesap verebilirlik vs. minimizasyon dengesi)
+    destruction_method: null # TODO
+    derived_copies: [traces, caches]
+    notes: null
+
+  - data_category: telemetry_logs # content-off metrik/log
+    class: L1
+    retention_period: null # TODO
+    retention_basis: null # TODO
+    destruction_method: null # TODO
+    derived_copies: []
+    notes: "Belge metni, ad, TCKN, sağlık/ceza verisi veya secret İÇEREMEZ."
+
+  - data_category: billing_records
+    class: L1
+    retention_period: null # TODO (vergi/ticaret mevzuatı süreleri)
+    retention_basis: null # TODO
+    destruction_method: null # TODO
+    derived_copies: [backups]
+    notes: null
+
+  - data_category: backups
+    class: mirrors_source_class
+    retention_period: null # TODO (yedek rotasyon süresi)
+    retention_basis: null # TODO
+    destruction_method: null # TODO (expiry ile otomatik)
+    derived_copies: []
+    notes: "Silinen tenant verisinin backup'tan ne zaman düştüğü kullanıcıya açıklanır."
+
+  - data_category: destruction_records # imha kayıtlarının kendisi
+    class: L1
+    retention_period: null # TODO: güncel resmî metinden (hukukçu teyidi)
+    retention_basis: null # TODO
+    destruction_method: null # TODO
+    derived_copies: []
+    notes: null

@@ -1,0 +1,355 @@
+# CI for yargi-mevzuat-mcp-independent.
+#
+# Fully OFFLINE: no job may call any live upstream (Bedesten, Emsal, Brave,
+# Tavily, OpenRouter, ...). Live checks live in live-checks.yml and are
+# manual-only (workflow_dispatch).
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Defense in depth: blank provider keys guarantee the offline code paths
+  # (fail-closed "disabled/missing credential" behavior) even if a step forgets
+  # to set them. MCP_API_TOKEN is a fixed non-secret 40-char dummy that only
+  # satisfies the >=32-char auth guard in offline tests.
+  OPENROUTER_API_KEY: ""
+  BRAVE_API_TOKEN: ""
+  TAVILY_API_KEY: ""
+  MCP_API_TOKEN: "ci-offline-dummy-token-0123456789abcdefg"
+
+jobs:
+  python-offline:
+    name: Python offline tests + smoke (54 tools)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (Python 3.13)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      # The dev group carries everything the offline suite needs, including the
+      # two local-tooling packages that are deliberately NOT runtime
+      # dependencies of the MCP server: psycopg (tests/ingestion) and
+      # python-docx (tests/export — its DOCX refusal contract FAILS rather than
+      # skips without it). They used to be `uv pip install`ed in an extra step
+      # here; they are declared in pyproject's [dependency-groups] dev now, so
+      # one sync is the whole install.
+      - name: Sync dependencies
+        run: uv sync --group dev
+
+      - name: Run pytest (unit/contract + eval harness tests, offline)
+        run: uv run --no-sync python -m pytest tests evals/tests -q
+
+      - name: Offline smoke check (asserts exactly 54 tools)
+        run: uv run --no-sync python scripts/smoke_check.py
+
+      # DB-free subset of the eval gate: the deterministic offset / quote /
+      # SHA-256 / fabricated-id invariants straight off the synthetic fixture
+      # corpus. The full gate (with retrieval metrics) is the `eval-gate` job
+      # below; this step keeps the brief 13.1 invariants enforced even if the
+      # PostgreSQL service is unavailable. Needs no database and no network.
+      - name: Fixture-only citation/hash invariants (no database)
+        run: uv run --no-sync python scripts/run_evals.py --fixture-only
+
+  eval-gate:
+    name: Eval gate (fixture-corpus baseline + brief 13.1 invariants)
+    runs-on: ubuntu-latest
+    # Fully offline w.r.t. external providers: the only network endpoint this
+    # job touches is the loopback PostgreSQL service container. Provider keys
+    # are blank (workflow-level env) so any accidental provider call
+    # fail-closes instead of reaching an upstream.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # scripts/run_evals.py owns (creates/drops) ONLY this database name.
+      COLLEX_EVAL_DSN: postgres://postgres:postgres@127.0.0.1:5432/collex_eval_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (Python 3.13)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: control-plane/package-lock.json
+
+      # The retrieval measurement runs the REAL control-plane code
+      # (searchLegalCorpus + buildEvidencePack), bundled with the esbuild that
+      # already ships in control-plane's lockfile. No new dependency is added.
+      - name: Install control-plane dependencies
+        run: npm ci
+        working-directory: control-plane
+
+      # psycopg (the scratch-database driver this job needs for migrations and
+      # ingestion) is a local-tooling dependency, not a runtime dependency of
+      # the MCP server, so it lives in pyproject's [dependency-groups] dev and
+      # arrives with this sync. It used to need its own `uv pip install` step.
+      - name: Sync Python dependencies
+        run: uv sync --group dev
+
+      - name: Verify pg_trgm is available in the service container
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+          import sys
+
+          import psycopg
+
+          dsn = os.environ["COLLEX_EVAL_DSN"].replace("/collex_eval_test", "/postgres")
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              rows = conn.execute(
+                  "select name from pg_available_extensions"
+                  " where name in ('pg_trgm', 'pgcrypto', 'btree_gist')"
+              ).fetchall()
+          have = {r[0] for r in rows}
+          missing = {"pg_trgm", "pgcrypto", "btree_gist"} - have
+          if missing:
+              print(f"ERROR: missing extensions in the service container: {sorted(missing)}")
+              sys.exit(1)
+          print(f"available: {sorted(have)}")
+          PY
+
+      # Ingests evals/fixtures/corpus into collex_eval_test, runs every gold
+      # query through the control-plane retrieval + evidence path, scores it,
+      # and EXITS NON-ZERO if citation resolvability < 100%, quote/hash
+      # integrity < 100%, any fabricated id appears, or any cross-tenant leak
+      # indicator appears (master brief 13.1).
+      - name: Run the eval gate
+        run: |
+          uv run --no-sync python scripts/run_evals.py \
+            --reports-dir "$RUNNER_TEMP/eval-reports"
+
+      - name: Upload the measured baseline report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-baseline-report
+          path: ${{ runner.temp }}/eval-reports/
+          if-no-files-found: warn
+
+  control-plane:
+    name: Control-plane typecheck + vitest (with scratch PostgreSQL 18 + venv)
+    runs-on: ubuntu-latest
+    # W14 B-12 / ENGRISK E9. This job used to have NO `services:` block, no
+    # Python and no venv, while `tests/store/testDb.ts` `requireScratchPostgres()`
+    # THROWS rather than skips — so `npm test` was either permanently red or had
+    # never gone green, and the four environment-gated suites
+    # (`store/persistence`, `integration/serve`, `integration/real-exec`,
+    # `drafting/real-export`) were ALWAYS skipped. Those four are the only tests
+    # of `PgAnswerStore` / `PgDraftStore` / `PgMatterStore` / `PgSettingsStore`
+    # — the entire layer that holds the lawyer's data — and of the migration
+    # ledger's real-PostgreSQL behaviour, which is exactly where B-05's class of
+    # bug lives.
+    #
+    # Still FULLY OFFLINE: the only endpoint any step touches is the loopback
+    # PostgreSQL service container. Provider keys are blank at workflow level.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          # No password, matching the local scratch cluster the suites expect.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        # Port 55432 on the runner: the suites default to 127.0.0.1:55432 and
+        # the harness only accepts an override through COLLEX_TEST_DB_HOSTPORT.
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: control-plane/package-lock.json
+
+      - name: Install uv (Python 3.13)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      # The four real suites resolve the interpreter as `.venv/bin/python`
+      # (`.venv/Scripts/python.exe` on Windows) at the REPO ROOT, so the venv
+      # must exist under that exact name. `uv venv` + `uv pip install --python`
+      # is the same idiom CLAUDE.md prescribes for adding a package locally; it
+      # never rewrites the lockfile the way `uv sync` would.
+      #   [intake]  intake/ extraction (python-docx, defusedxml)
+      #   [export]  export/bundle_docx.py — real DOCX export
+      #   psycopg   the scratch-database driver ingestion/ and intake/ use
+      - name: Create the repo venv the real suites resolve
+        run: |
+          uv venv .venv --python 3.13
+          uv pip install --python .venv/bin/python -e ".[intake,export]"
+          uv pip install --python .venv/bin/python "psycopg[binary]>=3.2"
+
+      - name: Verify the scratch cluster is reachable and carries the extensions
+        run: |
+          .venv/bin/python - <<'PY'
+          import sys
+
+          import psycopg
+
+          with psycopg.connect(
+              "postgres://postgres@127.0.0.1:55432/postgres", autocommit=True
+          ) as conn:
+              version = conn.execute("select version()").fetchone()[0]
+              rows = conn.execute(
+                  "select name from pg_available_extensions"
+                  " where name in ('pg_trgm', 'pgcrypto', 'btree_gist')"
+              ).fetchall()
+          have = {r[0] for r in rows}
+          missing = {"pg_trgm", "pgcrypto", "btree_gist"} - have
+          print(version)
+          if missing:
+              print(f"ERROR: missing extensions in the service container: {sorted(missing)}")
+              sys.exit(1)
+          # The Turkish snowball text-search config is what chunks_fts_tr_gin
+          # needs; without it the FTS migration fails and every store suite
+          # would fail for the wrong reason.
+          with psycopg.connect(
+              "postgres://postgres@127.0.0.1:55432/postgres", autocommit=True
+          ) as conn:
+              found = conn.execute(
+                  "select 1 from pg_ts_config where cfgname = 'turkish'"
+              ).fetchone()
+          if found is None:
+              print("ERROR: the 'turkish' text search configuration is absent")
+              sys.exit(1)
+          print("scratch PostgreSQL ready on 127.0.0.1:55432")
+          PY
+
+      - name: Install
+        run: npm ci
+        working-directory: control-plane
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: control-plane
+
+      # The four environment-gated suites now RUN instead of printing their
+      # honest "environment unavailable" marker. `--reporter=verbose` makes
+      # that visible in the log, which is the acceptance criterion for B-12.
+      - name: Tests (vitest, offline; real PostgreSQL + venv present)
+        run: npm test -- --reporter=verbose
+        working-directory: control-plane
+
+      # A skipped real suite here means the environment regressed (the service
+      # container, the venv, or a moved default port) and the persistence layer
+      # is untested again. Fail loudly rather than shipping a green tick.
+      - name: Assert the four real suites actually ran
+        run: |
+          .venv/bin/python - <<'PY'
+          import subprocess
+          import sys
+
+          proc = subprocess.run(
+              ["npx", "vitest", "run",
+               "tests/store/persistence.test.ts",
+               "tests/integration/serve.test.ts",
+               "tests/integration/real-exec.test.ts",
+               "tests/drafting/real-export.test.ts",
+               "--reporter=verbose"],
+              cwd="control-plane", capture_output=True, text=True,
+          )
+          out = proc.stdout + proc.stderr
+          print(out)
+          markers = [
+              "persistence stores (environment unavailable)",
+              "real-exec integration (environment unavailable)",
+          ]
+          hit = [m for m in markers if m in out]
+          if hit:
+              print(f"ERROR: environment-unavailable markers ran: {hit}")
+              sys.exit(1)
+          sys.exit(proc.returncode)
+          PY
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan full history, required after the 2026-08-26 embedded-token incident
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          # GITLEAKS_LICENSE is only required for GitHub organization repos.
+
+  sql-syntax:
+    name: Migration SQL parse (pglast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (Python 3.13)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Parse supabase/migrations/*.sql with pglast
+        run: |
+          uv venv .ci-sql-venv
+          uv pip install --python .ci-sql-venv pglast
+          .ci-sql-venv/bin/python - <<'PY'
+          import glob
+          import sys
+
+          import pglast
+
+          paths = sorted(glob.glob("supabase/migrations/*.sql"))
+          if not paths:
+              print("ERROR: no files matched supabase/migrations/*.sql")
+              sys.exit(1)
+
+          failed = False
+          for path in paths:
+              with open(path, encoding="utf-8") as fh:
+                  sql = fh.read()
+              try:
+                  pglast.parse_sql(sql)
+                  print(f"OK   {path}")
+              except pglast.parser.ParseError as exc:
+                  failed = True
+                  print(f"FAIL {path}: {exc}")
+          sys.exit(1 if failed else 0)
+          PY

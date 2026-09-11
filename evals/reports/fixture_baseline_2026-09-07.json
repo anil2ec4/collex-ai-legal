@@ -1,0 +1,1787 @@
+{
+  "schema": "collex.fixture_baseline.v1",
+  "run_date": "2026-09-07",
+  "synthetic_data_notice": "SENTETİK VERİ / SYNTHETIC DATA — this corpus is authored test data, not real Turkish case law or legislation.",
+  "what_this_is": "Functional regression baseline of the retrieval + evidence pipeline over an authored synthetic corpus.",
+  "what_this_is_not": "NOT a Turkish legal quality benchmark. Legal quality requires the lawyer-annotated gold set (legal_gold_v1), which remains pending.",
+  "reproduce": ".venv/Scripts/python.exe scripts/run_evals.py",
+  "measured_layer": "control-plane searchLegalCorpus (exact-pin + turkish FTS + pg_trgm + RRF); dense lane = NoopDenseLane (pgvector absent)",
+  "dense_lane": "noop",
+  "database": "collex_eval_test",
+  "node_version": "v24.15.0",
+  "python_version": "3.13.14",
+  "result_limit": 20,
+  "corpus": {
+    "directory": "evals/fixtures/corpus",
+    "files": 8,
+    "documents": 7,
+    "versions": 8,
+    "chunks": 55,
+    "synthetic": true
+  },
+  "gold": {
+    "path": "evals/datasets/fixture_corpus_gold.jsonl",
+    "queries": 34,
+    "ground_truth_basis": "authored_synthetic (ground truth by construction)",
+    "claims_scored": false,
+    "claims_note": "required_claims TEXT is still not scored (needs lawyer adjudication); the answer_level section (W12-B2) reports the real AnswerPipeline's status / abstention / finalizability per query, report-only."
+  },
+  "counts": {
+    "gold_queries": 34,
+    "scored_results": 34,
+    "missing_results": 0,
+    "exact_reference_queries": 9,
+    "contrary_authority_queries": 3,
+    "temporal_queries": 6,
+    "abstention_queries": 13
+  },
+  "retrieval_metrics": {
+    "recall@5": 0.942857,
+    "recall@10": 1.0,
+    "recall@20": 1.0,
+    "ndcg@10": 0.91563,
+    "mrr": 0.902381,
+    "exact_reference_accuracy": 1.0,
+    "contrary_authority_recall": 1.0,
+    "temporal_accuracy": 1.0,
+    "abstention_accuracy": 0.923077
+  },
+  "reference_form_metrics": {
+    "top_k": 10,
+    "abbreviation_form_accuracy": 1.0,
+    "full_name_form_accuracy": 1.0,
+    "abbreviation_form_parity": 1.0,
+    "abbreviation_queries": 6,
+    "full_name_queries": 7,
+    "parity_pairs": 4,
+    "parity_detail": [
+      {
+        "parity_group": "tbk-49",
+        "abbreviation_id": "fx-exact-004",
+        "full_name_id": "fx-exact-003",
+        "identical_top_k": true,
+        "abbreviation_top_k": [
+          "kanun-6098@v1-20120701#madde-49/fikra-1",
+          "kanun-6098@v1-20120701#madde-49/fikra-2",
+          "kanun-7999@v1-20260115#madde-2/fikra-1"
+        ],
+        "full_name_top_k": [
+          "kanun-6098@v1-20120701#madde-49/fikra-1",
+          "kanun-6098@v1-20120701#madde-49/fikra-2",
+          "kanun-7999@v1-20260115#madde-2/fikra-1"
+        ]
+      },
+      {
+        "parity_group": "tck-155",
+        "abbreviation_id": "fx-exact-006",
+        "full_name_id": "fx-exact-005",
+        "identical_top_k": true,
+        "abbreviation_top_k": [
+          "kanun-5237@v2-20260115-7999#madde-155/fikra-1",
+          "kanun-5237@v2-20260115-7999#madde-155/fikra-2",
+          "kanun-5237@v2-20260115-7999#madde-168/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "kanun-5237@v2-20260115-7999#madde-157/fikra-1",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "kanun-7999@v1-20260115#madde-1/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-gerekce",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ],
+        "full_name_top_k": [
+          "kanun-5237@v2-20260115-7999#madde-155/fikra-1",
+          "kanun-5237@v2-20260115-7999#madde-155/fikra-2",
+          "kanun-5237@v2-20260115-7999#madde-168/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "kanun-5237@v2-20260115-7999#madde-157/fikra-1",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "kanun-7999@v1-20260115#madde-1/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-gerekce",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ]
+      },
+      {
+        "parity_group": "tck-157-2025",
+        "abbreviation_id": "fx-exact-002",
+        "full_name_id": "fx-exact-001",
+        "identical_top_k": true,
+        "abbreviation_top_k": [
+          "kanun-5237@v1-20050601#madde-157/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ],
+        "full_name_top_k": [
+          "kanun-5237@v1-20050601#madde-157/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ]
+      },
+      {
+        "parity_group": "tck-158",
+        "abbreviation_id": "fx-exact-008",
+        "full_name_id": "fx-exact-007",
+        "identical_top_k": true,
+        "abbreviation_top_k": [
+          "kanun-5237@v2-20260115-7999#madde-158/fikra-1",
+          "kanun-5237@v2-20260115-7999#madde-158/fikra-2",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "kanun-5237@v2-20260115-7999#madde-157/fikra-1",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "kanun-7999@v1-20260115#madde-1/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-gerekce",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ],
+        "full_name_top_k": [
+          "kanun-5237@v2-20260115-7999#madde-158/fikra-1",
+          "kanun-5237@v2-20260115-7999#madde-158/fikra-2",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "kanun-5237@v2-20260115-7999#madde-157/fikra-1",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "kanun-7999@v1-20260115#madde-1/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-gerekce",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ]
+      }
+    ]
+  },
+  "abstention_metrics": {
+    "abstention_precision": 1.0,
+    "abstention_precision_convention": "measured",
+    "abstention_recall": 0.9230769230769231,
+    "abstained_queries": 12,
+    "should_abstain_queries": 13,
+    "correct_abstentions": 12,
+    "false_abstentions": [],
+    "missed_abstentions": [
+      "fx-nearmiss-003"
+    ]
+  },
+  "coverage_gate_metrics": {
+    "measured_queries": 34,
+    "gate_counts": {
+      "bypassed-by-reference": 14,
+      "failed": 13,
+      "passed": 7
+    },
+    "answer_abstention_precision": 1.0,
+    "answer_abstention_precision_convention": "measured",
+    "answer_abstention_recall": 1.0,
+    "answer_abstained_queries": 13,
+    "should_abstain_queries": 13,
+    "correct_answer_abstentions": 13,
+    "false_answer_abstentions": [],
+    "missed_answer_abstentions": [],
+    "per_query": [
+      {
+        "id": "fx-exact-001",
+        "task_type": "exact_reference",
+        "ratio": 0.6666666666666666,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 2,
+        "missing": [
+          "temel"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-exact-002",
+        "task_type": "exact_reference",
+        "ratio": 0.6666666666666666,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 2,
+        "missing": [
+          "temel"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-exact-003",
+        "task_type": "exact_reference",
+        "ratio": 0.5,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 2,
+        "missing": [
+          "haksız",
+          "sorumluluğunun",
+          "genel"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-exact-004",
+        "task_type": "exact_reference",
+        "ratio": 0.4,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 2,
+        "missing": [
+          "haksız",
+          "sorumluluğunun",
+          "genel"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-exact-005",
+        "task_type": "exact_reference",
+        "ratio": 0.6363636363636364,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 4,
+        "missing": [
+          "suçu",
+          "tanımlanmıştır"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-exact-006",
+        "task_type": "exact_reference",
+        "ratio": 0.6,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 3,
+        "missing": [
+          "suçu",
+          "tanımlanmıştır"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-exact-007",
+        "task_type": "exact_reference",
+        "ratio": 1,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 2,
+        "missing": [],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-exact-008",
+        "task_type": "exact_reference",
+        "ratio": 1,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 2,
+        "missing": [],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-exact-009",
+        "task_type": "exact_reference",
+        "ratio": 1,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 4,
+        "missing": [],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-fact-001",
+        "task_type": "fact_pattern",
+        "ratio": 1,
+        "gate": "passed",
+        "best_passage_covered": 13,
+        "missing": [],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-fact-002",
+        "task_type": "fact_pattern",
+        "ratio": 0.7777777777777778,
+        "gate": "passed",
+        "best_passage_covered": 7,
+        "missing": [
+          "suçu",
+          "oluşturur"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-fact-003",
+        "task_type": "fact_pattern",
+        "ratio": 0.9230769230769231,
+        "gate": "passed",
+        "best_passage_covered": 10,
+        "missing": [
+          "uygun"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-fact-004",
+        "task_type": "fact_pattern",
+        "ratio": 0.8666666666666667,
+        "gate": "passed",
+        "best_passage_covered": 7,
+        "missing": [
+          "hâkim"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-temporal-001",
+        "task_type": "temporal",
+        "ratio": 0.2222222222222222,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 2,
+        "missing": [
+          "haziran",
+          "tarihinde",
+          "yürürlükte",
+          "öngörülen",
+          "alt",
+          "üst",
+          "sınırı"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-temporal-002",
+        "task_type": "temporal",
+        "ratio": 0.3333333333333333,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 3,
+        "missing": [
+          "mart",
+          "yürürlükte",
+          "öngörülen",
+          "alt",
+          "üst",
+          "sınırı"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-temporal-003",
+        "task_type": "temporal",
+        "ratio": 0.25,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 1,
+        "missing": [
+          "ocak",
+          "tarihi",
+          "metni"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-amend-001",
+        "task_type": "temporal_amendment",
+        "ratio": 1,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 1,
+        "missing": [],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-amend-002",
+        "task_type": "temporal_amendment",
+        "ratio": 1,
+        "gate": "bypassed-by-reference",
+        "best_passage_covered": 1,
+        "missing": [],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-amend-003",
+        "task_type": "temporal_amendment",
+        "ratio": 0.6470588235294118,
+        "gate": "passed",
+        "best_passage_covered": 3,
+        "missing": [
+          "temel",
+          "artıran",
+          "torba"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-contrary-001",
+        "task_type": "contrary_authority",
+        "ratio": 0.4444444444444444,
+        "gate": "passed",
+        "best_passage_covered": 5,
+        "missing": [
+          "alıp",
+          "aksi",
+          "yönde",
+          "yargıtay",
+          "kararı"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-contrary-002",
+        "task_type": "contrary_authority",
+        "ratio": 0.7647058823529411,
+        "gate": "passed",
+        "best_passage_covered": 6,
+        "missing": [
+          "yoksa",
+          "suçu"
+        ],
+        "answer_abstained": false,
+        "acceptable_abstention": false
+      },
+      {
+        "id": "fx-noanswer-001",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "tüketicinin",
+          "korunması",
+          "ayıplı",
+          "maldan",
+          "doğan",
+          "seçimlik",
+          "haklar"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-noanswer-002",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "icra",
+          "iflas",
+          "birinci",
+          "haciz",
+          "ihbarnamesine",
+          "itiraz",
+          "süresi",
+          "gündür"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-noanswer-003",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "danıştay",
+          "dairesi",
+          "kararında",
+          "hükmedilmiştir"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-noanswer-004",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "kadıköy",
+          "taşınmaz",
+          "ayşe",
+          "yılmaz",
+          "açtığı",
+          "kira",
+          "bedelinin",
+          "tespiti",
+          "davasında",
+          "mahkeme",
+          "karar",
+          "verdi"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-noanswer-005",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "uzay",
+          "uydu",
+          "çarpışmasında",
+          "sorumluluk",
+          "belirlenir"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-noanswer-006",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "kripto",
+          "varlık",
+          "borsası",
+          "lisans",
+          "şartları"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-noanswer-007",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "miras",
+          "bırakanın",
+          "dijital",
+          "hesapları",
+          "mirasçılara",
+          "geçer"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-noanswer-008",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "izinsiz",
+          "drone",
+          "uçuşunun",
+          "cezası"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-noanswer-009",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "boşanma",
+          "davasında",
+          "evcil",
+          "hayvanın",
+          "velayeti"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-noanswer-010",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "yapay",
+          "zekâ",
+          "üretilen",
+          "eserlerde",
+          "telif",
+          "hakkı",
+          "aittir"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-nearmiss-001",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "kira",
+          "sözleşmesinde",
+          "depozito",
+          "iadesi"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-nearmiss-002",
+        "task_type": "no_answer",
+        "ratio": 0,
+        "gate": "failed",
+        "best_passage_covered": 0,
+        "missing": [
+          "trafik",
+          "kazasında",
+          "araç",
+          "değer",
+          "kaybı",
+          "tazminatı",
+          "hesaplanır"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      },
+      {
+        "id": "fx-nearmiss-003",
+        "task_type": "no_answer",
+        "ratio": 0.3333333333333333,
+        "gate": "failed",
+        "best_passage_covered": 2,
+        "missing": [
+          "kartı",
+          "aidatının",
+          "iadesi",
+          "talep"
+        ],
+        "answer_abstained": true,
+        "acceptable_abstention": true
+      }
+    ]
+  },
+  "answer_level": {
+    "measured_layer": "control-plane AnswerPipeline (DEFAULT_ANSWER_LIMITS; rule-based drafter; lexical entailment; store adapters over the ingested corpus)",
+    "measured_queries": 34,
+    "missing_queries": [],
+    "error_queries": [],
+    "status_counts": {
+      "ABSTAIN": 14,
+      "COMPLETE": 13,
+      "PARTIAL": 3,
+      "QUALIFIED": 4
+    },
+    "answerable_queries": 21,
+    "no_answer_queries": 13,
+    "false_abstentions": [
+      "fx-amend-002"
+    ],
+    "false_abstention_count": 1,
+    "false_answers": [],
+    "false_answer_count": 0,
+    "correct_abstentions": [
+      "fx-nearmiss-001",
+      "fx-nearmiss-002",
+      "fx-nearmiss-003",
+      "fx-noanswer-001",
+      "fx-noanswer-002",
+      "fx-noanswer-003",
+      "fx-noanswer-004",
+      "fx-noanswer-005",
+      "fx-noanswer-006",
+      "fx-noanswer-007",
+      "fx-noanswer-008",
+      "fx-noanswer-009",
+      "fx-noanswer-010"
+    ],
+    "finalizable_answers": 17,
+    "finalizable_rate": 0.8095238095238095,
+    "finalizable_total": 17,
+    "finalizable_rate_overall": 0.5,
+    "expected_unit_checked": 21,
+    "expected_unit_in_evidence_rate": 0.9523809523809523,
+    "per_query": [
+      {
+        "id": "fx-exact-001",
+        "task_type": "exact_reference",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 4,
+        "evidence": 4,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-exact-002",
+        "task_type": "exact_reference",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 4,
+        "evidence": 4,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-exact-003",
+        "task_type": "exact_reference",
+        "status": "PARTIAL",
+        "finalizable": false,
+        "acceptable_abstention": false,
+        "claims": 1,
+        "evidence": 1,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [
+          "NOT_FINALIZABLE",
+          "QUESTION_PARTIALLY_COVERED"
+        ],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-exact-004",
+        "task_type": "exact_reference",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 1,
+        "evidence": 2,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-exact-005",
+        "task_type": "exact_reference",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 2,
+        "evidence": 3,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-exact-006",
+        "task_type": "exact_reference",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 2,
+        "evidence": 3,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-exact-007",
+        "task_type": "exact_reference",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 1,
+        "evidence": 3,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-exact-008",
+        "task_type": "exact_reference",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 1,
+        "evidence": 3,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-exact-009",
+        "task_type": "exact_reference",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 8,
+        "evidence": 8,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-fact-001",
+        "task_type": "fact_pattern",
+        "status": "QUALIFIED",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 7,
+        "evidence": 8,
+        "coverage_gate": "passed",
+        "reasons": [
+          "CONFLICTING_AUTHORITIES:claim-ev-f75518a602682a08:ev-597b9ea9ae406e8e",
+          "CONFLICTING_AUTHORITIES:claim-ev-807ccf6a4a062592:ev-597b9ea9ae406e8e",
+          "CONFLICTING_AUTHORITIES:claim-ev-91501aa0045378f1:ev-597b9ea9ae406e8e"
+        ],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-fact-002",
+        "task_type": "fact_pattern",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 3,
+        "evidence": 4,
+        "coverage_gate": "passed",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-fact-003",
+        "task_type": "fact_pattern",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 8,
+        "evidence": 8,
+        "coverage_gate": "passed",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-fact-004",
+        "task_type": "fact_pattern",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 6,
+        "evidence": 7,
+        "coverage_gate": "passed",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-temporal-001",
+        "task_type": "temporal",
+        "status": "PARTIAL",
+        "finalizable": false,
+        "acceptable_abstention": false,
+        "claims": 1,
+        "evidence": 1,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [
+          "NOT_FINALIZABLE",
+          "QUESTION_PARTIALLY_COVERED",
+          "TEMPORAL_COMPARISON_MISSING"
+        ],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-temporal-002",
+        "task_type": "temporal",
+        "status": "PARTIAL",
+        "finalizable": false,
+        "acceptable_abstention": false,
+        "claims": 1,
+        "evidence": 1,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [
+          "NOT_FINALIZABLE",
+          "QUESTION_PARTIALLY_COVERED",
+          "TEMPORAL_COMPARISON_MISSING"
+        ],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-temporal-003",
+        "task_type": "temporal",
+        "status": "QUALIFIED",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 1,
+        "evidence": 1,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [
+          "TEMPORAL_COMPARISON_MISSING"
+        ],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-amend-001",
+        "task_type": "temporal_amendment",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 1,
+        "evidence": 1,
+        "coverage_gate": "bypassed-by-reference",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-amend-002",
+        "task_type": "temporal_amendment",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": false,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "QUESTION_NOT_COVERED",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": false,
+        "error": null
+      },
+      {
+        "id": "fx-amend-003",
+        "task_type": "temporal_amendment",
+        "status": "COMPLETE",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 8,
+        "evidence": 8,
+        "coverage_gate": "passed",
+        "reasons": [],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-contrary-001",
+        "task_type": "contrary_authority",
+        "status": "QUALIFIED",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 6,
+        "evidence": 8,
+        "coverage_gate": "passed",
+        "reasons": [
+          "CONFLICTING_AUTHORITIES:claim-ev-807ccf6a4a062592:ev-597b9ea9ae406e8e",
+          "CONFLICTING_AUTHORITIES:claim-ev-f75518a602682a08:ev-597b9ea9ae406e8e"
+        ],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-contrary-002",
+        "task_type": "contrary_authority",
+        "status": "QUALIFIED",
+        "finalizable": true,
+        "acceptable_abstention": false,
+        "claims": 6,
+        "evidence": 8,
+        "coverage_gate": "passed",
+        "reasons": [
+          "CONFLICTING_AUTHORITIES:claim-ev-807ccf6a4a062592:ev-cc5213ae47d878e9+ev-597b9ea9ae406e8e",
+          "CONFLICTING_AUTHORITIES:claim-ev-f75518a602682a08:ev-cc5213ae47d878e9+ev-597b9ea9ae406e8e",
+          "CONFLICTING_AUTHORITIES:claim-ev-91501aa0045378f1:ev-cc5213ae47d878e9+ev-597b9ea9ae406e8e"
+        ],
+        "expected_in_evidence": true,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-001",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-002",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-003",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-004",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-005",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-006",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-007",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-008",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-009",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-noanswer-010",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-nearmiss-001",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-nearmiss-002",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "NO_EVIDENCE",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      },
+      {
+        "id": "fx-nearmiss-003",
+        "task_type": "no_answer",
+        "status": "ABSTAIN",
+        "finalizable": false,
+        "acceptable_abstention": true,
+        "claims": 0,
+        "evidence": 0,
+        "coverage_gate": "failed",
+        "reasons": [
+          "QUESTION_NOT_COVERED",
+          "ABSTENTION_NOT_FINALIZABLE"
+        ],
+        "expected_in_evidence": null,
+        "error": null
+      }
+    ],
+    "band": {
+      "repeats": 4,
+      "ingests": 4,
+      "note": "Bant, art arda koşulan N ölçümün min-max aralığıdır. Genişliği sıfır olan bir bant, o koşularda bu satırın değişmediğini gösterir; tek koşu ise hiçbir zaman kararlılık kanıtı değildir (N-7).",
+      "false_abstention_count": {
+        "values": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "min": 1,
+        "max": 1,
+        "stable": true
+      },
+      "false_answer_count": {
+        "values": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "min": 0,
+        "max": 0,
+        "stable": true
+      },
+      "finalizable_answers": {
+        "values": [
+          17,
+          17,
+          17,
+          17
+        ],
+        "min": 17,
+        "max": 17,
+        "stable": true
+      },
+      "finalizable_total": {
+        "values": [
+          17,
+          17,
+          17,
+          17
+        ],
+        "min": 17,
+        "max": 17,
+        "stable": true
+      },
+      "finalizable_rate": {
+        "values": [
+          0.8095238095238095,
+          0.8095238095238095,
+          0.8095238095238095,
+          0.8095238095238095
+        ],
+        "min": 0.8095238095238095,
+        "max": 0.8095238095238095,
+        "stable": true
+      },
+      "finalizable_rate_overall": {
+        "values": [
+          0.5,
+          0.5,
+          0.5,
+          0.5
+        ],
+        "min": 0.5,
+        "max": 0.5,
+        "stable": true
+      },
+      "expected_unit_in_evidence_rate": {
+        "values": [
+          0.9523809523809523,
+          0.9523809523809523,
+          0.9523809523809523,
+          0.9523809523809523
+        ],
+        "min": 0.9523809523809523,
+        "max": 0.9523809523809523,
+        "stable": true
+      },
+      "answerable_queries": {
+        "values": [
+          21,
+          21,
+          21,
+          21
+        ],
+        "min": 21,
+        "max": 21,
+        "stable": true
+      },
+      "no_answer_queries": {
+        "values": [
+          13,
+          13,
+          13,
+          13
+        ],
+        "min": 13,
+        "max": 13,
+        "stable": true
+      },
+      "measured_queries": {
+        "values": [
+          34,
+          34,
+          34,
+          34
+        ],
+        "min": 34,
+        "max": 34,
+        "stable": true
+      },
+      "status_counts": {
+        "ABSTAIN": {
+          "values": [
+            14,
+            14,
+            14,
+            14
+          ],
+          "min": 14,
+          "max": 14,
+          "stable": true
+        },
+        "COMPLETE": {
+          "values": [
+            13,
+            13,
+            13,
+            13
+          ],
+          "min": 13,
+          "max": 13,
+          "stable": true
+        },
+        "PARTIAL": {
+          "values": [
+            3,
+            3,
+            3,
+            3
+          ],
+          "min": 3,
+          "max": 3,
+          "stable": true
+        },
+        "QUALIFIED": {
+          "values": [
+            4,
+            4,
+            4,
+            4
+          ],
+          "min": 4,
+          "max": 4,
+          "stable": true
+        }
+      },
+      "false_abstentions_union": [
+        "fx-amend-002"
+      ],
+      "false_answers_union": [],
+      "error_queries_union": [],
+      "missing_queries_union": [],
+      "stable": true
+    }
+  },
+  "lane_metrics": {
+    "hits_by_lane": {
+      "exact": 36,
+      "lexical": 67,
+      "trigram": 5,
+      "dense": 0,
+      "relation": 17,
+      "citation": 12
+    },
+    "sole_contributor_by_lane": {
+      "exact": 32,
+      "lexical": 59,
+      "trigram": 0,
+      "dense": 0,
+      "relation": 17,
+      "citation": 12
+    },
+    "zero_hit_queries": [
+      "fx-noanswer-001",
+      "fx-noanswer-002",
+      "fx-noanswer-003",
+      "fx-noanswer-004",
+      "fx-noanswer-005",
+      "fx-noanswer-006",
+      "fx-noanswer-007",
+      "fx-noanswer-008",
+      "fx-noanswer-009",
+      "fx-noanswer-010",
+      "fx-nearmiss-001",
+      "fx-nearmiss-002"
+    ],
+    "zero_hit_query_count": 12
+  },
+  "integrity_metrics": {
+    "ranked_hits_total": 128,
+    "evidence_total": 35,
+    "evidence_rejected_by_pack": 0,
+    "evidence_unresolvable": 0,
+    "evidence_verified": 35,
+    "stored_hash_mismatch_count": 0,
+    "stored_hash_mismatch_detail": [],
+    "citation_resolvability": 1.0,
+    "quote_hash_integrity": 1.0,
+    "fabricated_id_count": 0,
+    "fabricated_id_detail": [],
+    "cross_tenant_leak_count": 0,
+    "cross_tenant_leak_detail": [],
+    "retrieval_error_queries": [],
+    "citation_failure_reasons": []
+  },
+  "citation_summary": {
+    "claims_total": 22,
+    "claims_passed": 22,
+    "claims_failed": 0,
+    "evidence_total": 35,
+    "evidence_passed": 35,
+    "evidence_failed": 0,
+    "all_passed": true
+  },
+  "latency": {
+    "benchmark_latency_ms": {
+      "count": 34,
+      "p50_ms": 7.407800000000009,
+      "p95_ms": 18.805014999999994
+    },
+    "stages": {
+      "retrieval_per_query": {
+        "n": 34,
+        "p50_ms": 7.407800000000009,
+        "p95_ms": 18.805014999999994
+      },
+      "evidence_pack_per_query": {
+        "n": 34,
+        "p50_ms": 0.26849999999998886,
+        "p95_ms": 1.169774999999986
+      },
+      "corpus_inventory_ms": 41.433800000000005,
+      "canonical_text_load_ms": 3.8577999999999975
+    },
+    "wall_clock_stage_ms": {
+      "driver_bundle": 136.177599983057,
+      "answer_driver_bundle": 127.23220000043511,
+      "database_recreate": 263.4341999946628,
+      "ingestion": 375.0785000156611,
+      "answer_measurement": 1077.2102999908384,
+      "retrieval_measurement": 520.7290999824181,
+      "scoring": 0.766999990446493,
+      "citation_check": 0.4645000153686851
+    }
+  },
+  "gates": [
+    {
+      "name": "citation_resolvability == 100%",
+      "passed": true,
+      "detail": "100.00% of 128 candidate passage(s) resolved to verified-document evidence"
+    },
+    {
+      "name": "quote_hash_integrity == 100%",
+      "passed": true,
+      "detail": "35/35 evidence records passed offset+quote+quote-hash+content-hash (+0 stored-hash mismatch vs. what ingestion recorded)"
+    },
+    {
+      "name": "fabricated_ids == 0",
+      "passed": true,
+      "detail": "0 identifier(s) absent from the corpus inventory"
+    },
+    {
+      "name": "cross_tenant_leak_indicators == 0",
+      "passed": true,
+      "detail": "0 non-public hit(s) in a public corpus search"
+    },
+    {
+      "name": "no retrieval lane total failure",
+      "passed": true,
+      "detail": "queries whose every retrieval lane failed: none"
+    },
+    {
+      "name": "no gold query dropped",
+      "passed": true,
+      "detail": "0 gold queries had no result line"
+    },
+    {
+      "name": "answer-layer false answers == 0 (every repeat)",
+      "passed": true,
+      "detail": "worst repeat: 0 no_answer gold row(s) answered over 4 repeat(s) / 4 ingest(s); ids: none"
+    }
+  ],
+  "gates_passed": true,
+  "per_query": [
+    {
+      "id": "fx-exact-001",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-002",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-003",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-004",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-005",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-006",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-007",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-008",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-009",
+      "task_type": "exact_reference",
+      "ndcg@10": 0.951231,
+      "reciprocal_rank": 1.0,
+      "recall@5": 0.8,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-fact-001",
+      "task_type": "fact_pattern",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "contrary_authority_recall": 1.0
+    },
+    {
+      "id": "fx-fact-002",
+      "task_type": "fact_pattern",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    {
+      "id": "fx-fact-003",
+      "task_type": "fact_pattern",
+      "ndcg@10": 0.919721,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    {
+      "id": "fx-fact-004",
+      "task_type": "fact_pattern",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    {
+      "id": "fx-temporal-001",
+      "task_type": "temporal",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-temporal-002",
+      "task_type": "temporal",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-temporal-003",
+      "task_type": "temporal",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-amend-001",
+      "task_type": "temporal_amendment",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-amend-002",
+      "task_type": "temporal_amendment",
+      "ndcg@10": 0.414437,
+      "reciprocal_rank": 0.2,
+      "recall@5": 0.5,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-amend-003",
+      "task_type": "temporal_amendment",
+      "ndcg@10": 0.501266,
+      "reciprocal_rank": 0.25,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-contrary-001",
+      "task_type": "contrary_authority",
+      "ndcg@10": 0.591235,
+      "reciprocal_rank": 0.5,
+      "recall@5": 0.5,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "contrary_authority_recall": 1.0
+    },
+    {
+      "id": "fx-contrary-002",
+      "task_type": "contrary_authority",
+      "ndcg@10": 0.850345,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "contrary_authority_recall": 1.0
+    },
+    {
+      "id": "fx-noanswer-001",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-002",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-003",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-004",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-005",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-006",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-007",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-008",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-009",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-010",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-nearmiss-001",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-nearmiss-002",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-nearmiss-003",
+      "task_type": "no_answer",
+      "abstention_correct": false
+    }
+  ]
+}

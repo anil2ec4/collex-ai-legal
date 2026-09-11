@@ -148,7 +148,10 @@ class VectorStore:
         # Create results
         results = []
         for idx in top_indices:
-            doc = valid_docs[idx] if threshold else self.documents[idx]
+            # Must match the filter branch above: 'threshold is not None'.
+            # Bare truthiness broke threshold=0.0 (indices into the filtered
+            # similarity array were applied to the unfiltered document list).
+            doc = valid_docs[idx] if threshold is not None else self.documents[idx]
             score = float(similarities[idx])
             results.append((doc, score))
         

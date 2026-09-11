@@ -1,0 +1,129 @@
+{
+  "policy": {
+    "offset_unit": "unicode_code_points",
+    "normal_form": "NFC",
+    "hash": "sha256_hex_over_utf8",
+    "description": "locator.startChar/endChar are Unicode code point indices into the NFC canonical text; hashes are SHA-256 hex over UTF-8. Cases with utf16_differs=true are must-fail witnesses for UTF-16-indexed implementations."
+  },
+  "generated_by": "scripts/gen_offset_fixtures.py",
+  "cases": [
+    {
+      "name": "ascii_basic",
+      "description": "Plain ASCII: code points == UTF-16 units == bytes-per-char.",
+      "canonical_text": "Ceza sorumlulugu sahsidir; kimse baskasinin fiilinden sorumlu tutulamaz.",
+      "start": 5,
+      "end": 25,
+      "expected_quote": "sorumlulugu sahsidir",
+      "expected_quote_sha256": "67f6d7b2df19aa64758176b3ccd46d7d9559763b7342c19241b73d0d3a8c1bdf",
+      "expected_content_sha256": "4c837a8b5616e55ca09c295bfc95c2b3e625bcf20d765113554f7cb52d7e488e",
+      "utf16_start": 5,
+      "utf16_end": 25,
+      "utf16_differs": false
+    },
+    {
+      "name": "turkish_dotted_capital_i",
+      "description": "Dotted capital I (U+0130) and other Turkish letters; BMP only.",
+      "canonical_text": "Madde 2 - İdare, kuruluş ve görevleriyle bir bütündür ve kanunla düzenlenir.",
+      "start": 10,
+      "end": 40,
+      "expected_quote": "İdare, kuruluş ve görevleriyle",
+      "expected_quote_sha256": "de61d2f032516be7c361ed9431496d64208b32ee88bee11d941d9883f5683ad0",
+      "expected_content_sha256": "d4275dadc9d028d658820d99af6c161dbf1cbe39203856fa8ff2cf703ce2aab4",
+      "utf16_start": 10,
+      "utf16_end": 40,
+      "utf16_differs": false
+    },
+    {
+      "name": "turkish_dotless_i",
+      "description": "Dotless i (U+0131) and dotted capital (U+0130) around the quote.",
+      "canonical_text": "Işık ve ısı ölçümleri sınır değerlerini aşamaz; İdare bunu denetler.",
+      "start": 8,
+      "end": 27,
+      "expected_quote": "ısı ölçümleri sınır",
+      "expected_quote_sha256": "96ffbbb1e71f48a4165ffbfaab2d9f5dc2ea3769fe2d00bb41c300e04c288bfc",
+      "expected_content_sha256": "e9753589c8ad4c1a73c4d78b96badacaa9da16b7271e381e94b5d712d434653d",
+      "utf16_start": 8,
+      "utf16_end": 27,
+      "utf16_differs": false
+    },
+    {
+      "name": "nfc_canonical_from_nfd_input",
+      "description": "Canonical stored form is NFC; the NFD spelling of the same text is provided so validators can prove they normalize before slicing/hashing.",
+      "canonical_text": "İdarenin her türlü eylem ve işlemlerine karşı yargı yolu açıktır.",
+      "start": 46,
+      "end": 64,
+      "expected_quote": "yargı yolu açıktır",
+      "expected_quote_sha256": "53fe94b84727ab52c61801cb45a6cacf090ec8b48a2823d2f020e50d6a0deee9",
+      "expected_content_sha256": "6ef7b9b67c4459e343c02014d9bef4100e5f0833fa124d5d2f7e03138f5ffbae",
+      "utf16_start": 46,
+      "utf16_end": 64,
+      "utf16_differs": false,
+      "nfd_source_text": "İdarenin her türlü eylem ve işlemlerine karşı yargı yolu açıktır."
+    },
+    {
+      "name": "emoji_prefix_utf16_trap",
+      "description": "One non-BMP emoji (U+1F600, a surrogate pair in UTF-16) before the quote shifts UTF-16 indices by one unit: naive UTF-16 slicing MUST fail here.",
+      "canonical_text": "⚖ 😀 Mülkiyet hakkı, ancak kamu yararı amacıyla kanunla sınırlanabilir.",
+      "start": 4,
+      "end": 18,
+      "expected_quote": "Mülkiyet hakkı",
+      "expected_quote_sha256": "687bdfdf86f1465fa6261a7d734088d0493f0158602191524981f872068ace1d",
+      "expected_content_sha256": "a45dd6b88b760b6a3c6aa9cbb39c6097615efc6b432bdb6d255e951d0f1fa5da",
+      "utf16_start": 5,
+      "utf16_end": 19,
+      "utf16_differs": true
+    },
+    {
+      "name": "multiple_astral_prefix",
+      "description": "Several non-BMP code points (Phoenician letters, classical building emoji) before a Turkish quote: UTF-16 offsets drift by three units.",
+      "canonical_text": "𐤀𐤁 kadim yazı; 🏛 Anayasa Mahkemesi kararına göre özgürlük esastır.",
+      "start": 49,
+      "end": 65,
+      "expected_quote": "özgürlük esastır",
+      "expected_quote_sha256": "f213a772abfebb0445e407d446f4c524591817c31ad5815c4c99e8c06429f699",
+      "expected_content_sha256": "ece60e17e4e25799df086b562ff34643733a79ef6bc91d5f5e7cc5cdc147e78f",
+      "utf16_start": 52,
+      "utf16_end": 68,
+      "utf16_differs": true
+    },
+    {
+      "name": "combining_mark_stays_decomposed",
+      "description": "q + U+0303 has no precomposed form, so NFC keeps two code points; combining marks count as their own code points.",
+      "canonical_text": "Sözleşme q̃ işareti ile paraflandı ve dosyaya eklendi.",
+      "start": 9,
+      "end": 19,
+      "expected_quote": "q̃ işareti",
+      "expected_quote_sha256": "37094c4df33ffd3dd27fead55ab66b4005357e86ad2b31292ce55f92b830b5dd",
+      "expected_content_sha256": "d12633708654d06c3af9418907d8e177c651537318c31b6977ec05fcb7ce1230",
+      "utf16_start": 9,
+      "utf16_end": 19,
+      "utf16_differs": false
+    },
+    {
+      "name": "astral_inside_quote",
+      "description": "Non-BMP emoji INSIDE the quote: quote length in code points differs from its UTF-16 length, so both offsets and the slice width diverge for UTF-16 implementations.",
+      "canonical_text": "Tutanakta 📜 Kanun metni aynen alıntılandı: 'Hak arama hürriyeti engellenemez.'",
+      "start": 10,
+      "end": 23,
+      "expected_quote": "📜 Kanun metni",
+      "expected_quote_sha256": "ef6b57890d72058753c2219e802d6792c97b6750fce24cebd465638508c9d82f",
+      "expected_content_sha256": "e3b998b2682e3aa3dd773b76d01828d22ead34f4f8d96f1a6d5f3ef987084d09",
+      "utf16_start": 10,
+      "utf16_end": 24,
+      "utf16_differs": true
+    },
+    {
+      "name": "full_document_span",
+      "description": "Quote spans the whole canonical text (start=0, end=length).",
+      "canonical_text": "Hak arama hürriyeti hiçbir şekilde engellenemez.",
+      "start": 0,
+      "end": 48,
+      "expected_quote": "Hak arama hürriyeti hiçbir şekilde engellenemez.",
+      "expected_quote_sha256": "e43de8491f7affed8cf2e4739141c3792dc573fedca13d69936007c1eb7660a7",
+      "expected_content_sha256": "e43de8491f7affed8cf2e4739141c3792dc573fedca13d69936007c1eb7660a7",
+      "utf16_start": 0,
+      "utf16_end": 48,
+      "utf16_differs": false
+    }
+  ]
+}

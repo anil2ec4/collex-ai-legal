@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "notice": "SENTETİK TEST VERİSİ — bu dosya gerçek bir KVKK Kurul kararı değildir; yalnızca yerel ingestion/test amaçlı üretilmiş sentetik bir karar metnidir.",
+    "synthetic": true,
+    "version_label": "v1",
+    "fixture_file": "kvkk_karar_1.json",
+    "scope": "public"
+  },
+  "source": "fixture-kvkk",
+  "external_id": "kvkk-2025-1834",
+  "document_type": "kvkk_karari",
+  "title": "KVKK Kurul Kararı 2025/1834 (sentetik)",
+  "retrieved_url": "https://example.invalid/fixture/kvkk/2025-1834",
+  "media_type": "application/json",
+  "dates": {
+    "decision": "2025-11-20"
+  },
+  "structure_hints": {
+    "kind": "decision",
+    "court": "Kişisel Verileri Koruma Kurulu",
+    "decision_no": "2025/1834"
+  },
+  "text": "KİŞİSEL VERİLERİ KORUMA KURULU KARARI\nKarar Tarihi: 20.11.2025\nKarar No: 2025/1834\n\nÖZET: Veri sorumlusu bir banka tarafından ilgili kişinin cep telefonu numarasının, açık rızası bulunmaksızın pazarlama amaçlı aranmak suretiyle işlenmesi hakkında.\n\nOLAY: İlgili kişi, müşterisi olmadığı bir bankanın kendisini ticari amaçla aradığını, telefon numarasını bu bankayla hiçbir zaman paylaşmadığını ve aramaların açık rızası olmaksızın yapıldığını belirterek Kurula şikayette bulunmuştur. Veri sorumlusu savunmasında numaranın bir iş ortağı aracılığıyla temin edildiğini beyan etmiştir.\n\nGEREKÇE: 6698 sayılı Kişisel Verilerin Korunması Kanununun 5 inci maddesi uyarınca kişisel veriler ilgili kişinin açık rızası olmaksızın işlenemez. Somut olayda pazarlama amaçlı arama bakımından Kanunun 5 inci maddesinin ikinci fıkrasında sayılan işleme şartlarından herhangi birinin bulunmadığı ve açık rızanın da alınmadığı anlaşılmıştır. Veri sorumlusunun üçüncü kişiden temin ettiği veriyi hukuka uygunluk denetimi yapmaksızın işlemesi, veri güvenliği yükümlülüklerine de aykırıdır.\n\nHÜKÜM: Veri sorumlusu banka hakkında Kanunun 18 inci maddesi uyarınca 500.000 TL idari para cezası uygulanmasına, hukuka aykırı işlenen kişisel verilerin imha edilmesine ve sonucundan Kurula bilgi verilmesine karar verilmiştir.\n"
+}

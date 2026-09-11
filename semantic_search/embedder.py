@@ -8,9 +8,9 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-# OpenRouter defaults (preserve backward compatibility)
-DEFAULT_MODEL = "google/gemini-embedding-001"
-DEFAULT_DIMENSION = 3072
+# OpenRouter defaults for the independent server.
+DEFAULT_MODEL = "nvidia/llama-nemotron-embed-vl-1b-v2:free"
+DEFAULT_DIMENSION = 2048
 
 # Local provider defaults — Ollama with nomic-embed-text out of the box.
 # Override via LOCAL_EMBEDDING_BASE_URL / LOCAL_EMBEDDING_MODEL /
@@ -216,14 +216,11 @@ class OpenRouterEmbedder(_BaseOpenAICompatibleEmbedder):
         OPENROUTER_EMBEDDING_MODEL (optional): override the embedding model id
         OPENROUTER_EMBEDDING_DIMENSION (optional): override the vector size
 
-    Defaults preserve backward compatibility: ``google/gemini-embedding-001``
-    at 3072 dimensions.
+    The independent server defaults to NVIDIA's free Llama Nemotron embedding
+    route at 2048 dimensions.
     """
 
-    _extra_headers = {
-        "HTTP-Referer": "https://yargimcp.com",
-        "X-Title": "Yargi MCP Server",
-    }
+    _extra_headers = {"X-Title": "Independent Yargi Mevzuat MCP"}
 
     def __init__(
         self,
@@ -250,10 +247,9 @@ class OpenRouterEmbedder(_BaseOpenAICompatibleEmbedder):
             "OPENROUTER_EMBEDDING_DIMENSION",
             DEFAULT_DIMENSION,
         )
-        # Default to gemini-style prefix for OpenRouter — matches the default
-        # google/gemini-embedding-001 model. Override via constructor or
-        # EMBEDDING_PROMPT_STYLE env var when picking a different model.
-        self.prompt_style = _resolve_prompt_style(prompt_style, "gemini")
+        # Nemotron accepts direct text; other model families can select gemini
+        # or e5 formatting through EMBEDDING_PROMPT_STYLE.
+        self.prompt_style = _resolve_prompt_style(prompt_style, "raw")
 
         logger.info(
             f"OpenRouter Embedder initialized with model: {self.model} "

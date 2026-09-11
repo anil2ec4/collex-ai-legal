@@ -42,8 +42,3 @@ class KvkkDocumentMarkdown(BaseModel):
     total_pages: int = Field(description="Total number of pages for the full markdown content.")
     is_paginated: bool = Field(description="True if the full markdown content is split into multiple pages.")
     error_message: Optional[str] = Field(None, description="Value")
-    
-    class Config:
-        json_encoders = {
-            HttpUrl: str
-        }

@@ -1,3 +1,17 @@
+# Publish workflow maintenance notes (2026-08-27, no functional release change):
+# - environment url fixed: it pointed at the upstream package (yargi-mcp);
+#   this repo publishes yargi-mevzuat-mcp-independent.
+# - added an offline smoke gate (scripts/smoke_check.py asserts the 54-tool
+#   surface with blanked provider keys) that the publish job `needs`, so a
+#   broken tool surface can never reach PyPI.
+# - removed the mixed-auth confusion: the job simultaneously claimed OIDC
+#   trusted publishing (`permissions: id-token: write`) AND passed an API
+#   token (`password:`). pypa/gh-action-pypi-publish prefers trusted
+#   publishing when the OIDC claim is present, which silently ignores the
+#   token and fails unless a trusted publisher is configured on PyPI.
+#   This repo authenticates with secrets.PYPI_API_TOKEN only, so the
+#   id-token claim is dropped — smallest change that leaves exactly one
+#   working auth path.
 name: Publish to PyPI
 
 on:
@@ -6,30 +20,50 @@ on:
   workflow_dispatch:  # Manual trigger for testing
 
 jobs:
-  pypi-publish:
-    name: Upload release to PyPI
+  offline-smoke:
+    name: Offline smoke check (54-tool surface)
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/yargi-mcp
-    permissions:
-      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
+    - name: Install package (runtime deps only, no network keys)
+      run: |
+        python -m pip install --upgrade pip
+        pip install .
+
+    - name: Run offline smoke check
+      # smoke_check.py blanks all provider credentials itself and asserts
+      # exactly 54 MCP tools plus HTTP auth behavior — fully offline.
+      run: python scripts/smoke_check.py
+
+  pypi-publish:
+    name: Upload release to PyPI
+    needs: offline-smoke
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/yargi-mevzuat-mcp-independent
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install build
-    
+
     - name: Build package
       run: python -m build
-    
+
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:

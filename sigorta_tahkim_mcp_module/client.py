@@ -53,12 +53,11 @@ class SigortaTahkimApiClient:
 
     def __init__(self, request_timeout: float = 60.0):
         """Initialize the Sigorta Tahkim API client."""
-        self.tavily_api_key = os.getenv("TAVILY_API_KEY")
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY", "").strip()
         if not self.tavily_api_key:
-            self.tavily_api_key = "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"
-            logger.info("Using fallback Tavily API token (development token)")
+            logger.warning("Sigorta Tahkim discovery disabled: TAVILY_API_KEY is not configured")
         else:
-            logger.info("Using Tavily API key from environment variable")
+            logger.info("Sigorta Tahkim discovery enabled with TAVILY_API_KEY")
 
         self.http_client = httpx.AsyncClient(
             headers={
@@ -72,6 +71,10 @@ class SigortaTahkimApiClient:
         """Close the HTTP client session."""
         await self.http_client.aclose()
         logger.info("SigortaTahkimApiClient: HTTP client session closed.")
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.tavily_api_key)
 
     def _get_pdf_filename(self, issue_number: int) -> str:
         """Get the PDF filename for a given journal issue number."""
@@ -119,6 +122,9 @@ class SigortaTahkimApiClient:
         Returns:
             SigortaTahkimSearchResult with matching decisions
         """
+        if not self.is_configured:
+            raise RuntimeError("Sigorta Tahkim search disabled: set TAVILY_API_KEY in the environment.")
+
         try:
             headers = {
                 "Content-Type": "application/json",

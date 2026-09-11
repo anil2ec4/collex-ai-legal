@@ -1,0 +1,498 @@
+{
+  "schema": "collex.fixture_baseline.v1",
+  "run_date": "2026-08-27",
+  "synthetic_data_notice": "SENTETİK VERİ / SYNTHETIC DATA — this corpus is authored test data, not real Turkish case law or legislation.",
+  "what_this_is": "Functional regression baseline of the retrieval + evidence pipeline over an authored synthetic corpus.",
+  "what_this_is_not": "NOT a Turkish legal quality benchmark. Legal quality requires the lawyer-annotated gold set (legal_gold_v1), which remains pending.",
+  "reproduce": ".venv/Scripts/python.exe scripts/run_evals.py",
+  "measured_layer": "control-plane searchLegalCorpus (exact-pin + turkish FTS + pg_trgm + RRF); dense lane = NoopDenseLane (pgvector absent)",
+  "dense_lane": "noop",
+  "database": "collex_eval_test",
+  "node_version": "v24.15.0",
+  "python_version": "3.13.14",
+  "result_limit": 20,
+  "corpus": {
+    "directory": "evals/fixtures/corpus",
+    "files": 8,
+    "documents": 7,
+    "versions": 8,
+    "chunks": 55,
+    "synthetic": true
+  },
+  "gold": {
+    "path": "evals/datasets/fixture_corpus_gold.jsonl",
+    "queries": 25,
+    "ground_truth_basis": "authored_synthetic (ground truth by construction)",
+    "claims_scored": false,
+    "claims_note": "required_claims are carried for the future answer-layer eval; this run scores retrieval and citation integrity only."
+  },
+  "counts": {
+    "gold_queries": 25,
+    "scored_results": 25,
+    "missing_results": 0,
+    "exact_reference_queries": 9,
+    "contrary_authority_queries": 3,
+    "temporal_queries": 6,
+    "abstention_queries": 4
+  },
+  "retrieval_metrics": {
+    "recall@5": 0.942857,
+    "recall@10": 1.0,
+    "recall@20": 1.0,
+    "ndcg@10": 0.91563,
+    "mrr": 0.902381,
+    "exact_reference_accuracy": 1.0,
+    "contrary_authority_recall": 1.0,
+    "temporal_accuracy": 1.0,
+    "abstention_accuracy": 1.0
+  },
+  "reference_form_metrics": {
+    "top_k": 10,
+    "abbreviation_form_accuracy": 1.0,
+    "full_name_form_accuracy": 1.0,
+    "abbreviation_form_parity": 1.0,
+    "abbreviation_queries": 6,
+    "full_name_queries": 7,
+    "parity_pairs": 4,
+    "parity_detail": [
+      {
+        "parity_group": "tbk-49",
+        "abbreviation_id": "fx-exact-004",
+        "full_name_id": "fx-exact-003",
+        "identical_top_k": true,
+        "abbreviation_top_k": [
+          "kanun-6098@v1-20120701#madde-49/fikra-1",
+          "kanun-6098@v1-20120701#madde-49/fikra-2",
+          "kanun-7999@v1-20260115#madde-2/fikra-1"
+        ],
+        "full_name_top_k": [
+          "kanun-6098@v1-20120701#madde-49/fikra-1",
+          "kanun-6098@v1-20120701#madde-49/fikra-2",
+          "kanun-7999@v1-20260115#madde-2/fikra-1"
+        ]
+      },
+      {
+        "parity_group": "tck-155",
+        "abbreviation_id": "fx-exact-006",
+        "full_name_id": "fx-exact-005",
+        "identical_top_k": true,
+        "abbreviation_top_k": [
+          "kanun-5237@v2-20260115-7999#madde-155/fikra-1",
+          "kanun-5237@v2-20260115-7999#madde-155/fikra-2",
+          "kanun-5237@v2-20260115-7999#madde-168/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "kanun-5237@v2-20260115-7999#madde-157/fikra-1",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "kanun-7999@v1-20260115#madde-1/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-gerekce",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ],
+        "full_name_top_k": [
+          "kanun-5237@v2-20260115-7999#madde-155/fikra-1",
+          "kanun-5237@v2-20260115-7999#madde-155/fikra-2",
+          "kanun-5237@v2-20260115-7999#madde-168/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "kanun-5237@v2-20260115-7999#madde-157/fikra-1",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "kanun-7999@v1-20260115#madde-1/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-gerekce",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ]
+      },
+      {
+        "parity_group": "tck-157-2025",
+        "abbreviation_id": "fx-exact-002",
+        "full_name_id": "fx-exact-001",
+        "identical_top_k": true,
+        "abbreviation_top_k": [
+          "kanun-5237@v1-20050601#madde-157/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ],
+        "full_name_top_k": [
+          "kanun-5237@v1-20050601#madde-157/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ]
+      },
+      {
+        "parity_group": "tck-158",
+        "abbreviation_id": "fx-exact-008",
+        "full_name_id": "fx-exact-007",
+        "identical_top_k": true,
+        "abbreviation_top_k": [
+          "kanun-5237@v2-20260115-7999#madde-158/fikra-1",
+          "kanun-5237@v2-20260115-7999#madde-158/fikra-2",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "kanun-5237@v2-20260115-7999#madde-157/fikra-1",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "kanun-7999@v1-20260115#madde-1/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-gerekce",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ],
+        "full_name_top_k": [
+          "kanun-5237@v2-20260115-7999#madde-158/fikra-1",
+          "kanun-5237@v2-20260115-7999#madde-158/fikra-2",
+          "yargitay-15cd-2024-1187@v1#bolum-ozet",
+          "kanun-5237@v2-20260115-7999#madde-157/fikra-1",
+          "yargitay-15cd-2024-2356@v1#bolum-ozet",
+          "kanun-7999@v1-20260115#madde-1/fikra-1",
+          "yargitay-15cd-2024-1187@v1#bolum-gerekce",
+          "yargitay-15cd-2024-2356@v1#bolum-gerekce"
+        ]
+      }
+    ]
+  },
+  "abstention_metrics": {
+    "abstention_precision": 1.0,
+    "abstention_precision_convention": "measured",
+    "abstention_recall": 1.0,
+    "abstained_queries": 4,
+    "should_abstain_queries": 4,
+    "correct_abstentions": 4,
+    "false_abstentions": [],
+    "missed_abstentions": []
+  },
+  "lane_metrics": {
+    "hits_by_lane": {
+      "exact": 48,
+      "lexical": 66,
+      "trigram": 5,
+      "dense": 0,
+      "relation": 15
+    },
+    "sole_contributor_by_lane": {
+      "exact": 44,
+      "lexical": 58,
+      "trigram": 0,
+      "dense": 0,
+      "relation": 15
+    },
+    "zero_hit_queries": [
+      "fx-noanswer-001",
+      "fx-noanswer-002",
+      "fx-noanswer-003",
+      "fx-noanswer-004"
+    ],
+    "zero_hit_query_count": 4
+  },
+  "integrity_metrics": {
+    "ranked_hits_total": 125,
+    "evidence_total": 35,
+    "evidence_rejected_by_pack": 0,
+    "evidence_unresolvable": 0,
+    "evidence_verified": 35,
+    "stored_hash_mismatch_count": 0,
+    "stored_hash_mismatch_detail": [],
+    "citation_resolvability": 1.0,
+    "quote_hash_integrity": 1.0,
+    "fabricated_id_count": 0,
+    "fabricated_id_detail": [],
+    "cross_tenant_leak_count": 0,
+    "cross_tenant_leak_detail": [],
+    "retrieval_error_queries": [],
+    "citation_failure_reasons": []
+  },
+  "citation_summary": {
+    "claims_total": 21,
+    "claims_passed": 21,
+    "claims_failed": 0,
+    "evidence_total": 35,
+    "evidence_passed": 35,
+    "evidence_failed": 0,
+    "all_passed": true
+  },
+  "latency": {
+    "benchmark_latency_ms": {
+      "count": 25,
+      "p50_ms": 8.877800000000008,
+      "p95_ms": 20.080459999999974
+    },
+    "stages": {
+      "retrieval_per_query": {
+        "n": 25,
+        "p50_ms": 8.877800000000008,
+        "p95_ms": 20.080459999999974
+      },
+      "evidence_pack_per_query": {
+        "n": 25,
+        "p50_ms": 0.5063000000000102,
+        "p95_ms": 1.1144400000000125
+      },
+      "corpus_inventory_ms": 37.1981,
+      "canonical_text_load_ms": 3.0618999999999943
+    },
+    "wall_clock_stage_ms": {
+      "database_recreate": 602.6525001507252,
+      "ingestion": 380.6091998703778,
+      "driver_bundle": 99.58189981989563,
+      "retrieval_measurement": 393.93749996088445,
+      "scoring": 0.506300013512373,
+      "citation_check": 0.45250006951391697
+    }
+  },
+  "gates": [
+    {
+      "name": "citation_resolvability == 100%",
+      "passed": true,
+      "detail": "100.00% of 125 candidate passage(s) resolved to verified-document evidence"
+    },
+    {
+      "name": "quote_hash_integrity == 100%",
+      "passed": true,
+      "detail": "35/35 evidence records passed offset+quote+quote-hash+content-hash (+0 stored-hash mismatch vs. what ingestion recorded)"
+    },
+    {
+      "name": "fabricated_ids == 0",
+      "passed": true,
+      "detail": "0 identifier(s) absent from the corpus inventory"
+    },
+    {
+      "name": "cross_tenant_leak_indicators == 0",
+      "passed": true,
+      "detail": "0 non-public hit(s) in a public corpus search"
+    },
+    {
+      "name": "no retrieval lane total failure",
+      "passed": true,
+      "detail": "queries whose every retrieval lane failed: none"
+    },
+    {
+      "name": "no gold query dropped",
+      "passed": true,
+      "detail": "0 gold queries had no result line"
+    }
+  ],
+  "gates_passed": true,
+  "per_query": [
+    {
+      "id": "fx-exact-001",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-002",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-003",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-004",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-005",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-006",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-007",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-008",
+      "task_type": "exact_reference",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-exact-009",
+      "task_type": "exact_reference",
+      "ndcg@10": 0.951231,
+      "reciprocal_rank": 1.0,
+      "recall@5": 0.8,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "exact_reference_correct": true
+    },
+    {
+      "id": "fx-fact-001",
+      "task_type": "fact_pattern",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "contrary_authority_recall": 1.0
+    },
+    {
+      "id": "fx-fact-002",
+      "task_type": "fact_pattern",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    {
+      "id": "fx-fact-003",
+      "task_type": "fact_pattern",
+      "ndcg@10": 0.919721,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    {
+      "id": "fx-fact-004",
+      "task_type": "fact_pattern",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0
+    },
+    {
+      "id": "fx-temporal-001",
+      "task_type": "temporal",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-temporal-002",
+      "task_type": "temporal",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-temporal-003",
+      "task_type": "temporal",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-amend-001",
+      "task_type": "temporal_amendment",
+      "ndcg@10": 1.0,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-amend-002",
+      "task_type": "temporal_amendment",
+      "ndcg@10": 0.414437,
+      "reciprocal_rank": 0.2,
+      "recall@5": 0.5,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-amend-003",
+      "task_type": "temporal_amendment",
+      "ndcg@10": 0.501266,
+      "reciprocal_rank": 0.25,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "temporal_correct": true
+    },
+    {
+      "id": "fx-contrary-001",
+      "task_type": "contrary_authority",
+      "ndcg@10": 0.591235,
+      "reciprocal_rank": 0.5,
+      "recall@5": 0.5,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "contrary_authority_recall": 1.0
+    },
+    {
+      "id": "fx-contrary-002",
+      "task_type": "contrary_authority",
+      "ndcg@10": 0.850345,
+      "reciprocal_rank": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "recall@20": 1.0,
+      "contrary_authority_recall": 1.0
+    },
+    {
+      "id": "fx-noanswer-001",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-002",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-003",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    },
+    {
+      "id": "fx-noanswer-004",
+      "task_type": "no_answer",
+      "abstention_correct": true
+    }
+  ]
+}

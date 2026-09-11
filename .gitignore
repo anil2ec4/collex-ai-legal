@@ -217,3 +217,29 @@ playwright_mcp_overhead.json
 simple_test.py
 analyze_anayasa_html.py
 CLAUDE.md
+
+# ---------------------------------------------------------------------------
+# ColleX (W20 source-control pass, 2026-09-11)
+#
+# The generic rules above were written for the upstream MCP server and would
+# silently drop ColleX source from Git: `*.html` hides the console, `test_*`
+# hides every Python test, `*.txt` hides test fixtures. The negations below
+# re-include exactly those source files; runtime data stays ignored.
+# ---------------------------------------------------------------------------
+!control-plane/public/*.html
+!tests/**/test_*.py
+!evals/tests/test_*.py
+!evals/fixtures/**/*.txt
+!tests/**/*.txt
+!requirements-local-embeddings.txt
+
+# Runtime data, generated output and local artefacts — never source.
+var/
+demo-output/
+control-plane/....console_inline_check.js
+control-plane/node_modules/
+control-plane/dist/
+*.tsbuildinfo
+/pid
+/komut
+/PostgreSQL

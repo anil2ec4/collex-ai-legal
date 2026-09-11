@@ -1,0 +1,238 @@
+/**
+ * Processing coverage: how much of the SELECTED SCOPE was actually read.
+ *
+ * This is NOT `answer/coverage.ts`
+ * --------------------------------
+ * That module measures QUESTION coverage — how much of the question the
+ * evidence answers — and it gates abstention. Its meaning is locked by tests
+ * and must not change. This module answers a completely different question:
+ *
+ *     "Of the documents, pages and units I was asked to review,
+ *      how many did I actually process, and which ones did I not?"
+ *
+ * The two are independent. An answer can have excellent question coverage
+ * over a Matter that was only half read, which is exactly the failure this
+ * exists to make impossible to hide.
+ *
+ * `complete` is DERIVED, never asserted
+ * -------------------------------------
+ * No model decides that a review was complete. `complete` is a pure function
+ * of counts: every selected file processed, every selected page readable or
+ * explicitly excluded, every analysis unit processed, nothing failed. One
+ * failed unit out of 1 846, or one unreadable page with no accepted
+ * exclusion, and it is false — with the reason attached.
+ *
+ * The product may then say what it did, and must not say more. "Dosyanın
+ * tamamını inceledim" is only permitted when `complete` is true.
+ */
+
+/** A page (or block) that could not be read, and why. */
+export interface CoverageGap {
+  /** Upload id the gap belongs to. */
+  readonly fileId: string;
+  /** Lawyer-facing file name. */
+  readonly fileName?: string | undefined;
+  /** The locator, as the reader would cite it ("s. 7"). */
+  readonly locator: string;
+  readonly reason: CoverageGapReason;
+}
+
+export type CoverageGapReason =
+  /** No text layer and no OCR available: a scan nobody transcribed. */
+  | "UNREADABLE_NO_TEXT"
+  /** Text so short the page was probably an image with a header. */
+  | "SPARSE_TEXT"
+  /** The extractor could not read the file at all. */
+  | "FILE_EXTRACTION_FAILED"
+  /** An analysis unit failed every attempt. */
+  | "UNIT_FAILED"
+  /**
+   * The file is in scope and readable, but produced NO analysis unit at all
+   * (it has no chunks). Without this the file would simply be absent from
+   * every count except `filesTotal` — incomplete, but with nothing saying
+   * which file or why.
+   */
+  | "NO_ANALYSIS_UNITS"
+  /**
+   * Canonical text that lies OUTSIDE every chunk, and therefore outside
+   * every analysis unit. Chunkers do not necessarily tile the text (a
+   * heading before the first article belongs to no chunk), so this is text
+   * that was never read. It has to be named, or "complete" would be true
+   * over a document whose opening was never looked at.
+   */
+  | "TEXT_OUTSIDE_UNITS"
+  /** The operator excluded it on purpose (still reported, never silent). */
+  | "EXCLUDED_BY_REQUEST"
+  /**
+   * The document has NO source map at all, so nothing can say which of its
+   * pages were read. Documents ingested before the page map existed are in
+   * this state. Without naming it, such a file contributes `pagesTotal: 0`
+   * and sails through the page test — "0 of 0 pages unreadable" — which
+   * would let a review of un-mapped documents claim complete coverage.
+   */
+  | "NO_SOURCE_MAP"
+  /**
+   * A page whose text was too short to be trusted as read (the extractor's
+   * own SPARSE verdict: probably an image with a header). Counted as read
+   * for throughput, but NEVER as verified.
+   */
+  | "SPARSE_PAGE";
+
+/**
+ * The wire shape.
+ *
+ * Every number is a count of things in the SELECTED scope, so a reader can
+ * do the subtraction themselves. Percentages are deliberately absent: "97%
+ * covered" invites rounding to "covered", while "1 843 of 1 846 units, 3
+ * failed" does not.
+ */
+export interface ProcessingCoverage {
+  readonly filesTotal: number;
+  readonly filesProcessed: number;
+  readonly filesFailed: number;
+
+  readonly pagesTotal: number;
+  readonly pagesProcessed: number;
+  /** Pages read from a born-digital text layer. */
+  readonly pagesTextLayer: number;
+  /** Pages read by transcription. */
+  readonly pagesOcr: number;
+  /** Pages with no usable text. NEVER counted as processed. */
+  readonly pagesUnreadable: number;
+
+  readonly analysisUnitsTotal: number;
+  readonly analysisUnitsProcessed: number;
+  readonly analysisUnitsFailed: number;
+
+  /** Derived. True only when nothing in the selected scope was missed. */
+  readonly complete: boolean;
+  /** Present when `complete` is false: what is missing, itemized. */
+  readonly gaps: readonly CoverageGap[];
+}
+
+/** The raw counts a run accumulates; `complete` is computed FROM these. */
+export interface CoverageTally {
+  filesTotal: number;
+  filesProcessed: number;
+  filesFailed: number;
+  pagesTotal: number;
+  pagesTextLayer: number;
+  pagesOcr: number;
+  pagesUnreadable: number;
+  analysisUnitsTotal: number;
+  analysisUnitsProcessed: number;
+  analysisUnitsFailed: number;
+  gaps: CoverageGap[];
+}
+
+export function emptyTally(): CoverageTally {
+  return {
+    filesTotal: 0,
+    filesProcessed: 0,
+    filesFailed: 0,
+    pagesTotal: 0,
+    pagesTextLayer: 0,
+    pagesOcr: 0,
+    pagesUnreadable: 0,
+    analysisUnitsTotal: 0,
+    analysisUnitsProcessed: 0,
+    analysisUnitsFailed: 0,
+    gaps: [],
+  };
+}
+
+/**
+ * Derive the coverage report from the tally.
+ *
+ * The ONLY place `complete` is produced. Every condition is a subtraction a
+ * reader could redo by hand:
+ *   - every selected file processed and none failed;
+ *   - no page left unreadable;
+ *   - every analysis unit processed and none failed;
+ *   - no recorded gap.
+ *
+ * A scope with nothing in it is NOT complete: "I reviewed all zero of your
+ * documents" is not a review, and reporting it as complete is exactly the
+ * kind of vacuous truth this contract exists to prevent.
+ */
+export function deriveCoverage(tally: CoverageTally): ProcessingCoverage {
+  const pagesProcessed = tally.pagesTextLayer + tally.pagesOcr;
+  const nothingSelected = tally.filesTotal === 0 && tally.analysisUnitsTotal === 0;
+  const complete =
+    !nothingSelected &&
+    tally.filesFailed === 0 &&
+    tally.filesProcessed === tally.filesTotal &&
+    tally.pagesUnreadable === 0 &&
+    pagesProcessed === tally.pagesTotal &&
+    tally.analysisUnitsFailed === 0 &&
+    tally.analysisUnitsProcessed === tally.analysisUnitsTotal &&
+    tally.gaps.length === 0;
+
+  return {
+    filesTotal: tally.filesTotal,
+    filesProcessed: tally.filesProcessed,
+    filesFailed: tally.filesFailed,
+    pagesTotal: tally.pagesTotal,
+    pagesProcessed,
+    pagesTextLayer: tally.pagesTextLayer,
+    pagesOcr: tally.pagesOcr,
+    pagesUnreadable: tally.pagesUnreadable,
+    analysisUnitsTotal: tally.analysisUnitsTotal,
+    analysisUnitsProcessed: tally.analysisUnitsProcessed,
+    analysisUnitsFailed: tally.analysisUnitsFailed,
+    complete,
+    gaps: [...tally.gaps],
+  };
+}
+
+/**
+ * The sentence the product is ALLOWED to say about this run.
+ *
+ * Deliberately the only place such a sentence is produced, so "I reviewed the
+ * whole file" cannot be written anywhere else. Plain Turkish, no engineering
+ * vocabulary — the reader is a lawyer, and the numbers are documents and
+ * pages, not units of work.
+ */
+export function coverageSentenceTr(coverage: ProcessingCoverage): string {
+  if (coverage.filesTotal === 0) {
+    return "İncelenecek belge seçilmedi.";
+  }
+  if (coverage.complete) {
+    return (
+      `Seçtiğiniz ${coverage.filesTotal} belgenin tamamı okundu` +
+      ` (${coverage.pagesTotal} sayfa).`
+    );
+  }
+  const parts: string[] = [
+    `Seçtiğiniz ${coverage.filesTotal} belgenin` +
+      ` ${coverage.filesProcessed} tanesi okundu`,
+  ];
+  if (coverage.pagesUnreadable > 0) {
+    parts.push(`${coverage.pagesUnreadable} sayfa okunamadı`);
+  }
+  if (coverage.filesFailed > 0) {
+    parts.push(`${coverage.filesFailed} belge açılamadı`);
+  }
+  if (coverage.analysisUnitsFailed > 0) {
+    parts.push(`${coverage.analysisUnitsFailed} bölüm incelenemedi`);
+  }
+  return (
+    parts.join("; ") +
+    ". Bu nedenle bu inceleme dosyanın tamamını kapsamıyor;" +
+    " eksik kalan yerler aşağıda listelendi."
+  );
+}
+
+/**
+ * Guard for any claim of exhaustiveness.
+ *
+ * Call this before rendering a sentence like "tüm çelişkiler" or "dosyanın
+ * tamamı". It returns the reason the claim is not permitted, or undefined.
+ */
+export function refuseExhaustiveClaim(
+  coverage: ProcessingCoverage,
+): string | undefined {
+  if (coverage.complete) return undefined;
+  if (coverage.filesTotal === 0) return "Hiç belge seçilmedi.";
+  return coverageSentenceTr(coverage);
+}

@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "notice": "SENTETİK TEST VERİSİ — bu dosya gerçek bir Yargıtay kararı değildir; yalnızca yerel ingestion/test amaçlı üretilmiş sentetik bir karar metnidir.",
+    "synthetic": true,
+    "version_label": "v1",
+    "fixture_file": "yargitay_karar_1.json",
+    "scope": "public"
+  },
+  "source": "fixture-yargitay",
+  "external_id": "yargitay-15cd-2024-1187",
+  "document_type": "yargitay_karari",
+  "title": "Yargıtay 15. Ceza Dairesi E. 2023/4521 K. 2024/1187 (sentetik)",
+  "retrieved_url": "https://example.invalid/fixture/yargitay/2024-1187",
+  "media_type": "application/json",
+  "dates": {
+    "decision": "2024-03-12"
+  },
+  "structure_hints": {
+    "kind": "decision",
+    "court": "Yargıtay",
+    "chamber": "15. Ceza Dairesi",
+    "docket_no": "2023/4521",
+    "decision_no": "2024/1187",
+    "stance": "supporting",
+    "issue": "tck-157-arac-satisi-kapora-dolandiriciligi"
+  },
+  "text": "T.C. YARGITAY\n15. Ceza Dairesi\nEsas No: 2023/4521\nKarar No: 2024/1187\nTarih: 12.03.2024\n\nÖZET: İnternet üzerinden gerçekte var olmayan bir aracı satılık olarak ilan edip kapora adı altında para tahsil eden sanığın eyleminin, başlangıçtan itibaren hileli davranış içerdiği ve 5237 sayılı TCK'nın 157 nci maddesindeki dolandırıcılık suçunu oluşturduğu hakkında.\n\nOLAY: Sanık, bir ilan sitesinde gerçekte mevcut olmayan 2019 model bir aracı satılık olarak göstermiş, araca ait başka bir ilandan aldığı fotoğrafları kullanmış ve katılandan kapora adı altında 25.000 TL'yi banka havalesi yoluyla tahsil ettikten sonra telefonlarını kapatarak iletişimi kesmiştir. Katılanın şikayeti üzerine başlatılan soruşturmada sanığın aynı yöntemle başka kişilerden de para tahsil ettiği belirlenmiştir.\n\nGEREKÇE: Dolandırıcılık suçunun oluşabilmesi için failin hileli davranışlarla bir kimseyi aldatması, mağdurun veya başkasının zararına olarak kendisine veya başkasına yarar sağlaması gerekir. Somut olayda sanığın gerçekte var olmayan bir aracı mevcutmuş gibi ilan etmesi, başka ilanlardan alınan fotoğrafları kullanması ve kapora tahsilinden hemen sonra iletişimi kesmesi karşısında, hilenin sözleşmenin kurulması aşamasında ve başlangıçtan itibaren mevcut olduğu, eylemin TCK'nın 157/1 maddesi kapsamında dolandırıcılık suçunu oluşturduğu kabul edilmelidir.\n\nHÜKÜM: Yerel mahkemenin sanığın TCK'nın 157/1 maddesi uyarınca cezalandırılmasına ilişkin hükmünün ONANMASINA, 12.03.2024 tarihinde oy birliğiyle karar verildi.\n"
+}

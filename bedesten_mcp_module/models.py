@@ -89,3 +89,6 @@ class BedestenDocumentMarkdown(BaseModel):
     markdown_content: Optional[str] = Field(None, description="The decision content (Karar İçeriği) converted to Markdown")
     source_url: str = Field(..., description="The source URL (Kaynak URL) of the document")
     mime_type: Optional[str] = Field(None, description="Original content type (İçerik Türü) (text/html or application/pdf)")
+    # Additive canonical-fetch contract fields (backward compatible defaults).
+    content_sha256: Optional[str] = Field(None, description="SHA-256 hex digest of markdown_content for integrity/parity checks")
+    retrieved_at: Optional[str] = Field(None, description="Retrieval timestamp (ISO 8601 UTC)")

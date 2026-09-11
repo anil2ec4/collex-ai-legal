@@ -1,0 +1,5425 @@
+{
+  "policy": {
+    "fields": [
+      "kind",
+      "raw",
+      "span",
+      "legislation_no",
+      "article_no",
+      "docket_no",
+      "decision_no",
+      "year",
+      "name",
+      "article_kind",
+      "paragraph",
+      "clause",
+      "abbreviation",
+      "canonical_name",
+      "mulga",
+      "court",
+      "chamber",
+      "docket_kind",
+      "decision_date",
+      "rg_date",
+      "rg_no"
+    ],
+    "offset_unit": "unicode_code_points",
+    "normal_form": "NFC",
+    "bmp_only": true,
+    "description": "One corpus, two implementations. Every case is parsed by legal_reference/parser.py (Python) and by control-plane/src/retrieval/referenceParser.ts (TypeScript); both must produce the serialized `expected` list EXACTLY, and both normalizers must produce `normalized` for the same input. Spans are half-open [start, end) indices into the NFC text; the corpus is BMP-only so JavaScript UTF-16 indices and Python code point indices coincide."
+  },
+  "generated_by": "scripts/gen_reference_fixtures.py",
+  "abbreviations": [
+    {
+      "key": "TCK",
+      "legislation_no": "5237",
+      "canonical_name": "Türk Ceza Kanunu",
+      "mulga": false,
+      "variants": [
+        "TCK"
+      ]
+    },
+    {
+      "key": "ETCK",
+      "legislation_no": "765",
+      "canonical_name": "Türk Ceza Kanunu (765 sayılı)",
+      "mulga": true,
+      "variants": [
+        "ETCK",
+        "eTCK",
+        "eski TCK",
+        "mülga TCK"
+      ]
+    },
+    {
+      "key": "CMK",
+      "legislation_no": "5271",
+      "canonical_name": "Ceza Muhakemesi Kanunu",
+      "mulga": false,
+      "variants": [
+        "CMK"
+      ]
+    },
+    {
+      "key": "CMUK",
+      "legislation_no": "1412",
+      "canonical_name": "Ceza Muhakemeleri Usulü Kanunu",
+      "mulga": true,
+      "variants": [
+        "CMUK"
+      ]
+    },
+    {
+      "key": "TBK",
+      "legislation_no": "6098",
+      "canonical_name": "Türk Borçlar Kanunu",
+      "mulga": false,
+      "variants": [
+        "TBK"
+      ]
+    },
+    {
+      "key": "EBK",
+      "legislation_no": "818",
+      "canonical_name": "Borçlar Kanunu (818 sayılı)",
+      "mulga": true,
+      "variants": [
+        "eBK",
+        "eski BK",
+        "mülga BK"
+      ]
+    },
+    {
+      "key": "TMK",
+      "legislation_no": "4721",
+      "canonical_name": "Türk Medenî Kanunu",
+      "mulga": false,
+      "variants": [
+        "TMK",
+        "MK"
+      ]
+    },
+    {
+      "key": "HMK",
+      "legislation_no": "6100",
+      "canonical_name": "Hukuk Muhakemeleri Kanunu",
+      "mulga": false,
+      "variants": [
+        "HMK"
+      ]
+    },
+    {
+      "key": "HUMK",
+      "legislation_no": "1086",
+      "canonical_name": "Hukuk Usulü Muhakemeleri Kanunu",
+      "mulga": true,
+      "variants": [
+        "HUMK"
+      ]
+    },
+    {
+      "key": "İİK",
+      "legislation_no": "2004",
+      "canonical_name": "İcra ve İflas Kanunu",
+      "mulga": false,
+      "variants": [
+        "İİK",
+        "IIK",
+        "İIK",
+        "IİK"
+      ]
+    },
+    {
+      "key": "TTK",
+      "legislation_no": "6102",
+      "canonical_name": "Türk Ticaret Kanunu",
+      "mulga": false,
+      "variants": [
+        "TTK"
+      ]
+    },
+    {
+      "key": "ETTK",
+      "legislation_no": "6762",
+      "canonical_name": "Türk Ticaret Kanunu (6762 sayılı)",
+      "mulga": true,
+      "variants": [
+        "ETTK",
+        "eTTK",
+        "eski TTK"
+      ]
+    },
+    {
+      "key": "VUK",
+      "legislation_no": "213",
+      "canonical_name": "Vergi Usul Kanunu",
+      "mulga": false,
+      "variants": [
+        "VUK"
+      ]
+    },
+    {
+      "key": "İYUK",
+      "legislation_no": "2577",
+      "canonical_name": "İdari Yargılama Usulü Kanunu",
+      "mulga": false,
+      "variants": [
+        "İYUK",
+        "IYUK"
+      ]
+    },
+    {
+      "key": "KVKK",
+      "legislation_no": "6698",
+      "canonical_name": "Kişisel Verilerin Korunması Kanunu",
+      "mulga": false,
+      "variants": [
+        "KVKK"
+      ]
+    },
+    {
+      "key": "İŞK",
+      "legislation_no": "4857",
+      "canonical_name": "İş Kanunu",
+      "mulga": false,
+      "variants": [
+        "İş K.",
+        "İş Kanunu",
+        "İşK"
+      ]
+    },
+    {
+      "key": "ANAYASA",
+      "legislation_no": "2709",
+      "canonical_name": "Türkiye Cumhuriyeti Anayasası",
+      "mulga": false,
+      "variants": [
+        "Anayasa"
+      ]
+    },
+    {
+      "key": "AATUHK",
+      "legislation_no": "6183",
+      "canonical_name": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+      "mulga": false,
+      "variants": [
+        "AATUHK"
+      ]
+    },
+    {
+      "key": "KDVK",
+      "legislation_no": "3065",
+      "canonical_name": "Katma Değer Vergisi Kanunu",
+      "mulga": false,
+      "variants": [
+        "KDVK",
+        "KDV Kanunu"
+      ]
+    },
+    {
+      "key": "GVK",
+      "legislation_no": "193",
+      "canonical_name": "Gelir Vergisi Kanunu",
+      "mulga": false,
+      "variants": [
+        "GVK"
+      ]
+    },
+    {
+      "key": "KVK",
+      "legislation_no": "5520",
+      "canonical_name": "Kurumlar Vergisi Kanunu",
+      "mulga": false,
+      "variants": [
+        "KVK"
+      ]
+    },
+    {
+      "key": "SSGSSK",
+      "legislation_no": "5510",
+      "canonical_name": "Sosyal Sigortalar ve Genel Sağlık Sigortası Kanunu",
+      "mulga": false,
+      "variants": [
+        "SSGSSK",
+        "SGK Kanunu"
+      ]
+    },
+    {
+      "key": "İMARK",
+      "legislation_no": "3194",
+      "canonical_name": "İmar Kanunu",
+      "mulga": false,
+      "variants": [
+        "İmar Kanunu",
+        "İmar K."
+      ]
+    },
+    {
+      "key": "TKHK",
+      "legislation_no": "6502",
+      "canonical_name": "Tüketicinin Korunması Hakkında Kanun",
+      "mulga": false,
+      "variants": [
+        "TKHK"
+      ]
+    },
+    {
+      "key": "FSEK",
+      "legislation_no": "5846",
+      "canonical_name": "Fikir ve Sanat Eserleri Kanunu",
+      "mulga": false,
+      "variants": [
+        "FSEK"
+      ]
+    },
+    {
+      "key": "SERPK",
+      "legislation_no": "6362",
+      "canonical_name": "Sermaye Piyasası Kanunu",
+      "mulga": false,
+      "variants": [
+        "SerPK",
+        "SPKn"
+      ]
+    },
+    {
+      "key": "KABK",
+      "legislation_no": "5326",
+      "canonical_name": "Kabahatler Kanunu",
+      "mulga": false,
+      "variants": [
+        "Kabahatler Kanunu",
+        "KabK"
+      ]
+    },
+    {
+      "key": "CGTİHK",
+      "legislation_no": "5275",
+      "canonical_name": "Ceza ve Güvenlik Tedbirlerinin İnfazı Hakkında Kanun",
+      "mulga": false,
+      "variants": [
+        "CGTİHK",
+        "CGTIHK"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "law_full_name_ordinal_article",
+      "group": "legislation",
+      "description": "Canonical citation form. The law NAME must survive Turkish letters ('Türk Ceza Kanunu', not 'T') and the apostrophe ordinal must parse.",
+      "text": "5237 sayılı Türk Ceza Kanunu'nun 157'nci maddesi",
+      "normalized": "5237 sayılı türk ceza kanunu'nun 157'nci maddesi",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "5237 sayılı Türk Ceza Kanunu",
+          "span": [
+            0,
+            28
+          ],
+          "legislation_no": "5237",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Türk Ceza Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Ceza Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "157'nci maddesi",
+          "span": [
+            33,
+            48
+          ],
+          "legislation_no": null,
+          "article_no": "157",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_full_name_plain",
+      "group": "legislation",
+      "description": "Law with a full name and no article reference.",
+      "text": "5237 sayılı Türk Ceza Kanunu uyarınca işlem yapılır.",
+      "normalized": "5237 sayılı türk ceza kanunu uyarınca işlem yapılır.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "5237 sayılı Türk Ceza Kanunu",
+          "span": [
+            0,
+            28
+          ],
+          "legislation_no": "5237",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Türk Ceza Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Ceza Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_iik_full_name",
+      "group": "legislation",
+      "description": "İcra ve İflas Kanunu cited by number and full name.",
+      "text": "2004 sayılı İcra ve İflas Kanunu",
+      "normalized": "2004 sayılı icra ve iflas kanunu",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "2004 sayılı İcra ve İflas Kanunu",
+          "span": [
+            0,
+            32
+          ],
+          "legislation_no": "2004",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İcra ve İflas Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "İcra ve İflas Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_generic_name",
+      "group": "legislation",
+      "description": "Generic 'Kanunun' name: number carries all the information.",
+      "text": "6098 sayılı Kanunun hükümleri saklıdır.",
+      "normalized": "6098 sayılı kanunun hükümleri saklıdır.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "6098 sayılı Kanunun",
+          "span": [
+            0,
+            19
+          ],
+          "legislation_no": "6098",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Kanunun",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_vuk_suffix_article",
+      "group": "legislation",
+      "description": "Three-digit law number plus a dotted suffix article.",
+      "text": "213 sayılı Vergi Usul Kanunu'nun 359. maddesi",
+      "normalized": "213 sayılı vergi usul kanunu'nun 359. maddesi",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "213 sayılı Vergi Usul Kanunu",
+          "span": [
+            0,
+            28
+          ],
+          "legislation_no": "213",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Vergi Usul Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Vergi Usul Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "359. maddesi",
+          "span": [
+            33,
+            45
+          ],
+          "legislation_no": null,
+          "article_no": "359",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "khk_with_ek_article",
+      "group": "legislation",
+      "description": "Kanun Hükmünde Kararname with an 'ek NN nci madde'.",
+      "text": "375 sayılı Kanun Hükmünde Kararnamenin ek 27 nci maddesi",
+      "normalized": "375 sayılı kanun hükmünde kararnamenin ek 27 nci maddesi",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "375 sayılı Kanun Hükmünde Kararnamenin",
+          "span": [
+            0,
+            38
+          ],
+          "legislation_no": "375",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Kanun Hükmünde Kararnamenin",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "ek 27 nci maddesi",
+          "span": [
+            39,
+            56
+          ],
+          "legislation_no": null,
+          "article_no": "27",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "ek",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "cbk_with_article",
+      "group": "legislation",
+      "description": "Cumhurbaşkanlığı Kararnamesi (CBK) with an ordinal article.",
+      "text": "1 sayılı Cumhurbaşkanlığı Kararnamesinin 508 inci maddesi",
+      "normalized": "1 sayılı cumhurbaşkanlığı kararnamesinin 508 inci maddesi",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "1 sayılı Cumhurbaşkanlığı Kararnamesinin",
+          "span": [
+            0,
+            40
+          ],
+          "legislation_no": "1",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Cumhurbaşkanlığı Kararnamesinin",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "508 inci maddesi",
+          "span": [
+            41,
+            57
+          ],
+          "legislation_no": null,
+          "article_no": "508",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_lettered_article",
+      "group": "legislation",
+      "description": "'5/A' is a LETTERED ARTICLE (ek madde style), not a fıkra.",
+      "text": "6102 sayılı Türk Ticaret Kanununun 5/A maddesi",
+      "normalized": "6102 sayılı türk ticaret kanununun 5/a maddesi",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "6102 sayılı Türk Ticaret Kanununun",
+          "span": [
+            0,
+            34
+          ],
+          "legislation_no": "6102",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Türk Ticaret Kanununun",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Ticaret Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "5/A maddesi",
+          "span": [
+            35,
+            46
+          ],
+          "legislation_no": null,
+          "article_no": "5/A",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_roman_fikra",
+      "group": "legislation",
+      "description": "'25/II' is madde 25 FIKRA II -- the old TS parser read it as '25/I'.",
+      "text": "4857 sayılı İş Kanunu madde 25/II",
+      "normalized": "4857 sayılı iş kanunu madde 25/ıı",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "4857 sayılı İş Kanunu",
+          "span": [
+            0,
+            21
+          ],
+          "legislation_no": "4857",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İş Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İŞK",
+          "canonical_name": "İş Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "madde 25/II",
+          "span": [
+            22,
+            33
+          ],
+          "legislation_no": null,
+          "article_no": "25",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "II",
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_kvkk_prefix_article",
+      "group": "legislation",
+      "description": "KVKK cited by number and name plus 'm. 9'.",
+      "text": "6698 sayılı Kişisel Verilerin Korunması Kanunu m. 9",
+      "normalized": "6698 sayılı kişisel verilerin korunması kanunu m. 9",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "6698 sayılı Kişisel Verilerin Korunması Kanunu",
+          "span": [
+            0,
+            46
+          ],
+          "legislation_no": "6698",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Kişisel Verilerin Korunması Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Kişisel Verilerin Korunması Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 9",
+          "span": [
+            47,
+            51
+          ],
+          "legislation_no": null,
+          "article_no": "9",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_number_plus_abbreviation",
+      "group": "legislation",
+      "description": "'5237 sayılı TCK' -- the abbreviation is a valid law NAME; the old Python pattern required a 'kanun' word and dropped this entirely.",
+      "text": "5237 sayılı TCK'nın 157. maddesi",
+      "normalized": "5237 sayılı tck'nın 157. maddesi",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "5237 sayılı TCK",
+          "span": [
+            0,
+            15
+          ],
+          "legislation_no": "5237",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TCK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TCK",
+          "canonical_name": "Türk Ceza Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "157. maddesi",
+          "span": [
+            20,
+            32
+          ],
+          "legislation_no": null,
+          "article_no": "157",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_number_selects_mulga_entry",
+      "group": "legislation",
+      "description": "'765 sayılı TCK' -- the explicit NUMBER wins over the abbreviation and flags the repealed instrument.",
+      "text": "765 sayılı TCK'nın 480. maddesi",
+      "normalized": "765 sayılı tck'nın 480. maddesi",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "765 sayılı TCK",
+          "span": [
+            0,
+            14
+          ],
+          "legislation_no": "765",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TCK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TCK",
+          "canonical_name": "Türk Ceza Kanunu (765 sayılı)",
+          "mulga": true,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "480. maddesi",
+          "span": [
+            19,
+            31
+          ],
+          "legislation_no": null,
+          "article_no": "480",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_s_abbrev_for_sayili",
+      "group": "legislation",
+      "description": "'6098 s. TBK' -- 's.' is the common short form of 'sayılı'.",
+      "text": "6098 s. TBK m. 49",
+      "normalized": "6098 s. tbk m. 49",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "6098 s. TBK",
+          "span": [
+            0,
+            11
+          ],
+          "legislation_no": "6098",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TBK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TBK",
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 49",
+          "span": [
+            12,
+            17
+          ],
+          "legislation_no": null,
+          "article_no": "49",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_tck",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'TCK m. 157' -> 5237 m. 157.",
+      "text": "TCK m. 157",
+      "normalized": "tck m. 157",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TCK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "5237",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TCK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TCK",
+          "canonical_name": "Türk Ceza Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 157",
+          "span": [
+            4,
+            10
+          ],
+          "legislation_no": null,
+          "article_no": "157",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_tbk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'TBK 49' -> 6098 m. 49.",
+      "text": "TBK 49",
+      "normalized": "tbk 49",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TBK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "6098",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TBK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TBK",
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "49",
+          "span": [
+            4,
+            6
+          ],
+          "legislation_no": null,
+          "article_no": "49",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_iik",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'İİK 89' -> 2004 m. 89.",
+      "text": "İİK 89",
+      "normalized": "iik 89",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "İİK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "2004",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İİK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İİK",
+          "canonical_name": "İcra ve İflas Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "89",
+          "span": [
+            4,
+            6
+          ],
+          "legislation_no": null,
+          "article_no": "89",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_hmk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'HMK 177' -> 6100 m. 177.",
+      "text": "HMK 177",
+      "normalized": "hmk 177",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "HMK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "6100",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "HMK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "HMK",
+          "canonical_name": "Hukuk Muhakemeleri Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "177",
+          "span": [
+            4,
+            7
+          ],
+          "legislation_no": null,
+          "article_no": "177",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_cmk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'CMK 100' -> 5271 m. 100.",
+      "text": "CMK 100",
+      "normalized": "cmk 100",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "CMK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "5271",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "CMK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "CMK",
+          "canonical_name": "Ceza Muhakemesi Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "100",
+          "span": [
+            4,
+            7
+          ],
+          "legislation_no": null,
+          "article_no": "100",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_tmk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'TMK 706' -> 4721 m. 706.",
+      "text": "TMK 706",
+      "normalized": "tmk 706",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TMK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "4721",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TMK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TMK",
+          "canonical_name": "Türk Medenî Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "706",
+          "span": [
+            4,
+            7
+          ],
+          "legislation_no": null,
+          "article_no": "706",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_vuk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'VUK 359' -> 213 m. 359.",
+      "text": "VUK 359",
+      "normalized": "vuk 359",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "VUK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "213",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "VUK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "VUK",
+          "canonical_name": "Vergi Usul Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "359",
+          "span": [
+            4,
+            7
+          ],
+          "legislation_no": null,
+          "article_no": "359",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_kvkk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'KVKK m. 9' -> 6698 m. 9.",
+      "text": "KVKK m. 9",
+      "normalized": "kvkk m. 9",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "KVKK",
+          "span": [
+            0,
+            4
+          ],
+          "legislation_no": "6698",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "KVKK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "KVKK",
+          "canonical_name": "Kişisel Verilerin Korunması Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 9",
+          "span": [
+            5,
+            9
+          ],
+          "legislation_no": null,
+          "article_no": "9",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_kvk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'KVK m. 5' -> 5520 m. 5.",
+      "text": "KVK m. 5",
+      "normalized": "kvk m. 5",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "KVK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "5520",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "KVK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "KVK",
+          "canonical_name": "Kurumlar Vergisi Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 5",
+          "span": [
+            4,
+            8
+          ],
+          "legislation_no": null,
+          "article_no": "5",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_fsek",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'FSEK 71' -> 5846 m. 71.",
+      "text": "FSEK 71",
+      "normalized": "fsek 71",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "FSEK",
+          "span": [
+            0,
+            4
+          ],
+          "legislation_no": "5846",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "FSEK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "FSEK",
+          "canonical_name": "Fikir ve Sanat Eserleri Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "71",
+          "span": [
+            5,
+            7
+          ],
+          "legislation_no": null,
+          "article_no": "71",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_tkhk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'TKHK m. 11' -> 6502 m. 11.",
+      "text": "TKHK m. 11",
+      "normalized": "tkhk m. 11",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TKHK",
+          "span": [
+            0,
+            4
+          ],
+          "legislation_no": "6502",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TKHK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TKHK",
+          "canonical_name": "Tüketicinin Korunması Hakkında Kanun",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 11",
+          "span": [
+            5,
+            10
+          ],
+          "legislation_no": null,
+          "article_no": "11",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_aatuhk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'AATUHK 54' -> 6183 m. 54.",
+      "text": "AATUHK 54",
+      "normalized": "aatuhk 54",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "AATUHK",
+          "span": [
+            0,
+            6
+          ],
+          "legislation_no": "6183",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "AATUHK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "AATUHK",
+          "canonical_name": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "54",
+          "span": [
+            7,
+            9
+          ],
+          "legislation_no": null,
+          "article_no": "54",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_gvk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'GVK 94' -> 193 m. 94.",
+      "text": "GVK 94",
+      "normalized": "gvk 94",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "GVK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "193",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "GVK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "GVK",
+          "canonical_name": "Gelir Vergisi Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "94",
+          "span": [
+            4,
+            6
+          ],
+          "legislation_no": null,
+          "article_no": "94",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_kdvk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'KDVK 29' -> 3065 m. 29.",
+      "text": "KDVK 29",
+      "normalized": "kdvk 29",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "KDVK",
+          "span": [
+            0,
+            4
+          ],
+          "legislation_no": "3065",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "KDVK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "KDVK",
+          "canonical_name": "Katma Değer Vergisi Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "29",
+          "span": [
+            5,
+            7
+          ],
+          "legislation_no": null,
+          "article_no": "29",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_serpk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'SerPK 21' -> 6362 m. 21.",
+      "text": "SerPK 21",
+      "normalized": "serpk 21",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "SerPK",
+          "span": [
+            0,
+            5
+          ],
+          "legislation_no": "6362",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "SerPK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "SERPK",
+          "canonical_name": "Sermaye Piyasası Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "21",
+          "span": [
+            6,
+            8
+          ],
+          "legislation_no": null,
+          "article_no": "21",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_iyuk",
+      "group": "abbreviation",
+      "description": "Bare abbreviation shorthand: 'İYUK m. 7' -> 2577 m. 7.",
+      "text": "İYUK m. 7",
+      "normalized": "iyuk m. 7",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "İYUK",
+          "span": [
+            0,
+            4
+          ],
+          "legislation_no": "2577",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İYUK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İYUK",
+          "canonical_name": "İdari Yargılama Usulü Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 7",
+          "span": [
+            5,
+            9
+          ],
+          "legislation_no": null,
+          "article_no": "7",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_ttk_lettered_article",
+      "group": "abbreviation",
+      "description": "'TTK 5/A' -- lettered article via the keyword-less shorthand.",
+      "text": "TTK 5/A",
+      "normalized": "ttk 5/a",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TTK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "6102",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TTK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TTK",
+          "canonical_name": "Türk Ticaret Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "5/A",
+          "span": [
+            4,
+            7
+          ],
+          "legislation_no": null,
+          "article_no": "5/A",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_inflected_genitive",
+      "group": "abbreviation",
+      "description": "Inflected abbreviation with apostrophe + fıkra tail.",
+      "text": "TCK'nın 157. maddesinin 1. fıkrası",
+      "normalized": "tck'nın 157. maddesinin 1. fıkrası",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TCK'nın",
+          "span": [
+            0,
+            7
+          ],
+          "legislation_no": "5237",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TCK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TCK",
+          "canonical_name": "Türk Ceza Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "157. maddesinin 1. fıkrası",
+          "span": [
+            8,
+            34
+          ],
+          "legislation_no": null,
+          "article_no": "157",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "1",
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_iik_inflected_ordinal",
+      "group": "abbreviation",
+      "description": "'İİK'nun 89 uncu maddesi' -- the ordinal tail must stay with the article pass, not be eaten by the abbreviation shorthand.",
+      "text": "İİK'nun 89 uncu maddesi",
+      "normalized": "iik'nun 89 uncu maddesi",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "İİK'nun",
+          "span": [
+            0,
+            7
+          ],
+          "legislation_no": "2004",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İİK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İİK",
+          "canonical_name": "İcra ve İflas Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "89 uncu maddesi",
+          "span": [
+            8,
+            23
+          ],
+          "legislation_no": null,
+          "article_no": "89",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_iik_dotless_spelling",
+      "group": "abbreviation",
+      "description": "Dotless spelling 'IIK' resolves to the same entry as 'İİK'.",
+      "text": "IIK 89 uyarınca haciz ihbarnamesi gönderilir.",
+      "normalized": "ıık 89 uyarınca haciz ihbarnamesi gönderilir.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "IIK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "2004",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "IIK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İİK",
+          "canonical_name": "İcra ve İflas Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "89",
+          "span": [
+            4,
+            6
+          ],
+          "legislation_no": null,
+          "article_no": "89",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_anayasa_genitive",
+      "group": "abbreviation",
+      "description": "'Anayasa'nın 36'ncı maddesi' -> 2709 m. 36.",
+      "text": "Anayasa'nın 36'ncı maddesi",
+      "normalized": "anayasa'nın 36'ncı maddesi",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "Anayasa'nın",
+          "span": [
+            0,
+            11
+          ],
+          "legislation_no": "2709",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Anayasa",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "ANAYASA",
+          "canonical_name": "Türkiye Cumhuriyeti Anayasası",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "36'ncı maddesi",
+          "span": [
+            12,
+            26
+          ],
+          "legislation_no": null,
+          "article_no": "36",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_is_kanunu_dotted",
+      "group": "abbreviation",
+      "description": "'İş K. m. 25' -- multi-token abbreviation with a trailing dot.",
+      "text": "İş K. m. 25",
+      "normalized": "iş k. m. 25",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "İş K.",
+          "span": [
+            0,
+            5
+          ],
+          "legislation_no": "4857",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İş K.",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İŞK",
+          "canonical_name": "İş Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 25",
+          "span": [
+            6,
+            11
+          ],
+          "legislation_no": null,
+          "article_no": "25",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_is_kanunu_spelled",
+      "group": "abbreviation",
+      "description": "'İş Kanunu 18. madde' -- spelled-out short name.",
+      "text": "İş Kanunu 18. madde",
+      "normalized": "iş kanunu 18. madde",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "İş Kanunu",
+          "span": [
+            0,
+            9
+          ],
+          "legislation_no": "4857",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İş Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İŞK",
+          "canonical_name": "İş Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "18. madde",
+          "span": [
+            10,
+            19
+          ],
+          "legislation_no": null,
+          "article_no": "18",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_iyuk_dot_madde",
+      "group": "abbreviation",
+      "description": "'İYUK 7. madde' -- the keyword-less shorthand must hand the number back to the article pass when 'madde' follows.",
+      "text": "İYUK 7. madde",
+      "normalized": "iyuk 7. madde",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "İYUK",
+          "span": [
+            0,
+            4
+          ],
+          "legislation_no": "2577",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İYUK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İYUK",
+          "canonical_name": "İdari Yargılama Usulü Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "7. madde",
+          "span": [
+            5,
+            13
+          ],
+          "legislation_no": null,
+          "article_no": "7",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_imar_kanunu",
+      "group": "abbreviation",
+      "description": "'İmar Kanunu 32. madde' -> 3194 m. 32.",
+      "text": "İmar Kanunu 32. madde",
+      "normalized": "imar kanunu 32. madde",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "İmar Kanunu",
+          "span": [
+            0,
+            11
+          ],
+          "legislation_no": "3194",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İmar Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İMARK",
+          "canonical_name": "İmar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "32. madde",
+          "span": [
+            12,
+            21
+          ],
+          "legislation_no": null,
+          "article_no": "32",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_kabahatler",
+      "group": "abbreviation",
+      "description": "'Kabahatler Kanunu m. 32' -> 5326 m. 32.",
+      "text": "Kabahatler Kanunu m. 32",
+      "normalized": "kabahatler kanunu m. 32",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "Kabahatler Kanunu",
+          "span": [
+            0,
+            17
+          ],
+          "legislation_no": "5326",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Kabahatler Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "KABK",
+          "canonical_name": "Kabahatler Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 32",
+          "span": [
+            18,
+            23
+          ],
+          "legislation_no": null,
+          "article_no": "32",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_cgtihk_lettered",
+      "group": "abbreviation",
+      "description": "'CGTİHK 105/A' -> 5275, lettered article.",
+      "text": "CGTİHK 105/A",
+      "normalized": "cgtihk 105/a",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "CGTİHK",
+          "span": [
+            0,
+            6
+          ],
+          "legislation_no": "5275",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "CGTİHK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "CGTİHK",
+          "canonical_name": "Ceza ve Güvenlik Tedbirlerinin İnfazı Hakkında Kanun",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "105/A",
+          "span": [
+            7,
+            12
+          ],
+          "legislation_no": null,
+          "article_no": "105/A",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_ssgssk_fikra_bent",
+      "group": "abbreviation",
+      "description": "'SSGSSK 4/1-a' -> 5510 m. 4 f. 1 b. a.",
+      "text": "SSGSSK 4/1-a",
+      "normalized": "ssgssk 4/1-a",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "SSGSSK",
+          "span": [
+            0,
+            6
+          ],
+          "legislation_no": "5510",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "SSGSSK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "SSGSSK",
+          "canonical_name": "Sosyal Sigortalar ve Genel Sağlık Sigortası Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "4/1-a",
+          "span": [
+            7,
+            12
+          ],
+          "legislation_no": null,
+          "article_no": "4",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "1",
+          "clause": "a",
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_mulga_ettk",
+      "group": "abbreviation",
+      "description": "'eski TTK' is the REPEALED 6762; the mulga flag must be set so the resolver treats it as historical law.",
+      "text": "eski TTK m. 5 uygulanır.",
+      "normalized": "eski ttk m. 5 uygulanır.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "eski TTK",
+          "span": [
+            0,
+            8
+          ],
+          "legislation_no": "6762",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "eski TTK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "ETTK",
+          "canonical_name": "Türk Ticaret Kanunu (6762 sayılı)",
+          "mulga": true,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 5",
+          "span": [
+            9,
+            13
+          ],
+          "legislation_no": null,
+          "article_no": "5",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_mulga_humk",
+      "group": "abbreviation",
+      "description": "HUMK (1086) is repealed by HMK (6100); flagged, not hidden.",
+      "text": "HUMK m. 74",
+      "normalized": "humk m. 74",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "HUMK",
+          "span": [
+            0,
+            4
+          ],
+          "legislation_no": "1086",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "HUMK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "HUMK",
+          "canonical_name": "Hukuk Usulü Muhakemeleri Kanunu",
+          "mulga": true,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 74",
+          "span": [
+            5,
+            10
+          ],
+          "legislation_no": null,
+          "article_no": "74",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_kvkk_beats_kvk",
+      "group": "abbreviation",
+      "description": "Longest-first alternation: 'KVKK' must never be read as 'KVK'+'K'.",
+      "text": "KVKK ve KVK farklı kanunlardır.",
+      "normalized": "kvkk ve kvk farklı kanunlardır.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "KVKK",
+          "span": [
+            0,
+            4
+          ],
+          "legislation_no": "6698",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "KVKK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "KVKK",
+          "canonical_name": "Kişisel Verilerin Korunması Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "legislation",
+          "raw": "KVK",
+          "span": [
+            8,
+            11
+          ],
+          "legislation_no": "5520",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "KVK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "KVK",
+          "canonical_name": "Kurumlar Vergisi Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "abbrev_year_is_not_article",
+      "group": "abbreviation",
+      "description": "'TCK 2005' -- 2005 is a YEAR, never an article number.",
+      "text": "TCK 2005 yılında yürürlüğe girdi.",
+      "normalized": "tck 2005 yılında yürürlüğe girdi.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TCK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "5237",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TCK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TCK",
+          "canonical_name": "Türk Ceza Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_prefix_fikra_bent",
+      "group": "article",
+      "description": "'m.6/1-a' -> madde 6, fıkra 1, bent a.",
+      "text": "m.6/1-a",
+      "normalized": "m.6/1-a",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "m.6/1-a",
+          "span": [
+            0,
+            7
+          ],
+          "legislation_no": null,
+          "article_no": "6",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "1",
+          "clause": "a",
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_md_lettered",
+      "group": "article",
+      "description": "'md. 10/A' -> lettered article 10/A.",
+      "text": "md. 10/A",
+      "normalized": "md. 10/a",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "md. 10/A",
+          "span": [
+            0,
+            8
+          ],
+          "legislation_no": null,
+          "article_no": "10/A",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_roman_fikra_standalone",
+      "group": "article",
+      "description": "'madde 25/II' -> madde 25, fıkra II.",
+      "text": "madde 25/II",
+      "normalized": "madde 25/ıı",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "madde 25/II",
+          "span": [
+            0,
+            11
+          ],
+          "legislation_no": null,
+          "article_no": "25",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "II",
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_roman_fikra_lowercased_input",
+      "group": "article",
+      "description": "hybrid.ts parses normalizeTurkishSearch(query), where 'II' has already folded to dotless 'ıı'. The Roman fıkra must survive that path instead of becoming the garbage article '25/ıı'.",
+      "text": "4857 sayılı iş kanunu madde 25/ıı",
+      "normalized": "4857 sayılı iş kanunu madde 25/ıı",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "4857 sayılı iş kanunu",
+          "span": [
+            0,
+            21
+          ],
+          "legislation_no": "4857",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "iş kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "İŞK",
+          "canonical_name": "İş Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "madde 25/ıı",
+          "span": [
+            22,
+            33
+          ],
+          "legislation_no": null,
+          "article_no": "25",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "II",
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_roman_fikra_dotted_lowercase",
+      "group": "article",
+      "description": "Lowercase dotted 'ii' is the same fıkra II.",
+      "text": "madde 25/ii",
+      "normalized": "madde 25/ii",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "madde 25/ii",
+          "span": [
+            0,
+            11
+          ],
+          "legislation_no": null,
+          "article_no": "25",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "II",
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_single_lowercase_letter_is_a_suffix",
+      "group": "article",
+      "description": "A SINGLE lowercase letter stays a lettered suffix/bent, never a Roman fıkra ('5/i' is not fıkra I).",
+      "text": "madde 5/i",
+      "normalized": "madde 5/i",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "madde 5/i",
+          "span": [
+            0,
+            9
+          ],
+          "legislation_no": null,
+          "article_no": "5/i",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_slash_fikra_suffix",
+      "group": "article",
+      "description": "'91/1. maddesi' -- the form the Python parser used to MISS entirely.",
+      "text": "91/1. maddesi",
+      "normalized": "91/1. maddesi",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "91/1. maddesi",
+          "span": [
+            0,
+            13
+          ],
+          "legislation_no": null,
+          "article_no": "91",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "1",
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_dot_suffix",
+      "group": "article",
+      "description": "Plain dotted suffix form.",
+      "text": "157. madde uygulanır",
+      "normalized": "157. madde uygulanır",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "157. madde",
+          "span": [
+            0,
+            10
+          ],
+          "legislation_no": null,
+          "article_no": "157",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_ordinal_suffix",
+      "group": "article",
+      "description": "Ordinal suffix form ('nci').",
+      "text": "157 nci maddesi uygulanır",
+      "normalized": "157 nci maddesi uygulanır",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "157 nci maddesi",
+          "span": [
+            0,
+            15
+          ],
+          "legislation_no": null,
+          "article_no": "157",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_lettered_suffix",
+      "group": "article",
+      "description": "'6/A maddesi' -- lettered article in the suffix form.",
+      "text": "Kanunun 6/A maddesi uygulanır",
+      "normalized": "kanunun 6/a maddesi uygulanır",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "6/A maddesi",
+          "span": [
+            8,
+            19
+          ],
+          "legislation_no": null,
+          "article_no": "6/A",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_ek_madde",
+      "group": "article",
+      "description": "'ek madde 5'.",
+      "text": "Kanuna ek madde 5 eklenmiştir.",
+      "normalized": "kanuna ek madde 5 eklenmiştir.",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "ek madde 5",
+          "span": [
+            7,
+            17
+          ],
+          "legislation_no": null,
+          "article_no": "5",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "ek",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_gecici_madde",
+      "group": "article",
+      "description": "'geçici madde 2'.",
+      "text": "geçici madde 2 uygulanır",
+      "normalized": "geçici madde 2 uygulanır",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "geçici madde 2",
+          "span": [
+            0,
+            14
+          ],
+          "legislation_no": null,
+          "article_no": "2",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "geçici",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_gecici_ordinal",
+      "group": "article",
+      "description": "'geçici 11 inci maddesi'.",
+      "text": "Kanunun geçici 11 inci maddesi yürürlükten kaldırıldı.",
+      "normalized": "kanunun geçici 11 inci maddesi yürürlükten kaldırıldı.",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "geçici 11 inci maddesi",
+          "span": [
+            8,
+            30
+          ],
+          "legislation_no": null,
+          "article_no": "11",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "geçici",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_fikra_word",
+      "group": "article",
+      "description": "Spelled-out fıkra ordinal ('birinci fıkrası') becomes paragraph '1'.",
+      "text": "157 nci maddesinin birinci fıkrası",
+      "normalized": "157 nci maddesinin birinci fıkrası",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "157 nci maddesinin birinci fıkrası",
+          "span": [
+            0,
+            34
+          ],
+          "legislation_no": null,
+          "article_no": "157",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "1",
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "article_madde_prefix_plain",
+      "group": "article",
+      "description": "'madde 36' prefix form.",
+      "text": "Anayasa madde 36",
+      "normalized": "anayasa madde 36",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "Anayasa",
+          "span": [
+            0,
+            7
+          ],
+          "legislation_no": "2709",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Anayasa",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "ANAYASA",
+          "canonical_name": "Türkiye Cumhuriyeti Anayasası",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "madde 36",
+          "span": [
+            8,
+            16
+          ],
+          "legislation_no": null,
+          "article_no": "36",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_ek_with_date",
+      "group": "court",
+      "description": "'E.2021/1234 K.2022/567 T.12.05.2022' -- the T. date is captured.",
+      "text": "E.2021/1234 K.2022/567 T.12.05.2022",
+      "normalized": "e.2021/1234 k.2022/567 t.12.05.2022",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "E.2021/1234 K.2022/567 T.12.05.2022",
+          "span": [
+            0,
+            35
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2021/1234",
+          "decision_no": "2022/567",
+          "year": 2021,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": "esas",
+          "decision_date": "12.05.2022",
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_suffix_style",
+      "group": "court",
+      "description": "Suffix style '2021/1234 E., 2022/567 K.'.",
+      "text": "2021/1234 E., 2022/567 K.",
+      "normalized": "2021/1234 e., 2022/567 k.",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "2021/1234 E., 2022/567 K.",
+          "span": [
+            0,
+            25
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2021/1234",
+          "decision_no": "2022/567",
+          "year": 2021,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_yargitay_hd",
+      "group": "court",
+      "description": "Chamber identity captured: Yargıtay 9. Hukuk Dairesi.",
+      "text": "Yargıtay 9. HD, E. 2017/1234, K. 2018/5678",
+      "normalized": "yargıtay 9. hd, e. 2017/1234, k. 2018/5678",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Yargıtay 9. HD, E. 2017/1234, K. 2018/5678",
+          "span": [
+            0,
+            42
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2017/1234",
+          "decision_no": "2018/5678",
+          "year": 2017,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "9. HD",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_yargitay_cd_suffix",
+      "group": "court",
+      "description": "Ceza dairesi with a suffix-style docket pair.",
+      "text": "Yargıtay 4. CD 2019/100 E., 2020/200 K.",
+      "normalized": "yargıtay 4. cd 2019/100 e., 2020/200 k.",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Yargıtay 4. CD 2019/100 E., 2020/200 K.",
+          "span": [
+            0,
+            39
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2019/100",
+          "decision_no": "2020/200",
+          "year": 2019,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "4. CD",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_hgk_hyphenated_docket",
+      "group": "court",
+      "description": "Yargıtay HGK hyphenated docket '2017/9-1234' (chamber inside the docket) -- previously MISSED by both parsers.",
+      "text": "Yargıtay Hukuk Genel Kurulu 2017/9-1234 E., 2019/456 K.",
+      "normalized": "yargıtay hukuk genel kurulu 2017/9-1234 e., 2019/456 k.",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Yargıtay Hukuk Genel Kurulu 2017/9-1234 E., 2019/456 K.",
+          "span": [
+            0,
+            55
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2017/9-1234",
+          "decision_no": "2019/456",
+          "year": 2017,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "HGK",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_hgk_docket_only",
+      "group": "court",
+      "description": "Hyphenated docket with no paired karar number.",
+      "text": "Yargıtay HGK 2017/9-1234 E.",
+      "normalized": "yargıtay hgk 2017/9-1234 e.",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Yargıtay HGK 2017/9-1234 E.",
+          "span": [
+            0,
+            27
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2017/9-1234",
+          "decision_no": null,
+          "year": 2017,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "HGK",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_cgk",
+      "group": "court",
+      "description": "Yargıtay Ceza Genel Kurulu.",
+      "text": "Yargıtay CGK E. 2018/5, K. 2019/7",
+      "normalized": "yargıtay cgk e. 2018/5, k. 2019/7",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Yargıtay CGK E. 2018/5, K. 2019/7",
+          "span": [
+            0,
+            33
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2018/5",
+          "decision_no": "2019/7",
+          "year": 2018,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "CGK",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_bare_hgk_implies_yargitay",
+      "group": "court",
+      "description": "A bare 'HGK' implies Yargıtay; 'İDDK' implies Danıştay.",
+      "text": "HGK 2020/1 E., 2021/2 K.",
+      "normalized": "hgk 2020/1 e., 2021/2 k.",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "HGK 2020/1 E., 2021/2 K.",
+          "span": [
+            0,
+            24
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2020/1",
+          "decision_no": "2021/2",
+          "year": 2020,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "HGK",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_danistay_daire",
+      "group": "court",
+      "description": "Danıştay 10. Daire.",
+      "text": "Danıştay 10. D. E. 2019/1, K. 2021/2",
+      "normalized": "danıştay 10. d. e. 2019/1, k. 2021/2",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Danıştay 10. D. E. 2019/1, K. 2021/2",
+          "span": [
+            0,
+            36
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2019/1",
+          "decision_no": "2021/2",
+          "year": 2019,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "DANISTAY",
+          "chamber": "10. D",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_danistay_iddk",
+      "group": "court",
+      "description": "Danıştay İdari Dava Daireleri Kurulu.",
+      "text": "Danıştay İDDK E. 2018/100 K. 2019/200",
+      "normalized": "danıştay iddk e. 2018/100 k. 2019/200",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Danıştay İDDK E. 2018/100 K. 2019/200",
+          "span": [
+            0,
+            37
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2018/100",
+          "decision_no": "2019/200",
+          "year": 2018,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "DANISTAY",
+          "chamber": "IDDK",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_bam_chamber",
+      "group": "court",
+      "description": "Bölge Adliye Mahkemesi (istinaf) with its chamber.",
+      "text": "İstanbul BAM 5. HD 2021/1 E., 2021/2 K.",
+      "normalized": "istanbul bam 5. hd 2021/1 e., 2021/2 k.",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "BAM 5. HD 2021/1 E., 2021/2 K.",
+          "span": [
+            9,
+            39
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2021/1",
+          "decision_no": "2021/2",
+          "year": 2021,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "BAM",
+          "chamber": "5. HD",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_bim_chamber",
+      "group": "court",
+      "description": "Bölge İdare Mahkemesi with a spelled-out chamber.",
+      "text": "Ankara BİM 2. İdari Dava Dairesi E. 2020/1, K. 2020/2",
+      "normalized": "ankara bim 2. idari dava dairesi e. 2020/1, k. 2020/2",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "BİM 2. İdari Dava Dairesi E. 2020/1, K. 2020/2",
+          "span": [
+            7,
+            53
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2020/1",
+          "decision_no": "2020/2",
+          "year": 2020,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "BIM",
+          "chamber": "2. IDD",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_aym_basvuru_genel_kurul",
+      "group": "court",
+      "description": "AYM bireysel başvuru ('B. No:') -- previously MISSED by both.",
+      "text": "AYM Genel Kurulu B. No: 2019/12345",
+      "normalized": "aym genel kurulu b. no: 2019/12345",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "AYM Genel Kurulu B. No: 2019/12345",
+          "span": [
+            0,
+            34
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2019/12345",
+          "decision_no": null,
+          "year": 2019,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "AYM",
+          "chamber": "GENEL KURUL",
+          "docket_kind": "basvuru",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_aym_basvuru_bolum",
+      "group": "court",
+      "description": "AYM Birinci Bölüm bireysel başvuru.",
+      "text": "Anayasa Mahkemesi Birinci Bölüm B. No: 2016/1234",
+      "normalized": "anayasa mahkemesi birinci bölüm b. no: 2016/1234",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Anayasa Mahkemesi Birinci Bölüm B. No: 2016/1234",
+          "span": [
+            0,
+            48
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2016/1234",
+          "decision_no": null,
+          "year": 2016,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "AYM",
+          "chamber": "1. BOLUM",
+          "docket_kind": "basvuru",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_basvuru_bare",
+      "group": "court",
+      "description": "Bare 'B. No:' with no court mention still defaults to AYM (bireysel başvuru numbering is AYM-specific).",
+      "text": "B. No: 2019/12345",
+      "normalized": "b. no: 2019/12345",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "B. No: 2019/12345",
+          "span": [
+            0,
+            17
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2019/12345",
+          "decision_no": null,
+          "year": 2019,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "AYM",
+          "chamber": null,
+          "docket_kind": "basvuru",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_basvuru_numarasi",
+      "group": "court",
+      "description": "'Başvuru Numarası:' long form.",
+      "text": "Başvuru Numarası: 2018/9876",
+      "normalized": "başvuru numarası: 2018/9876",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Başvuru Numarası: 2018/9876",
+          "span": [
+            0,
+            27
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2018/9876",
+          "decision_no": null,
+          "year": 2018,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "AYM",
+          "chamber": null,
+          "docket_kind": "basvuru",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_spelled_out_esas_karar",
+      "group": "court",
+      "description": "'Esas No: ... ; Karar No: ...'.",
+      "text": "Esas No: 2021/123; Karar No: 2022/456",
+      "normalized": "esas no: 2021/123; karar no: 2022/456",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Esas No: 2021/123; Karar No: 2022/456",
+          "span": [
+            0,
+            37
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2021/123",
+          "decision_no": "2022/456",
+          "year": 2021,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_en_dash_separator",
+      "group": "court",
+      "description": "Typographic en dash between E. and K. (unified by the shadow fold).",
+      "text": "E.2021/123 – K.2022/456",
+      "normalized": "e.2021/123 - k.2022/456",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "E.2021/123 – K.2022/456",
+          "span": [
+            0,
+            23
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2021/123",
+          "decision_no": "2022/456",
+          "year": 2021,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_uyusmazlik",
+      "group": "court",
+      "description": "Uyuşmazlık Mahkemesi identity.",
+      "text": "Uyuşmazlık Mahkemesi E. 2020/1 K. 2020/5",
+      "normalized": "uyuşmazlık mahkemesi e. 2020/1 k. 2020/5",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Uyuşmazlık Mahkemesi E. 2020/1 K. 2020/5",
+          "span": [
+            0,
+            40
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2020/1",
+          "decision_no": "2020/5",
+          "year": 2020,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "UYUSMAZLIK",
+          "chamber": null,
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "court_sayistay",
+      "group": "court",
+      "description": "Sayıştay daire identity.",
+      "text": "Sayıştay 5. Dairesi E. 2019/3 K. 2019/9",
+      "normalized": "sayıştay 5. dairesi e. 2019/3 k. 2019/9",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Sayıştay 5. Dairesi E. 2019/3 K. 2019/9",
+          "span": [
+            0,
+            39
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2019/3",
+          "decision_no": "2019/9",
+          "year": 2019,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "SAYISTAY",
+          "chamber": "5. D",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "rg_date_and_number",
+      "group": "gazette",
+      "description": "Resmî Gazete date + issue number; the issue number must NEVER leak out as a legislation number.",
+      "text": "26/9/2004 tarihli ve 25611 sayılı Resmî Gazete'de yayımlanmıştır.",
+      "normalized": "26/9/2004 tarihli ve 25611 sayılı resmî gazete'de yayımlanmıştır.",
+      "expected": [
+        {
+          "kind": "official_gazette",
+          "raw": "26/9/2004 tarihli ve 25611 sayılı Resmî Gazete",
+          "span": [
+            0,
+            46
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": 2004,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": "26/9/2004",
+          "rg_no": "25611"
+        }
+      ]
+    },
+    {
+      "name": "rg_mukerrer",
+      "group": "gazette",
+      "description": "'mükerrer' (repeat) issue.",
+      "text": "1/7/2005 tarihli ve 25862 mükerrer sayılı Resmî Gazete",
+      "normalized": "1/7/2005 tarihli ve 25862 mükerrer sayılı resmî gazete",
+      "expected": [
+        {
+          "kind": "official_gazette",
+          "raw": "1/7/2005 tarihli ve 25862 mükerrer sayılı Resmî Gazete",
+          "span": [
+            0,
+            54
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": 2005,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": "1/7/2005",
+          "rg_no": "25862"
+        }
+      ]
+    },
+    {
+      "name": "rg_number_without_date_is_dropped",
+      "group": "guard",
+      "description": "'25611 sayılı Resmî Gazete' with no date yields NOTHING -- it is certainly not law no. 25611.",
+      "text": "25611 sayılı Resmî Gazete'de yayımlandı.",
+      "normalized": "25611 sayılı resmî gazete'de yayımlandı.",
+      "expected": []
+    },
+    {
+      "name": "guard_metre_abbreviation",
+      "group": "guard",
+      "description": "'100 m.' is metres, never madde.",
+      "text": "Bina 100 m. yüksekliğindedir.",
+      "normalized": "bina 100 m. yüksekliğindedir.",
+      "expected": []
+    },
+    {
+      "name": "guard_metre_pair",
+      "group": "guard",
+      "description": "Two measurements in a row still yield nothing.",
+      "text": "Şerit 100 m. 200 m. arasında değişir.",
+      "normalized": "şerit 100 m. 200 m. arasında değişir.",
+      "expected": []
+    },
+    {
+      "name": "guard_initials_m",
+      "group": "guard",
+      "description": "'M. Kemal' is a personal initial, not madde.",
+      "text": "M. Kemal 1923 yılında Cumhuriyeti kurdu.",
+      "normalized": "m. kemal 1923 yılında cumhuriyeti kurdu.",
+      "expected": []
+    },
+    {
+      "name": "guard_initials_e_k",
+      "group": "guard",
+      "description": "'E. Yılmaz ve K. Demir' are initials, not an esas/karar pair.",
+      "text": "Raporu E. Yılmaz ve K. Demir hazırladı.",
+      "normalized": "raporu e. yılmaz ve k. demir hazırladı.",
+      "expected": []
+    },
+    {
+      "name": "guard_bare_article_count",
+      "group": "guard",
+      "description": "'ek 3 madde eklenmesi' is a COUNT of articles, not a reference.",
+      "text": "Teklifle kanuna ek 3 madde eklenmesi önerildi.",
+      "normalized": "teklifle kanuna ek 3 madde eklenmesi önerildi.",
+      "expected": []
+    },
+    {
+      "name": "guard_sayili_karar_is_not_a_law",
+      "group": "guard",
+      "description": "'K. 2021/5678 sayılı kararı' -- the TS parser used to emit legislation no. 5678 here. It must emit NOTHING.",
+      "text": "K. 2021/5678 sayılı kararı incelendi.",
+      "normalized": "k. 2021/5678 sayılı kararı incelendi.",
+      "expected": []
+    },
+    {
+      "name": "guard_implausible_years",
+      "group": "guard",
+      "description": "Docket years outside 1900..2099 are rejected.",
+      "text": "E. 9999/1, K. 8888/2",
+      "normalized": "e. 9999/1, k. 8888/2",
+      "expected": []
+    },
+    {
+      "name": "guard_sayili_liste",
+      "group": "guard",
+      "description": "'2 sayılı liste' is an annex, not a law.",
+      "text": "Ekli 2 sayılı listede gösterilen kadrolar",
+      "normalized": "ekli 2 sayılı listede gösterilen kadrolar",
+      "expected": []
+    },
+    {
+      "name": "guard_bare_year",
+      "group": "guard",
+      "description": "A bare year is not a law number.",
+      "text": "2004 yılında inşa edilen bina",
+      "normalized": "2004 yılında inşa edilen bina",
+      "expected": []
+    },
+    {
+      "name": "guard_anayasa_mahkemesi_is_a_court",
+      "group": "guard",
+      "description": "'Anayasa Mahkemesi' is a COURT; it must not resolve to the Constitution (2709).",
+      "text": "Anayasa Mahkemesi kararı bağlayıcıdır.",
+      "normalized": "anayasa mahkemesi kararı bağlayıcıdır.",
+      "expected": []
+    },
+    {
+      "name": "guard_plain_prose",
+      "group": "guard",
+      "description": "Ordinary prose yields nothing.",
+      "text": "Bugün hava çok güzel, yarın toplantı var.",
+      "normalized": "bugün hava çok güzel, yarın toplantı var.",
+      "expected": []
+    },
+    {
+      "name": "guard_glued_m_abbreviation",
+      "group": "guard",
+      "description": "'adam. 3' -- 'm.' glued to the end of a word is not madde.",
+      "text": "olay yerindeki adam. 3 gün sonra dinlendi",
+      "normalized": "olay yerindeki adam. 3 gün sonra dinlendi",
+      "expected": []
+    },
+    {
+      "name": "guard_empty_input",
+      "group": "guard",
+      "description": "Empty input yields an empty list.",
+      "text": "",
+      "normalized": "",
+      "expected": []
+    },
+    {
+      "name": "torba_three_targets",
+      "group": "multi",
+      "description": "Omnibus (torba) amendment: three target laws, three target articles, plus the amending instrument's own MADDE 1..3 headers.",
+      "text": "MADDE 1 – 5237 sayılı Türk Ceza Kanununun 157 nci maddesinin birinci fıkrası aşağıdaki şekilde değiştirilmiştir.\nMADDE 2 – 6098 sayılı Türk Borçlar Kanununun 344 üncü maddesine bir fıkra eklenmiştir.\nMADDE 3 – 2004 sayılı İcra ve İflas Kanununun geçici 11 inci maddesi yürürlükten kaldırılmıştır.",
+      "normalized": "madde 1 - 5237 sayılı türk ceza kanununun 157 nci maddesinin birinci fıkrası aşağıdaki şekilde değiştirilmiştir. madde 2 - 6098 sayılı türk borçlar kanununun 344 üncü maddesine bir fıkra eklenmiştir. madde 3 - 2004 sayılı icra ve iflas kanununun geçici 11 inci maddesi yürürlükten kaldırılmıştır.",
+      "expected": [
+        {
+          "kind": "article",
+          "raw": "MADDE 1",
+          "span": [
+            0,
+            7
+          ],
+          "legislation_no": null,
+          "article_no": "1",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "legislation",
+          "raw": "5237 sayılı Türk Ceza Kanununun",
+          "span": [
+            10,
+            41
+          ],
+          "legislation_no": "5237",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Türk Ceza Kanununun",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Ceza Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "157 nci maddesinin birinci fıkrası",
+          "span": [
+            42,
+            76
+          ],
+          "legislation_no": null,
+          "article_no": "157",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": "1",
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "MADDE 2",
+          "span": [
+            113,
+            120
+          ],
+          "legislation_no": null,
+          "article_no": "2",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "legislation",
+          "raw": "6098 sayılı Türk Borçlar Kanununun",
+          "span": [
+            123,
+            157
+          ],
+          "legislation_no": "6098",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Türk Borçlar Kanununun",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "344 üncü maddesine",
+          "span": [
+            158,
+            176
+          ],
+          "legislation_no": null,
+          "article_no": "344",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "MADDE 3",
+          "span": [
+            200,
+            207
+          ],
+          "legislation_no": null,
+          "article_no": "3",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "legislation",
+          "raw": "2004 sayılı İcra ve İflas Kanununun",
+          "span": [
+            210,
+            245
+          ],
+          "legislation_no": "2004",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İcra ve İflas Kanununun",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "İcra ve İflas Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "geçici 11 inci maddesi",
+          "span": [
+            246,
+            268
+          ],
+          "legislation_no": null,
+          "article_no": "11",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "geçici",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "two_laws_one_sentence",
+      "group": "multi",
+      "description": "Two laws and two articles in one sentence, in text order.",
+      "text": "6102 sayılı Türk Ticaret Kanununun 4 üncü maddesi ile 6098 sayılı Türk Borçlar Kanununun 344 üncü maddesi birlikte uygulanır.",
+      "normalized": "6102 sayılı türk ticaret kanununun 4 üncü maddesi ile 6098 sayılı türk borçlar kanununun 344 üncü maddesi birlikte uygulanır.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "6102 sayılı Türk Ticaret Kanununun",
+          "span": [
+            0,
+            34
+          ],
+          "legislation_no": "6102",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Türk Ticaret Kanununun",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Ticaret Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "4 üncü maddesi",
+          "span": [
+            35,
+            49
+          ],
+          "legislation_no": null,
+          "article_no": "4",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "legislation",
+          "raw": "6098 sayılı Türk Borçlar Kanununun",
+          "span": [
+            54,
+            88
+          ],
+          "legislation_no": "6098",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Türk Borçlar Kanununun",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "344 üncü maddesi",
+          "span": [
+            89,
+            105
+          ],
+          "legislation_no": null,
+          "article_no": "344",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "amending_and_target_law",
+      "group": "multi",
+      "description": "Amending law (7418) and its target (5651) both parsed; deciding which is the TARGET is the resolver's job, not the parser's.",
+      "text": "7418 sayılı Kanunun 29 uncu maddesiyle 5651 sayılı İnternet Ortamında Yapılan Yayınların Düzenlenmesi Hakkında Kanunun 8 inci maddesi değiştirilmiştir.",
+      "normalized": "7418 sayılı kanunun 29 uncu maddesiyle 5651 sayılı internet ortamında yapılan yayınların düzenlenmesi hakkında kanunun 8 inci maddesi değiştirilmiştir.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "7418 sayılı Kanunun",
+          "span": [
+            0,
+            19
+          ],
+          "legislation_no": "7418",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Kanunun",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "29 uncu maddesiyle",
+          "span": [
+            20,
+            38
+          ],
+          "legislation_no": null,
+          "article_no": "29",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "legislation",
+          "raw": "5651 sayılı İnternet Ortamında Yapılan Yayınların Düzenlenmesi Hakkında Kanunun",
+          "span": [
+            39,
+            118
+          ],
+          "legislation_no": "5651",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "İnternet Ortamında Yapılan Yayınların Düzenlenmesi Hakkında Kanunun",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "8 inci maddesi",
+          "span": [
+            119,
+            133
+          ],
+          "legislation_no": null,
+          "article_no": "8",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "law_article_and_decision",
+      "group": "multi",
+      "description": "Legislation + article + a chambered court decision in one string.",
+      "text": "TCK m. 157 uyarınca Yargıtay 15. CD E. 2019/1, K. 2020/2 sayılı kararı emsal alınmıştır.",
+      "normalized": "tck m. 157 uyarınca yargıtay 15. cd e. 2019/1, k. 2020/2 sayılı kararı emsal alınmıştır.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TCK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "5237",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TCK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TCK",
+          "canonical_name": "Türk Ceza Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 157",
+          "span": [
+            4,
+            10
+          ],
+          "legislation_no": null,
+          "article_no": "157",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "court_decision",
+          "raw": "Yargıtay 15. CD E. 2019/1, K. 2020/2",
+          "span": [
+            20,
+            56
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2019/1",
+          "decision_no": "2020/2",
+          "year": 2019,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "15. CD",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "shortform_repeated_article_resolves_from_context",
+      "group": "short_form",
+      "description": "The form a Turkish brief actually uses: the law is named once, then its articles are repeated bare. 'Aynı Kanunun 352 nci maddesi' and the later plain 'm. 352' both resolve to TBK (6098) and are marked as SHORT FORMS, not as fresh full citations.",
+      "text": "TBK m. 315 uyarınca ihtar çekilmiştir. Aynı Kanunun 352 nci maddesi de uygulanır. Sonradan m. 352 tekrar tartışılmıştır.",
+      "normalized": "tbk m. 315 uyarınca ihtar çekilmiştir. aynı kanunun 352 nci maddesi de uygulanır. sonradan m. 352 tekrar tartışılmıştır.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TBK",
+          "span": [
+            0,
+            3
+          ],
+          "legislation_no": "6098",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TBK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TBK",
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 315",
+          "span": [
+            4,
+            10
+          ],
+          "legislation_no": null,
+          "article_no": "315",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "short_form",
+          "raw": "352 nci maddesi",
+          "span": [
+            52,
+            67
+          ],
+          "legislation_no": "6098",
+          "article_no": "352",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TBK",
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TBK",
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "short_form",
+          "raw": "m. 352",
+          "span": [
+            91,
+            97
+          ],
+          "legislation_no": "6098",
+          "article_no": "352",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TBK",
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TBK",
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "shortform_yukarida_anilan_keeps_full_citation",
+      "group": "short_form",
+      "description": "'Yukarıda anılan TBK m. 315' is a short-form PHRASE around a citation that is nevertheless complete. It must still parse as legislation + article; the marker must not degrade it.",
+      "text": "Yukarıda anılan TBK m. 315 hükmü uygulanır.",
+      "normalized": "yukarıda anılan tbk m. 315 hükmü uygulanır.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "TBK",
+          "span": [
+            16,
+            19
+          ],
+          "legislation_no": "6098",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "TBK",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": "TBK",
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 315",
+          "span": [
+            20,
+            26
+          ],
+          "legislation_no": null,
+          "article_no": "315",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "shortform_ayni_kanunun_after_full_name",
+      "group": "short_form",
+      "description": "'aynı Kanunun 345 inci maddesi' after the law was written out in full resolves to that law.",
+      "text": "6098 sayılı Türk Borçlar Kanunu m. 344 uygulanır; aynı Kanunun 345 inci maddesi de dikkate alınır.",
+      "normalized": "6098 sayılı türk borçlar kanunu m. 344 uygulanır; aynı kanunun 345 inci maddesi de dikkate alınır.",
+      "expected": [
+        {
+          "kind": "legislation",
+          "raw": "6098 sayılı Türk Borçlar Kanunu",
+          "span": [
+            0,
+            31
+          ],
+          "legislation_no": "6098",
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Türk Borçlar Kanunu",
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "article",
+          "raw": "m. 344",
+          "span": [
+            32,
+            38
+          ],
+          "legislation_no": null,
+          "article_no": "344",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "short_form",
+          "raw": "345 inci maddesi",
+          "span": [
+            63,
+            79
+          ],
+          "legislation_no": "6098",
+          "article_no": "345",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": "Türk Borçlar Kanunu",
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": "Türk Borçlar Kanunu",
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "shortform_decision_anilan_karar",
+      "group": "short_form",
+      "description": "'Anılan karar' and 'aynı yönde' refer back to the decision cited just before; both carry that decision's E./K. pair, court and chamber. Without this, an opposing brief's back-references are silently missing from the citation audit.",
+      "text": "Yargıtay 3. HD E. 2021/123, K. 2022/456 kararı incelendi. Anılan karar ile aynı yönde başka kararlar da vardır.",
+      "normalized": "yargıtay 3. hd e. 2021/123, k. 2022/456 kararı incelendi. anılan karar ile aynı yönde başka kararlar da vardır.",
+      "expected": [
+        {
+          "kind": "court_decision",
+          "raw": "Yargıtay 3. HD E. 2021/123, K. 2022/456",
+          "span": [
+            0,
+            39
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2021/123",
+          "decision_no": "2022/456",
+          "year": 2021,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "3. HD",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "short_form",
+          "raw": "Anılan karar",
+          "span": [
+            58,
+            70
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2021/123",
+          "decision_no": "2022/456",
+          "year": 2021,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "3. HD",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        },
+        {
+          "kind": "short_form",
+          "raw": "aynı yönde",
+          "span": [
+            75,
+            85
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": "2021/123",
+          "decision_no": "2022/456",
+          "year": 2021,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": "YARGITAY",
+          "chamber": "3. HD",
+          "docket_kind": "esas",
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "shortform_decision_without_antecedent_is_belirsiz",
+      "group": "short_form",
+      "description": "A back-reference with NOTHING to refer back to falls into the 'belirsiz' bucket: every identity field stays null. It says a citation is there, never WHICH one.",
+      "text": "Anılan kararda belirtildiği üzere zamanaşımı işlemez.",
+      "normalized": "anılan kararda belirtildiği üzere zamanaşımı işlemez.",
+      "expected": [
+        {
+          "kind": "short_form",
+          "raw": "Anılan kararda",
+          "span": [
+            0,
+            14
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "shortform_agk_abbreviation_is_belirsiz",
+      "group": "short_form",
+      "description": "'agk.' (anılan geçen karar) with no antecedent is recognized as a short form and left unresolved.",
+      "text": "agk. uyarınca istem reddedilmiştir.",
+      "normalized": "agk. uyarınca istem reddedilmiştir.",
+      "expected": [
+        {
+          "kind": "short_form",
+          "raw": "agk.",
+          "span": [
+            0,
+            4
+          ],
+          "legislation_no": null,
+          "article_no": null,
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": null,
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "shortform_anaphoric_article_without_antecedent_is_belirsiz",
+      "group": "short_form",
+      "description": "'Mezkûr Yönetmeliğin 12 nci maddesi' with no instrument named anywhere before it resolves to NOTHING. The article number is kept, the law is not invented.",
+      "text": "Mezkûr Yönetmeliğin 12 nci maddesi uygulanır.",
+      "normalized": "mezkûr yönetmeliğin 12 nci maddesi uygulanır.",
+      "expected": [
+        {
+          "kind": "short_form",
+          "raw": "12 nci maddesi",
+          "span": [
+            20,
+            34
+          ],
+          "legislation_no": null,
+          "article_no": "12",
+          "docket_no": null,
+          "decision_no": null,
+          "year": null,
+          "name": null,
+          "article_kind": "madde",
+          "paragraph": null,
+          "clause": null,
+          "abbreviation": null,
+          "canonical_name": null,
+          "mulga": false,
+          "court": null,
+          "chamber": null,
+          "docket_kind": null,
+          "decision_date": null,
+          "rg_date": null,
+          "rg_no": null
+        }
+      ]
+    },
+    {
+      "name": "shortform_marker_words_alone_are_not_citations",
+      "group": "short_form",
+      "description": "'aynı' and 'karar' on their own are ordinary Turkish words: only the fixed marker phrases count, so plain prose yields nothing.",
+      "text": "Taraflar aynı görüşte değildir; mahkeme karar verecektir.",
+      "normalized": "taraflar aynı görüşte değildir; mahkeme karar verecektir.",
+      "expected": []
+    }
+  ]
+}

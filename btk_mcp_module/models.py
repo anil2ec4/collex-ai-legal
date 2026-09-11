@@ -51,8 +51,3 @@ class BtkDocumentMarkdown(BaseModel):
     total_pages: int = Field(1, description="Total Markdown chunk pages.")
     is_paginated: bool = Field(False, description="True when content spans multiple chunks.")
     error_message: Optional[str] = Field(None, description="Error message, if retrieval failed.")
-
-    class Config:
-        json_encoders = {
-            HttpUrl: str
-        }

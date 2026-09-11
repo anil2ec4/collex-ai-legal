@@ -1,0 +1,27 @@
+{
+  "_meta": {
+    "notice": "SENTETİK TEST VERİSİ — bu dosya gerçek mevzuat metni değildir; yalnızca yerel ingestion/test amaçlı üretilmiş sentetik bir alıntıdır.",
+    "synthetic": true,
+    "version_label": "v2-20260115-7999",
+    "fixture_file": "kanun_5237_v2.json",
+    "scope": "public",
+    "amended_by": "kanun-7999",
+    "amendment_note": "Madde 157/1'deki ceza ibaresi 7999 sayılı (sentetik) torba kanunla değiştirilmiştir; diğer tüm maddeler v1 ile birebir aynıdır."
+  },
+  "source": "fixture-mevzuat",
+  "external_id": "kanun-5237",
+  "document_type": "kanun",
+  "title": "Türk Ceza Kanunu (sentetik alıntı)",
+  "retrieved_url": "https://example.invalid/fixture/kanun/5237",
+  "media_type": "application/json",
+  "dates": {
+    "publication": "2004-10-12",
+    "effective_start": "2026-01-15"
+  },
+  "structure_hints": {
+    "kind": "legislation",
+    "legislation_no": "5237",
+    "short_name": "TCK"
+  },
+  "text": "İKİNCİ KİTAP\nÖzel Hükümler\n\nONUNCU BÖLÜM\nMalvarlığına Karşı Suçlar\n\nMADDE 141 - (1) Zilyedinin rızası olmadan başkasına ait taşınır bir malı, kendisine veya başkasına bir yarar sağlamak maksadıyla bulunduğu yerden alan kimseye bir yıldan üç yıla kadar hapis cezası verilir.\n(2) Ekonomik bir değer taşıyan her türlü enerji de, taşınır mal sayılır.\n\nMADDE 148 - (1) Bir başkasını, kendisinin veya yakınının hayatına, vücut veya cinsel dokunulmazlığına yönelik bir saldırı gerçekleştireceğinden ya da malvarlığı itibarıyla büyük bir zarara uğratacağından bahisle tehdit ederek, mağduru borç altına sokabilecek bir senedi vermeye mecbur kılan kişi, altı yıldan on yıla kadar hapis cezası ile cezalandırılır.\n\nMADDE 155 - (1) Başkasına ait olup da, muhafaza etmek veya belirli bir şekilde kullanmak üzere zilyedliği kendisine devredilmiş olan mal üzerinde, kendisinin veya başkasının yararına olarak, zilyedliğin devri amacı dışında tasarrufta bulunan veya bu devir olgusunu inkar eden kişiye, altı aydan iki yıla kadar hapis ve adli para cezası verilir.\n(2) Suçun, meslek ve sanat, ticaret veya hizmet ilişkisinin ya da hangi nedenden doğmuş olursa olsun, başkasının mallarını idare etmek yetkisinin gereği olarak tevdi ve teslim edilmiş eşya hakkında işlenmesi halinde, bir yıldan yedi yıla kadar hapis ve üç bin güne kadar adli para cezasına hükmolunur.\n\nMADDE 156 - (1) Bir hukuki ilişkiye dayanan alacağını tahsil amacıyla tehdit veya cebir kullanan kişi hakkında, yalnızca tehdit veya kasten yaralama suçuna ilişkin hükümler uygulanır.\n\nMADDE 157 - (1) Hileli davranışlarla bir kimseyi aldatıp, onun veya başkasının zararına olarak, kendisine veya başkasına bir yarar sağlayan kişiye üç yıldan yedi yıla kadar hapis ve on bin güne kadar adli para cezası verilir.\n\nMADDE 158 - (1) Dolandırıcılık suçunun;\na) Dini inanç ve duyguların istismar edilmesi suretiyle,\nb) Kişinin içinde bulunduğu tehlikeli durum veya zor şartlardan yararlanmak suretiyle,\nc) Bilişim sistemlerinin, banka veya kredi kurumlarının araç olarak kullanılması suretiyle,\nişlenmesi halinde, üç yıldan on yıla kadar hapis ve beş bin güne kadar adli para cezasına hükmolunur.\n(2) Kamu görevlileriyle ilişkisinin olduğundan, onlar nezdinde hatırı sayıldığından bahisle ve belli bir işin gördürüleceği vaadiyle aldatarak, başkasından menfaat temin eden kişi, birinci fıkra hükmüne göre cezalandırılır.\n\nMADDE 159 - (1) Dolandırıcılığın, bir hukuki ilişkiye dayanan alacağı tahsil amacıyla işlenmesi halinde, şikayet üzerine, altı aydan bir yıla kadar hapis veya adli para cezasına hükmolunur.\n\nMADDE 168 - (1) Hırsızlık, mala zarar verme, güveni kötüye kullanma, dolandırıcılık ve karşılıksız yararlanma suçları tamamlandıktan sonra ve fakat bu nedenle hakkında kovuşturma başlamadan önce, failin, azmettirenin veya yardım edenin bizzat pişmanlık göstererek mağdurun uğradığı zararı aynen geri verme veya tazmin suretiyle tamamen gidermesi halinde, verilecek cezanın üçte ikisine kadarı indirilir.\n"
+}

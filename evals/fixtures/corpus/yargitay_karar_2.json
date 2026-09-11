@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "notice": "SENTETİK TEST VERİSİ — bu dosya gerçek bir Yargıtay kararı değildir; yalnızca yerel ingestion/test amaçlı üretilmiş sentetik bir karar metnidir.",
+    "synthetic": true,
+    "version_label": "v1",
+    "fixture_file": "yargitay_karar_2.json",
+    "scope": "public"
+  },
+  "source": "fixture-yargitay",
+  "external_id": "yargitay-15cd-2024-2356",
+  "document_type": "yargitay_karari",
+  "title": "Yargıtay 15. Ceza Dairesi E. 2023/7810 K. 2024/2356 (sentetik)",
+  "retrieved_url": "https://example.invalid/fixture/yargitay/2024-2356",
+  "media_type": "application/json",
+  "dates": {
+    "decision": "2024-06-24"
+  },
+  "structure_hints": {
+    "kind": "decision",
+    "court": "Yargıtay",
+    "chamber": "15. Ceza Dairesi",
+    "docket_no": "2023/7810",
+    "decision_no": "2024/2356",
+    "stance": "contrary",
+    "issue": "tck-157-arac-satisi-kapora-dolandiriciligi"
+  },
+  "text": "T.C. YARGITAY\n15. Ceza Dairesi\nEsas No: 2023/7810\nKarar No: 2024/2356\nTarih: 24.06.2024\n\nÖZET: Gerçekte mevcut olan aracın satışı konusunda anlaşma kurulduktan sonra kaporanın iade edilmemesi ve aracın teslim edilmemesinden ibaret eylemde başlangıçta hileli davranış bulunmadığı, uyuşmazlığın hukuki nitelikte olduğu ve 5237 sayılı TCK'nın 157 nci maddesindeki dolandırıcılık suçunun unsurlarının oluşmadığı hakkında.\n\nOLAY: Sanık, maliki olduğu ve fiilen mevcut bulunan aracı katılana satmayı kabul etmiş, kapora olarak 25.000 TL almış, ancak daha sonra aracı teslim etmemiş ve kaporayı da iade etmemiştir. Sanık savunmasında satıştan vazgeçtiğini, kapora borcunu kabul ettiğini ancak ödeme güçlüğü içinde olduğunu beyan etmiştir.\n\nGEREKÇE: Dolandırıcılık suçunun oluşabilmesi için hilenin, sözleşmenin kurulması aşamasında ve mağduru aldatmaya elverişli nitelikte bulunması gerekir. Somut olayda satışa konu araç gerçekte mevcut olup sanığın başlangıçta aldatma kastıyla hareket ettiğine ilişkin her türlü şüpheden uzak, kesin ve inandırıcı delil bulunmamaktadır. Edimin sonradan yerine getirilmemesi sözleşmeye aykırılık niteliğinde olup uyuşmazlık hukuki niteliktedir; TCK'nın 157 nci maddesindeki suçun unsurları oluşmamıştır.\n\nHÜKÜM: Sanığın beraatine ilişkin yerel mahkeme hükmünün ONANMASINA, 24.06.2024 tarihinde oy çokluğuyla karar verildi.\n"
+}

@@ -1,0 +1,25 @@
+{
+  "_meta": {
+    "notice": "SENTETİK TEST VERİSİ — bu dosya gerçek mevzuat metni değildir; yalnızca yerel ingestion/test amaçlı üretilmiş sentetik bir alıntıdır.",
+    "synthetic": true,
+    "version_label": "v1-20120701",
+    "fixture_file": "kanun_6098_v1.json",
+    "scope": "public"
+  },
+  "source": "fixture-mevzuat",
+  "external_id": "kanun-6098",
+  "document_type": "kanun",
+  "title": "Türk Borçlar Kanunu (sentetik alıntı)",
+  "retrieved_url": "https://example.invalid/fixture/kanun/6098",
+  "media_type": "application/json",
+  "dates": {
+    "publication": "2011-02-04",
+    "effective_start": "2012-07-01"
+  },
+  "structure_hints": {
+    "kind": "legislation",
+    "legislation_no": "6098",
+    "short_name": "TBK"
+  },
+  "text": "BİRİNCİ KISIM\nGenel Hükümler\n\nMADDE 1 - (1) Sözleşme, tarafların iradelerini karşılıklı ve birbirine uygun olarak açıklamalarıyla kurulur.\n(2) İrade açıklaması açık veya örtülü olabilir.\n\nMADDE 2 - (1) Taraflar sözleşmenin esaslı noktalarında uyuşmuşlarsa, ikinci derecedeki noktalar üzerinde durulmamış olsa bile, sözleşme kurulmuş sayılır.\n\nMADDE 12 - (1) Sözleşmelerin geçerliliği, kanunda aksi öngörülmedikçe, hiçbir şekle bağlı değildir.\n\nMADDE 49 - (1) Kusurlu ve hukuka aykırı bir fiille başkasına zarar veren, bu zararı gidermekle yükümlüdür.\n(2) Zarar verici fiili yasaklayan bir hukuk kuralı bulunmasa bile, ahlaka aykırı bir fiille başkasına kasten zarar veren de, bu zararı gidermekle yükümlüdür.\n\nMADDE 50 - (1) Zarar gören, zararını ve zarar verenin kusurunu ispat yükü altındadır.\n(2) Uğranılan zararın miktarı tam olarak ispat edilemiyorsa hakim, olayların olağan akışını ve zarar görenin aldığı önlemleri göz önünde tutarak, zararın miktarını hakkaniyete uygun olarak belirler.\n\nMADDE 51 - (1) Hakim, tazminatın kapsamını ve ödenme biçimini, durumun gereğini ve özellikle kusurun ağırlığını göz önüne alarak belirler.\n"
+}

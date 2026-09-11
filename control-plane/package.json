@@ -1,0 +1,27 @@
+{
+  "name": "@collex/control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ColleX research control-plane: capability registry, retrieval helpers, evidence verification, bounded research orchestration, and the v1 HTTP API.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "npm run build && node dist/api/dev.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "hono": "^4.6.0",
+    "postgres": "^3.4.9",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

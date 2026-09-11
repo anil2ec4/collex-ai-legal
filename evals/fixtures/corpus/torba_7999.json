@@ -1,0 +1,46 @@
+{
+  "_meta": {
+    "notice": "SENTETİK TEST VERİSİ — bu dosya gerçek mevzuat metni değildir; yalnızca yerel ingestion/test amaçlı üretilmiş sentetik bir torba kanun metnidir.",
+    "synthetic": true,
+    "version_label": "v1-20260115",
+    "fixture_file": "torba_7999.json",
+    "scope": "public"
+  },
+  "source": "fixture-mevzuat",
+  "external_id": "kanun-7999",
+  "document_type": "kanun",
+  "title": "7999 sayılı Bazı Kanunlarda Değişiklik Yapılmasına Dair Kanun (sentetik)",
+  "retrieved_url": "https://example.invalid/fixture/kanun/7999",
+  "media_type": "application/json",
+  "dates": {
+    "publication": "2026-01-15",
+    "effective_start": "2026-01-15"
+  },
+  "structure_hints": {
+    "kind": "legislation",
+    "legislation_no": "7999",
+    "short_name": "Torba-7999",
+    "amendments": [
+      {
+        "changing_article": "1",
+        "action": "AMENDS",
+        "target_legislation_no": "5237",
+        "target_external_id": "kanun-5237",
+        "target_article": "157",
+        "target_paragraph": "1",
+        "replaced_phrase": "bir yıldan beş yıla kadar hapis ve beş bin güne kadar",
+        "replacement_phrase": "üç yıldan yedi yıla kadar hapis ve on bin güne kadar"
+      },
+      {
+        "changing_article": "2",
+        "action": "AMENDS",
+        "target_legislation_no": "6098",
+        "target_external_id": "kanun-6098",
+        "target_article": "49",
+        "target_paragraph": "1",
+        "added_sentence": "Dijital ortamda gerçekleştirilen fiiller bakımından da bu hüküm uygulanır."
+      }
+    ]
+  },
+  "text": "MADDE 1 - (1) 26/9/2004 tarihli ve 5237 sayılı Türk Ceza Kanununun 157 nci maddesinin birinci fıkrasında yer alan \"bir yıldan beş yıla kadar hapis ve beş bin güne kadar\" ibaresi \"üç yıldan yedi yıla kadar hapis ve on bin güne kadar\" şeklinde değiştirilmiştir.\n\nMADDE 2 - (1) 11/1/2011 tarihli ve 6098 sayılı Türk Borçlar Kanununun 49 uncu maddesinin birinci fıkrasına aşağıdaki cümle eklenmiştir.\n\"Dijital ortamda gerçekleştirilen fiiller bakımından da bu hüküm uygulanır.\"\n\nMADDE 3 - (1) Bu Kanun yayımı tarihinde yürürlüğe girer.\n\nMADDE 4 - (1) Bu Kanun hükümlerini Cumhurbaşkanı yürütür.\n"
+}

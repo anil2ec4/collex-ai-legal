@@ -39,13 +39,11 @@ class KvkkApiClient:
     
     def __init__(self, request_timeout: float = 60.0):
         """Initialize the KVKK API client."""
-        self.brave_api_token = os.getenv("BRAVE_API_TOKEN")
+        self.brave_api_token = os.getenv("BRAVE_API_TOKEN", "").strip()
         if not self.brave_api_token:
-            # Fallback to provided free token
-            self.brave_api_token = "BSAuaRKB-dvSDSQxIN0ft1p2k6N82Kq"
-            logger.info("Using fallback Brave API token (limited free token)")
+            logger.warning("KVKK search disabled: BRAVE_API_TOKEN is not configured")
         else:
-            logger.info("Using Brave API token from environment variable")
+            logger.info("KVKK search enabled with BRAVE_API_TOKEN")
         
         self.http_client = httpx.AsyncClient(
             headers={
@@ -58,6 +56,10 @@ class KvkkApiClient:
             follow_redirects=True
         )
     
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.brave_api_token)
+
     def _construct_search_query(self, keywords: str) -> str:
         """Construct the search query for Brave API."""
         base_query = 'site:kvkk.gov.tr "karar özeti"'
@@ -108,6 +110,9 @@ class KvkkApiClient:
         """Search for KVKK decisions using Brave API."""
         
         search_query = self._construct_search_query(params.keywords)
+        if not self.is_configured:
+            raise RuntimeError("KVKK module disabled: set BRAVE_API_TOKEN in the environment.")
+
         logger.info(f"KvkkApiClient: Searching with query: {search_query}")
         
         try:

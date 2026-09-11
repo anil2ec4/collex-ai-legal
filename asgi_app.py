@@ -10,6 +10,7 @@ Usage:
 
 import os
 import json
+import hmac
 import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -22,7 +23,19 @@ from mcp_server_main import create_app
 logger = logging.getLogger(__name__)
 
 # Configure CORS
-cors_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000"
+    ).split(",")
+    if origin.strip()
+]
+require_http_auth = os.getenv("REQUIRE_HTTP_AUTH", "true").strip().lower() not in {
+    "0", "false", "no", "off"
+}
+mcp_api_token = os.getenv("MCP_API_TOKEN", "").strip()
+if require_http_auth and len(mcp_api_token) < 32:
+    raise RuntimeError("MCP_API_TOKEN must be configured with at least 32 characters for HTTP mode.")
 
 # Create MCP app
 mcp_server = create_app()
@@ -54,29 +67,50 @@ custom_middleware = [
         allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "X-Request-ID", "X-Session-ID"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Session-ID"],
     ),
 ]
 
 # Create FastAPI wrapper application
 app = FastAPI(
-    title="Yargı MCP Server",
-    description="MCP server for Turkish legal databases",
-    version="0.1.0",
+    title="Bağımsız Yargı ve Mevzuat MCP",
+    description="Self-hosted MCP server for Turkish case law and legislation",
+    version="1.0.0",
     middleware=custom_middleware,
     default_response_class=UTF8JSONResponse,
     redirect_slashes=False,
 )
 
+@app.middleware("http")
+async def require_bearer_token(request: Request, call_next):
+    """Protect every externally useful route; keep only health public."""
+    if request.url.path == "/health" or request.method == "OPTIONS":
+        return await call_next(request)
+    if not require_http_auth:
+        return await call_next(request)
+
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, supplied_token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not hmac.compare_digest(
+        supplied_token.strip(), mcp_api_token
+    ):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "unauthorized", "message": "A valid Bearer token is required."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
+
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint for monitoring"""
+    tools = await mcp_server.get_tools()
     return {
         "status": "healthy",
-        "service": "Yargı MCP Server",
-        "version": "0.1.0",
-        "tools_count": len(mcp_server._tool_manager._tools),
+        "service": "Bağımsız Yargı ve Mevzuat MCP",
+        "version": "1.0.0",
+        "tools_count": len(tools),
     }
 
 
@@ -91,15 +125,15 @@ async def redirect_to_slash(request: Request):
 async def root():
     """Root endpoint with service information"""
     return {
-        "service": "Yargı MCP Server",
-        "description": "MCP server for Turkish legal databases",
+        "service": "Bağımsız Yargı ve Mevzuat MCP",
+        "description": "Self-hosted Turkish case law and legislation server",
         "endpoints": {
-            "mcp": "/mcp",
+            "mcp": "/mcp/",
             "health": "/health",
             "status": "/status",
         },
         "transports": {
-            "http": "/mcp"
+            "http": "/mcp/"
         },
         "supported_databases": [
             "Yargıtay (Court of Cassation)",
@@ -114,6 +148,8 @@ async def root():
             "BDDK (Banking Regulation and Supervision Agency)",
             "BTK (Information and Communication Technologies Authority)",
             "Bedesten API (Multiple courts)",
+            "GİB (Revenue Administration)",
+            "Mevzuat (12 legislation types)",
             "Sigorta Tahkim Komisyonu (Insurance Arbitration Commission)",
         ],
     }
@@ -123,10 +159,12 @@ async def root():
 async def status():
     """Status endpoint with detailed information"""
     tools = []
-    for tool in mcp_server._tool_manager._tools.values():
+    registered_tools = await mcp_server.get_tools()
+    for tool in registered_tools.values():
+        description = tool.description or ""
         tools.append({
             "name": tool.name,
-            "description": tool.description[:100] + "..." if len(tool.description) > 100 else tool.description
+            "description": description[:100] + "..." if len(description) > 100 else description
         })
 
     return {

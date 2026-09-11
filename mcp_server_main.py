@@ -16,12 +16,22 @@ _McpJSONRPCMessage.model_rebuild(force=True)
 import asyncio
 import atexit
 import logging
+import os
 import httpx
 import json
 import time
 from collections import defaultdict
+from pathlib import Path
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+# COLLEX_NO_DOTENV=1: a supervisor that builds a CLEAN child environment
+# (control-plane/scripts/serve-mcp.mjs) must not have `.env` re-injected
+# underneath it. Any other value keeps the historical behaviour.
+if os.environ.get("COLLEX_NO_DOTENV") != "1":
+    load_dotenv(PROJECT_ROOT / ".env")
 from pydantic import HttpUrl, Field
-from typing import Optional, Dict, List, Literal, Any
+from typing import Optional, Dict, List, Literal, Any, Tuple
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 
 # Optional tiktoken import for token counting
@@ -39,13 +49,23 @@ class ToolError(Exception):
     pass
 
 # --- Logging Configuration Start ---
+# LOG_LEVEL (environment contract, CLAUDE.md) selects the root/console level;
+# unknown or empty values keep INFO. Standard names only.
+_LOG_LEVEL_NAMES = {
+    "CRITICAL": logging.CRITICAL, "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING, "WARN": logging.WARNING,
+    "INFO": logging.INFO, "DEBUG": logging.DEBUG,
+}
+_LOG_LEVEL = _LOG_LEVEL_NAMES.get(
+    os.environ.get("LOG_LEVEL", "INFO").strip().upper(), logging.INFO
+)
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
+root_logger.setLevel(_LOG_LEVEL)
 
 console_handler = logging.StreamHandler()
 log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(log_formatter)
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(_LOG_LEVEL)
 root_logger.addHandler(console_handler)
 
 logger = logging.getLogger(__name__)
@@ -259,6 +279,7 @@ def create_app():
 # --- Module Imports ---
 from yargitay_mcp_module.client import YargitayOfficialApiClient
 from bedesten_mcp_module.client import BedestenApiClient, BedestenRateLimited
+from bedesten_rate_limit import BedestenCircuitOpen, bedesten_rate_limiter
 from bedesten_mcp_module.models import (
     BedestenSearchRequest, BedestenSearchData,
     BedestenDocumentMarkdown, BedestenCourtTypeEnum
@@ -283,6 +304,7 @@ from emsal_mcp_module.client import EmsalApiClient
 from emsal_mcp_module.models import (
     EmsalSearchRequest, CompactEmsalSearchResult
 )
+from emsal_semantic import rerank_emsal_decisions
 from uyusmazlik_mcp_module.client import UyusmazlikApiClient
 from uyusmazlik_mcp_module.models import (
     UyusmazlikSearchRequest
@@ -352,8 +374,8 @@ from sigorta_tahkim_mcp_module.models import (
 
 # MCP app for Turkish legal databases with explicit capabilities
 app = FastMCP(
-    name="Yargı MCP Server",
-    version="0.1.6"
+    name="Bağımsız Yargı ve Mevzuat MCP",
+    version="1.0.0"
 )
 
 # --- Health Check Functions (using individual clients) ---
@@ -636,6 +658,9 @@ async def search_emsal_detailed_decisions(
     sort_criteria: str = Field("1", description="Sorting criteria (e.g., 1: Esas No)."),
     sort_direction: str = Field("desc", description="Sorting direction ('asc' or 'desc')."),
     page_number: int = Field(1, ge=1, description="Page number (accepts int)."),
+    semantic: bool = Field(False, description="Rerank the page with embeddings when explicitly requested."),
+    semantic_query: str = Field("", description="Natural-language relevance query. Defaults to keyword when empty."),
+    semantic_top_k: int = Field(10, ge=1, le=10, description="Maximum semantically ranked candidates to return."),
     # page_size: int = Field(10, ge=1, le=10, description="Results per page.")
 ) -> Dict[str, Any]:
     """Search Emsal precedent decisions with detailed criteria."""
@@ -665,12 +690,44 @@ async def search_emsal_detailed_decisions(
     try:
         api_response = await emsal_client_instance.search_detailed_decisions(search_query)
         if api_response.data:
-            return CompactEmsalSearchResult(
+            compact = CompactEmsalSearchResult(
                 decisions=api_response.data.data,
                 total_records=api_response.data.recordsTotal if api_response.data.recordsTotal is not None else 0,
                 requested_page=search_query.page_number,
                 page_size=search_query.page_size
-            ).model_dump()
+            ).model_dump(mode="json")
+
+            query = semantic_query.strip() or keyword.strip()
+            if not semantic or not query:
+                compact["semantic"] = {
+                    "status": "skipped",
+                    "reason": "semantic disabled or no relevance query supplied",
+                }
+                return compact
+
+            if not SEMANTIC_SEARCH_AVAILABLE:
+                compact["semantic"] = {
+                    "status": "disabled",
+                    "reason": (
+                        "Configure OPENROUTER_API_KEY and OPENROUTER_EMBEDDING_MODEL "
+                        "or select a local embedding provider. Keyword candidates were returned."
+                    ),
+                }
+                return compact
+
+            semantic_result = await rerank_emsal_decisions(
+                emsal_client_instance,
+                api_response.data.data,
+                query=query,
+                top_k=semantic_top_k,
+            )
+            if semantic_result["results"]:
+                compact["decisions"] = semantic_result.pop("results")
+                compact["page_size"] = len(compact["decisions"])
+                compact["semantic"] = {"status": "success", "query": query, **semantic_result}
+            else:
+                compact["semantic"] = {"status": "fallback", "query": query, **semantic_result}
+            return compact
         logger.warning("API response for Emsal search did not contain expected data structure.")
         return CompactEmsalSearchResult(decisions=[], total_records=0, requested_page=search_query.page_number, page_size=search_query.page_size).model_dump()
     except Exception:
@@ -1040,12 +1097,123 @@ async def get_rekabet_kurumu_document(
         logger.exception(f"Error in tool 'get_rekabet_kurumu_document'. Karar ID: {karar_id}")
         raise 
 
+# --- Shared Bedesten failure contract (court side) --------------------------
+# Every upstream failure on a Bedesten-backed court tool must reach the caller
+# as a STRUCTURED result, never as a raw MCP protocol error and never as a
+# silent empty list. BedestenRateLimited and BedestenCircuitOpen in particular
+# are the same logical condition ("Bedesten cannot take another request yet"),
+# so they must produce the same shape as each other and as the 26 mounted
+# legislation tools.
+#
+# The failure kinds are the legal_contracts.FailureKind taxonomy (mirrored by
+# control-plane/src/types.ts); the classification is duplicated here on purpose
+# because `legal_contracts` is not declared in pyproject.toml and therefore is
+# not importable from an installed entry point. The message keeps the mevzuat
+# lane's machine-parseable prefix: "<KIND> retry_after=N.N: <safe message>".
+
+# Upstream failures a court facade converts into a structured result. Anything
+# outside this tuple is a programming error and still propagates.
+BEDESTEN_UPSTREAM_FAILURES = (
+    BedestenRateLimited,   # local bucket / bulkhead deadline / upstream 429
+    BedestenCircuitOpen,   # breaker open for this endpoint class
+    httpx.HTTPError,       # transport errors, timeouts and raise_for_status()
+    ValueError,            # JSONDecodeError / pydantic ValidationError / bad body
+)
+
+# FailureKind -> (legacy `error` string, default HTTP status when upstream
+# never answered).  "rate_limit_exceeded" is pre-existing and must not change.
+_FAILURE_KIND_TO_ERROR = {
+    "RATE_LIMITED": ("rate_limit_exceeded", 429),
+    "TIMEOUT": ("upstream_timeout", 504),
+    "UNAVAILABLE": ("service_unavailable", 503),
+    "PARSER_ERROR": ("upstream_parse_error", 502),
+    "NOT_FOUND": ("not_found", 404),
+    "UNAUTHORIZED": ("unauthorized", 401),
+    "INVALID_REQUEST": ("invalid_request", 400),
+}
+
+
+def _classify_bedesten_failure(exc: BaseException) -> Tuple[str, bool, Optional[float], Optional[int], str]:
+    """Map an upstream exception to (kind, retryable, retry_after_s, status, safe_message).
+
+    ``safe_message`` never contains raw upstream bodies or internal details.
+    """
+    if isinstance(exc, BedestenRateLimited):
+        return (
+            "RATE_LIMITED", True, exc.retry_after,
+            429 if exc.source == "upstream" else None,
+            f"Rate limited; retry after {exc.retry_after:.1f} seconds.",
+        )
+    if isinstance(exc, BedestenCircuitOpen):
+        return (
+            "UNAVAILABLE", True, exc.retry_after, None,
+            "Upstream temporarily unavailable (circuit open); "
+            f"retry after {exc.retry_after:.1f} seconds.",
+        )
+    if isinstance(exc, httpx.TimeoutException):
+        return ("TIMEOUT", True, None, None, "Upstream request timed out.")
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 429:
+            raw = exc.response.headers.get("Retry-After", "")
+            try:
+                retry_after = float(raw)
+            except (TypeError, ValueError):
+                retry_after = None
+            return ("RATE_LIMITED", True, retry_after, status,
+                    "Upstream rate limit exceeded.")
+        if status == 404:
+            return ("NOT_FOUND", False, None, status,
+                    "Requested resource was not found upstream.")
+        if status in (401, 403):
+            return ("UNAUTHORIZED", False, None, status,
+                    "Upstream rejected the request as unauthorized.")
+        if status >= 500:
+            return ("UNAVAILABLE", True, None, status,
+                    f"Upstream server error (HTTP {status}).")
+        return ("INVALID_REQUEST", False, None, status,
+                f"Upstream rejected the request (HTTP {status}).")
+    if isinstance(exc, httpx.HTTPError):
+        # Connect/read/network errors: the request never got an answer.
+        return ("UNAVAILABLE", True, None, None,
+                "Could not reach the upstream service.")
+    if isinstance(exc, ValueError):
+        # json.JSONDecodeError and pydantic ValidationError are ValueErrors:
+        # the body arrived but was not the documented JSON contract.
+        return ("PARSER_ERROR", False, None, None,
+                "Upstream response could not be parsed.")
+    return ("UNAVAILABLE", False, None, None, "Unexpected upstream failure.")
+
+
+def bedesten_failure_fields(exc: BaseException) -> Dict[str, Any]:
+    """Additive, machine-readable error fields shared by every court facade.
+
+    Keys are identical for every failure kind, so a caller branches on
+    ``error_code`` / ``retry_after`` instead of parsing prose.
+    """
+    kind, retryable, retry_after, status, safe_message = _classify_bedesten_failure(exc)
+    error_name, default_status = _FAILURE_KIND_TO_ERROR.get(
+        kind, ("service_unavailable", 503)
+    )
+    if retry_after is None:
+        retry_after = 30.0 if retryable else 0.0
+    return {
+        "error": error_name,
+        "error_code": kind,
+        "status_code": status or default_status,
+        "retry_after": f"{retry_after:.1f}",
+        "retryable": retryable,
+        "message": f"{kind} retry_after={retry_after:.1f}: {safe_message}",
+    }
+
+
 # --- MCP Tools for Bedesten (Unified Search Across All Courts) ---
 @app.tool(
     description=(
         "Use this for Turkish court decision records from Yargıtay, Danıştay, Local Courts, Appeals Courts, and KYB via Bedesten. "
         "Prefer narrow court_types over all courts. pageSize is intentionally fixed to 10 results per page. "
-        "Bedesten is upstream rate-limited; avoid parallel repeated calls and wait retry_after seconds after 429 responses."
+        "Bedesten is upstream rate-limited; avoid parallel repeated calls and wait retry_after seconds after 429 responses. "
+        "Upstream failures return an empty 'decisions' plus error_code/retry_after instead of an error."
     ),
     annotations={
         "readOnlyHint": True,
@@ -1133,50 +1301,22 @@ For best results, use exact phrases with quotes for legal terms."""),
             "page_size": pageSize,
             "searched_courts": court_types
         }
-    except BedestenRateLimited as e:
-        retry_after = f"{e.retry_after:.1f}"
-        logger.warning(f"Bedesten local rate-limit bucket full for search; retry-after={retry_after}s")
+    except BEDESTEN_UPSTREAM_FAILURES as e:
+        # Rate limit, open breaker, timeout, 5xx and unparseable bodies all
+        # yield the SAME structured shape. A raw MCP protocol error here would
+        # make the court tools behave differently from the 26 mounted
+        # legislation tools for identical upstream conditions, and an empty
+        # 'decisions' list with no error is indistinguishable from "no case law
+        # matches this query".
+        logger.exception("Upstream failure in tool 'search_bedesten_unified'")
         return {
             "decisions": [],
             "total_records": 0,
             "requested_page": pageNumber,
             "page_size": pageSize,
             "searched_courts": court_types,
-            "error": "rate_limit_exceeded",
-            "status_code": 429,
-            "retry_after": retry_after,
-            "message": (
-                "Bedesten istemci tarafı eşzamanlılık sınırına ulaşıldı "
-                "(yerel token-bucket dolu). Lütfen kısa bir süre bekleyip "
-                "aramayı tekrar deneyin. Yargı MCP'nin daha hızlı ve "
-                "profesyonel versiyonunu test etmek için beta sürümüne "
-                "kaydolabilirsiniz: "
-                "https://yargi.betaspacestudio.com"
-            ),
+            **bedesten_failure_fields(e),
         }
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
-            retry_after = e.response.headers.get("Retry-After", "")
-            logger.warning(f"Bedesten API rate limit (429) for search; retry-after={retry_after!r}")
-            return {
-                "decisions": [],
-                "total_records": 0,
-                "requested_page": pageNumber,
-                "page_size": pageSize,
-                "searched_courts": court_types,
-                "error": "rate_limit_exceeded",
-                "status_code": 429,
-                "retry_after": retry_after,
-                "message": (
-                    "Bedesten API rate limit aşıldı (HTTP 429 Too Many Requests). "
-                    "Lütfen kısa bir süre bekleyip aramayı tekrar deneyin. "
-                    "Yargı MCP'nin daha hızlı ve profesyonel versiyonunu test "
-                    "etmek için beta sürümüne kaydolabilirsiniz: "
-                    "https://yargi.betaspacestudio.com"
-                ),
-            }
-        logger.exception("Error in tool 'search_bedesten_unified'")
-        raise
     except Exception:
         logger.exception("Error in tool 'search_bedesten_unified'")
         raise
@@ -1202,45 +1342,27 @@ async def get_bedesten_document_markdown(
     
     try:
         return await bedesten_client_instance.get_document_as_markdown(documentId)
-    except BedestenRateLimited as e:
-        retry_after = f"{e.retry_after:.1f}"
-        logger.warning(f"Bedesten local rate-limit bucket full for document {documentId}; retry-after={retry_after}s")
-        message = (
-            "Bedesten istemci tarafı eşzamanlılık sınırına ulaşıldı "
-            "(yerel token-bucket dolu). Lütfen kısa bir süre bekleyip "
-            "belgeyi tekrar talep edin. Yargı MCP'nin daha hızlı ve "
-            "profesyonel versiyonunu test etmek için beta sürümüne "
-            "kaydolabilirsiniz: "
-            "https://yargi.betaspacestudio.com "
-            f"Retry-After: {retry_after}"
+    except BEDESTEN_UPSTREAM_FAILURES as e:
+        # One structured shape for every upstream failure kind.
+        # BedestenDocumentMarkdown has no error field (its model belongs to
+        # another lane), so the machine-readable code and retry_after ride in
+        # the body, keeping the pre-existing
+        # 'ERROR (<code>, HTTP <status>): <KIND> retry_after=N.N: ...'
+        # convention that the 429 branch already used.
+        fields = bedesten_failure_fields(e)
+        logger.exception(
+            "Upstream failure in tool 'get_bedesten_document_markdown' for %s",
+            documentId,
         )
         return BedestenDocumentMarkdown(
             documentId=documentId,
-            markdown_content=f"ERROR (rate_limit_exceeded, HTTP 429): {message}",
+            markdown_content=(
+                f"ERROR ({fields['error']}, HTTP {fields['status_code']}): "
+                f"{fields['message']}"
+            ),
             source_url=f"https://mevzuat.adalet.gov.tr/ictihat/{documentId}",
             mime_type=None,
         )
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
-            retry_after = e.response.headers.get("Retry-After", "")
-            logger.warning(f"Bedesten API rate limit (429) for document {documentId}; retry-after={retry_after!r}")
-            message = (
-                "Bedesten API rate limit aşıldı (HTTP 429 Too Many Requests). "
-                "Lütfen kısa bir süre bekleyip belgeyi tekrar talep edin. "
-                "Yargı MCP'nin daha hızlı ve profesyonel versiyonunu test "
-                "etmek için beta sürümüne kaydolabilirsiniz: "
-                "https://yargi.betaspacestudio.com"
-            )
-            if retry_after:
-                message += f" Retry-After: {retry_after}"
-            return BedestenDocumentMarkdown(
-                documentId=documentId,
-                markdown_content=f"ERROR (rate_limit_exceeded, HTTP 429): {message}",
-                source_url=f"https://mevzuat.adalet.gov.tr/ictihat/{documentId}",
-                mime_type=None,
-            )
-        logger.exception("Error in tool 'get_bedesten_document_markdown'")
-        raise
     except Exception:
         logger.exception("Error in tool 'get_bedesten_document_markdown'")
         raise
@@ -1258,7 +1380,7 @@ if SEMANTIC_SEARCH_AVAILABLE:
     )
     async def search_bedesten_semantic(
         initial_keyword: str = Field(..., description="""Bedesten API'den ilk sonuçları çekmek için anahtar kelime veya arama ifadesi.
-Bu terim ile API'den 100 karar çekilir, sonra semantik sıralama yapılır.
+Bu terim ile API'den en fazla 10 aday karar çekilir, sonra semantik sıralama yapılır.
 
 ARAMA OPERATÖRLERİ:
 • Basit arama: "muvazaa" (kelimeyi içeren kararlar)
@@ -1294,15 +1416,16 @@ YANLIŞ KULLANIM:
             default=["YARGITAYKARARI", "DANISTAYKARAR", "YERELHUKUK", "ISTINAFHUKUK", "KYB"],
             description="Court types to search: YARGITAYKARARI, DANISTAYKARAR, YERELHUKUK, ISTINAFHUKUK, KYB (default: all)"
         ),
-        top_k: int = Field(10, ge=1, le=50, description="Number of top results to return (1-50)")
+        candidate_limit: int = Field(5, ge=1, le=10, description="Candidate documents to fetch and rerank (1-10, default 5)."),
+        top_k: int = Field(5, ge=1, le=10, description="Number of top results to return (1-10).")
     ) -> Dict[str, Any]:
         """
         Perform semantic search on Turkish legal decisions using OpenRouter API.
 
         This tool:
-        1. Searches Bedesten API with initial keyword (retrieves 100 results)
-        2. Fetches full document content for each result
-        3. Generates embeddings using Google's Gemini Embedding model via OpenRouter
+        1. Searches Bedesten API with initial keyword (up to 10 candidates)
+        2. Fetches full document content sequentially within the shared rate limit
+        3. Generates embeddings using the configured OpenRouter embedding model
         4. Performs semantic similarity search with the query
         5. Returns re-ranked results based on semantic relevance
 
@@ -1326,30 +1449,20 @@ YANLIŞ KULLANIM:
             # Step 1: Initial keyword search to get document IDs
             logger.info(f"Step 1: Searching Bedesten API with keyword: {initial_keyword}")
 
-            all_decisions = []
-
-            # Search each court type
-            for court_type in court_types:
-                try:
-                    per_court_limit = max(20, 100 // len(court_types))
-
-                    search_results = await bedesten_client_instance.search_documents(
-                        BedestenSearchRequest(
-                            data=BedestenSearchData(
-                                phrase=initial_keyword,
-                                itemTypeList=[court_type],
-                                pageSize=per_court_limit,
-                                pageNumber=1
-                            )
-                        )
+            search_results = await bedesten_client_instance.search_documents(
+                BedestenSearchRequest(
+                    data=BedestenSearchData(
+                        phrase=initial_keyword,
+                        itemTypeList=court_types,
+                        pageSize=candidate_limit,
+                        pageNumber=1,
                     )
-
-                    if search_results.data and search_results.data.emsalKararList:
-                        all_decisions.extend(search_results.data.emsalKararList)
-                        logger.info(f"Found {len(search_results.data.emsalKararList)} results from {court_type}")
-
-                except Exception as e:
-                    logger.warning(f"Error searching {court_type}: {e}")
+                )
+            )
+            all_decisions = (
+                list(search_results.data.emsalKararList)
+                if search_results.data and search_results.data.emsalKararList else []
+            )
 
             if not all_decisions:
                 logger.warning("No documents found from initial search")
@@ -1366,7 +1479,7 @@ YANLIŞ KULLANIM:
 
             documents_data = []
             failed_fetches = 0
-            decisions_to_process = all_decisions[:100]
+            decisions_to_process = all_decisions[:candidate_limit]
 
             for i, decision in enumerate(decisions_to_process):
                 try:
@@ -1416,13 +1529,15 @@ YANLIŞ KULLANIM:
             # Step 3: Generate embeddings
             logger.info("Step 3: Generating embeddings...")
 
-            query_embedding = embedder.encode_query(query, task="search result")
-
             doc_texts = [doc["text"] for doc in documents_data]
             doc_titles = [doc["metadata"].get("birim_adi", "none") for doc in documents_data]
-            doc_embeddings = embedder.encode_documents(doc_texts, titles=doc_titles)
+            query_embedding, doc_embeddings = await asyncio.gather(
+                asyncio.to_thread(embedder.encode_query, query, "legal decision retrieval"),
+                asyncio.to_thread(embedder.encode_documents, doc_texts, doc_titles),
+            )
 
-            # No dimension reduction - using full 3072 dimensions
+            # No dimension reduction - embedding size comes from embedder.dimension
+            # (default 2048 for OpenRouter Nemotron, 768 for the local provider)
 
             # Step 4: Add to vector store and search
             logger.info("Step 4: Performing semantic search...")
@@ -1711,16 +1826,56 @@ async def get_sayistay_document_unified(
         raise
 
 # --- Application Shutdown Handling ---
-def perform_cleanup():
-    logger.info("MCP Server performing cleanup...")
+def _cleanup_log(level: int, msg: str, *args, **kwargs) -> None:
+    """Log during atexit cleanup without post-pytest '--- Logging error ---' noise.
+
+    When a test harness (pytest capture) or the surrounding process has already
+    closed the streams our handlers write to, Handler.emit raises ValueError
+    internally and the logging module prints a loud '--- Logging error ---'
+    traceback to stderr for every call. Skip logging entirely when a handler's
+    stream is closed, and swallow a ValueError from a stream closing mid-call.
+    Behavior is otherwise identical to logger.log(level, msg, ...).
+    """
     try:
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-        if loop.is_closed(): 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-    except RuntimeError: 
+        handlers = logger.handlers or logging.getLogger().handlers
+        for handler in handlers:
+            stream = getattr(handler, "stream", None)
+            if stream is not None and getattr(stream, "closed", False):
+                return
+        logger.log(level, msg, *args, **kwargs)
+    except ValueError:
+        pass
+
+
+def _drop_closed_log_handlers() -> None:
+    """Remove handlers whose streams are already closed (post-pytest atexit).
+
+    pytest's capture machinery closes the streams our import-time handlers
+    wrap; every later logging call from ANY module (client close methods run
+    inside the cleanup event loop) would then print a '--- Logging error ---'
+    traceback via Handler.handleError. Pruning the dead handlers up front
+    silences that noise process-wide. INFO records without handlers are
+    dropped; WARNING+ still reach the real stderr via logging.lastResort. In
+    a normal server shutdown the streams are open and nothing is removed, so
+    behavior is unchanged.
+    """
+    for target in (logging.getLogger(), logger):
+        for handler in list(target.handlers):
+            stream = getattr(handler, "stream", None)
+            if stream is not None and getattr(stream, "closed", False):
+                target.removeHandler(handler)
+
+
+def perform_cleanup():
+    _drop_closed_log_handlers()
+    _cleanup_log(logging.INFO, "MCP Server performing cleanup...")
+    owns_loop = False
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        owns_loop = True
     clients_to_close = [
         globals().get('yargitay_client_instance'),
         globals().get('danistay_client_instance'),
@@ -1738,18 +1893,24 @@ def perform_cleanup():
         globals().get('bddk_client_instance'),
         globals().get('btk_client_instance'),
         globals().get('gib_client_instance'),
-        globals().get('sigorta_tahkim_client_instance')
+        globals().get('sigorta_tahkim_client_instance'),
+        globals().get('mevzuat_client_instance'),
+        globals().get('mevzuat_bedesten_client_instance'),
     ]
     async def close_all_clients_async():
         tasks = []
         for client_instance in clients_to_close:
-            if client_instance and hasattr(client_instance, 'close_client_session') and callable(client_instance.close_client_session):
-                logger.info(f"Scheduling close for client session: {client_instance.__class__.__name__}")
-                tasks.append(client_instance.close_client_session())
+            if client_instance:
+                closer = getattr(client_instance, 'close_client_session', None)
+                if not callable(closer):
+                    closer = getattr(client_instance, 'close', None)
+                if callable(closer):
+                    _cleanup_log(logging.INFO, f"Scheduling close for client session: {client_instance.__class__.__name__}")
+                    tasks.append(closer())
         # Close health check client if it was created
         global _health_check_client
         if _health_check_client is not None:
-            logger.info("Closing health check HTTP client")
+            _cleanup_log(logging.INFO, "Closing health check HTTP client")
             tasks.append(_health_check_client.aclose())
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1758,17 +1919,20 @@ def perform_cleanup():
                     client_name = "Unknown Client"
                     if i < len(clients_to_close) and clients_to_close[i] is not None:
                         client_name = clients_to_close[i].__class__.__name__
-                    logger.error(f"Error closing client {client_name}: {result}")
+                    _cleanup_log(logging.ERROR, f"Error closing client {client_name}: {result}")
     try:
-        if loop.is_running(): 
+        if loop.is_running():
             asyncio.ensure_future(close_all_clients_async(), loop=loop)
-            logger.info("Client cleanup tasks scheduled on running event loop.")
+            _cleanup_log(logging.INFO, "Client cleanup tasks scheduled on running event loop.")
         else:
             loop.run_until_complete(close_all_clients_async())
-            logger.info("Client cleanup tasks completed via run_until_complete.")
-    except Exception as e: 
-        logger.error(f"Error during atexit cleanup execution: {e}", exc_info=True)
-    logger.info("MCP Server atexit cleanup process finished.")
+            _cleanup_log(logging.INFO, "Client cleanup tasks completed via run_until_complete.")
+    except Exception as e:
+        _cleanup_log(logging.ERROR, f"Error during atexit cleanup execution: {e}", exc_info=True)
+    finally:
+        if owns_loop:
+            loop.close()
+    _cleanup_log(logging.INFO, "MCP Server atexit cleanup process finished.")
 
 atexit.register(perform_cleanup)
 
@@ -1882,10 +2046,11 @@ async def check_government_servers_health() -> Dict[str, Any]:
             "User-Agent": "Mozilla/5.0 Health Check"
         }
         
-        response = await client.post(
+        response = await bedesten_rate_limiter.post(
+            client,
             "https://bedesten.adalet.gov.tr/emsal-karar/searchDocuments",
-            json=bedesten_payload,
-            headers=headers
+            "health check",
+            json=bedesten_payload, headers=headers,
         )
         
         if response.status_code == 200:
@@ -1918,6 +2083,12 @@ async def check_government_servers_health() -> Dict[str, Any]:
                 "response_time_ms": response.elapsed.total_seconds() * 1000
             }
         
+    except BedestenRateLimited as e:
+        health_results["bedesten"] = {
+            "status": "rate_limited",
+            "reason": f"Rate limited; {e.retry_after:.1f} saniye sonra tekrar dene.",
+            "retry_after": round(e.retry_after, 1),
+        }
     except Exception as e:
         health_results["bedesten"] = {
             "status": "unhealthy", 
@@ -1927,15 +2098,24 @@ async def check_government_servers_health() -> Dict[str, Any]:
     # Overall health assessment
     healthy_servers = sum(1 for server in health_results.values() if server["status"] == "healthy")
     total_servers = len(health_results)
-    
+
     overall_status = "healthy" if healthy_servers == total_servers else "degraded" if healthy_servers > 0 else "unhealthy"
-    
+
+    # Rate limiter observability (ADDITIVE field — existing fields unchanged).
+    # Snapshot of the process-wide Bedesten limiter: token bucket fill,
+    # not-before pause window, circuit breaker states and bulkhead config.
+    try:
+        rate_limiter_state = bedesten_rate_limiter.get_state()
+    except Exception as state_error:  # Health reporting must never fail the tool.
+        rate_limiter_state = {"error": f"rate limiter state unavailable: {state_error}"}
+
     return {
         "overall_status": overall_status,
         "healthy_servers": healthy_servers,
         "total_servers": total_servers,
         "servers": health_results,
-        "check_timestamp": f"{__import__('datetime').datetime.now().isoformat()}"
+        "check_timestamp": f"{__import__('datetime').datetime.now().isoformat()}",
+        "rate_limiter": rate_limiter_state,
     }
 
 # --- MCP Tools for KVKK ---
@@ -1956,6 +2136,13 @@ async def search_kvkk_decisions(
     logger.info(f"KVKK search tool called with keywords: {keywords}")
 
     pageSize = 10  # Default value
+    if not kvkk_client_instance.is_configured:
+        return {
+            "decisions": [], "total_results": 0, "page": page,
+            "pageSize": pageSize, "query": keywords,
+            "error": "KVKK module disabled: set BRAVE_API_TOKEN in the environment.",
+        }
+
 
     search_request = KvkkSearchRequest(
         keywords=keywords,
@@ -1992,6 +2179,13 @@ async def get_kvkk_document_markdown(
 ) -> Dict[str, Any]:
     """Get KVKK decision as paginated Markdown."""
     logger.info(f"KVKK document retrieval tool called for URL: {decision_url}")
+    if not kvkk_client_instance.is_configured:
+        return {
+            "source_url": decision_url, "markdown_chunk": None,
+            "current_page": page_number, "total_pages": 0, "is_paginated": False,
+            "error_message": "KVKK module disabled: set BRAVE_API_TOKEN in the environment.",
+        }
+
 
     if not decision_url or not decision_url.strip():
         return KvkkDocumentMarkdown(
@@ -2060,6 +2254,13 @@ async def search_bddk_decisions(
     logger.info(f"BDDK search tool called with keywords: {keywords}, page: {page}")
     
     pageSize = 10  # Default value
+    if not bddk_client_instance.is_configured:
+        return {
+            "decisions": [], "total_results": 0, "page": page,
+            "pageSize": pageSize,
+            "error": "BDDK module disabled: set TAVILY_API_KEY in the environment.",
+        }
+
     
     try:
         search_request = BddkSearchRequest(
@@ -2109,6 +2310,13 @@ async def get_bddk_document_markdown(
 ) -> dict:
     """Retrieve BDDK decision document in Markdown format."""
     logger.info(f"BDDK document retrieval tool called for ID: {document_id}, page: {page_number}")
+    if not bddk_client_instance.is_configured:
+        return {
+            "document_id": document_id, "markdown_content": "",
+            "page_number": page_number, "total_pages": 0,
+            "error": "BDDK module disabled: set TAVILY_API_KEY in the environment.",
+        }
+
     
     if not document_id or not document_id.strip():
         return {
@@ -2338,6 +2546,12 @@ async def search_sigorta_tahkim_decisions(
     logger.info(f"Sigorta Tahkim search tool called with keywords: {keywords}, page: {page}")
 
     pageSize = 10
+    if not sigorta_tahkim_client_instance.is_configured:
+        return {
+            "decisions": [], "total_results": 0, "page": page,
+            "pageSize": pageSize,
+            "error": "Sigorta Tahkim module disabled: set TAVILY_API_KEY in the environment.",
+        }
 
     try:
         search_request = SigortaTahkimSearchRequest(
@@ -2510,12 +2724,63 @@ def build_bedesten_metadata_preview(decision: Any, court_name: str) -> str:
     return ". ".join(preview_parts)
 
 
+def _deep_research_search_payload(
+    results: List[Dict[str, Any]],
+    failure_fields: Dict[str, Any],
+    failed_courts: List[Dict[str, str]],
+    short_circuited: bool = False,
+) -> Dict[str, Any]:
+    """Build the Deep Research 'search' payload.
+
+    The 'results' field keeps its exact documented shape (id/title/text/url);
+    every failure signal is ADDITIVE so an empty 'results' can never be
+    mistaken for "no Turkish case law matches this query".
+    """
+    payload: Dict[str, Any] = {
+        "results": [
+            {
+                "id": item["id"],
+                "title": item["title"],
+                "text": item["text"],
+                "url": item["url"],
+            }
+            for item in results
+        ]
+    }
+    if failed_courts:
+        payload["failed_courts"] = failed_courts
+    if failure_fields:
+        payload.update(failure_fields)
+        payload["partial_results"] = bool(results)
+        payload["short_circuited"] = short_circuited
+    elif failed_courts and not results:
+        # Every court that ran came back without a usable payload (e.g. a
+        # SUCCESS envelope carrying data=None). Still never a silent empty list.
+        payload.update({
+            "error": "service_unavailable",
+            "error_code": "UNAVAILABLE",
+            "status_code": 503,
+            "retry_after": "30.0",
+            "retryable": True,
+            "message": (
+                "UNAVAILABLE retry_after=30.0: Bedesten returned no usable data "
+                f"for {len(failed_courts)} court type(s); the search did not "
+                "complete."
+            ),
+            "partial_results": False,
+            "short_circuited": False,
+        })
+    return payload
+
+
 @app.tool(
     description=(
         "Only for ChatGPT Deep Research. Searches Bedesten-supported Turkish court databases and returns "
         "OpenAI Deep Research compatible results (id, title, text, url). For regular MCP use, prefer "
         "search_bedesten_unified. This tool does not fetch document bodies during search so one query stays "
-        "within Bedesten upstream rate limits; call fetch only for selected result IDs."
+        "within Bedesten upstream rate limits; call fetch only for selected result IDs. "
+        "On upstream failure it still returns 'results' plus error_code/retry_after: an empty 'results' with "
+        "no error_code means no matching case law, an empty 'results' with an error_code means the search failed."
     ),
     annotations={
         "readOnlyHint": True,
@@ -2540,9 +2805,17 @@ async def search(
     as required by ChatGPT Deep Research specification.
     """
     logger.info(f"ChatGPT Deep Research search tool called with query: {query}")
-    
+
     results = []
-    
+    # Machine-detectable failure state. The bucket and the breaker are SHARED
+    # across every court type, so the first rate-limit/circuit failure means the
+    # remaining courts cannot succeed either: short-circuit instead of
+    # serialising one bucket pause per court (5 x Retry-After can reach minutes)
+    # while holding bulkhead slots.
+    failure_fields: Dict[str, Any] = {}
+    failed_courts: List[Dict[str, str]] = []
+    short_circuited = False
+
     try:
         # Search all court types via unified Bedesten API
         court_types = [
@@ -2569,6 +2842,10 @@ async def search(
                 # Handle potential None data
                 if search_results.data is None:
                     logger.warning(f"No data returned from Bedesten API for {court_name}")
+                    failed_courts.append({
+                        "court": court_name,
+                        "error_code": "NO_DATA",
+                    })
                     continue
                 
                 # Add results from metadata only. Fetching every document preview
@@ -2586,9 +2863,42 @@ async def search(
                 else:
                     logger.info(f"Found 0 results from {court_name} (no data returned)")
                 
+            except (BedestenRateLimited, BedestenCircuitOpen) as e:
+                # Shared bucket + shared breaker: the remaining court types
+                # cannot succeed and would only serialise one bucket pause each
+                # (5 x Retry-After can reach minutes) while holding bulkhead
+                # slots. Stop immediately and report the condition instead of
+                # returning a silent empty list.
+                failure_fields = bedesten_failure_fields(e)
+                short_circuited = True
+                failed_courts.append({
+                    "court": court_name,
+                    "error_code": failure_fields["error_code"],
+                })
+                logger.warning(
+                    "Bedesten unavailable during Deep Research search at %s (%s); "
+                    "short-circuiting %d remaining court type(s); retry-after=%.1fs",
+                    court_name, type(e).__name__,
+                    len(court_types) - court_types.index((item_type, court_name)) - 1,
+                    e.retry_after,
+                )
+                break
             except Exception as e:
-                logger.warning(f"Bedesten API search error for {court_name}: {e}")
-        
+                # Timeouts, 5xx and unparseable bodies are per-court failures:
+                # keep going, but record them so an empty 'results' can never
+                # be read as "no Turkish case law matches this query".
+                fields = bedesten_failure_fields(e)
+                if not failure_fields:
+                    failure_fields = fields
+                failed_courts.append({
+                    "court": court_name,
+                    "error_code": fields["error_code"],
+                })
+                logger.warning(
+                    "Bedesten API search error for %s (%s): %s",
+                    court_name, fields["error_code"], e,
+                )
+
         # Comment out other API implementations for ChatGPT Deep Research
         """
         # Other API implementations disabled for ChatGPT Deep Research
@@ -2605,33 +2915,17 @@ async def search(
         """
         
         logger.info(f"ChatGPT Deep Research search completed. Found {len(results)} results via Bedesten API.")
-        return {
-            "results": [
-                {
-                    "id": item["id"],
-                    "title": item["title"],
-                    "text": item["text"],
-                    "url": item["url"]
-                }
-                for item in results
-            ]
-        }
-        
+        return _deep_research_search_payload(
+            results, failure_fields, failed_courts, short_circuited
+        )
+
     except Exception:
         logger.exception("Error in ChatGPT Deep Research search tool")
         # Return partial results if any were found
         if results:
-            return {
-                "results": [
-                    {
-                        "id": item["id"],
-                        "title": item["title"],
-                        "text": item["text"],
-                        "url": item["url"]
-                    }
-                    for item in results
-                ]
-            }
+            return _deep_research_search_payload(
+            results, failure_fields, failed_courts, short_circuited
+        )
         raise
 
 @app.tool(
@@ -2733,12 +3027,45 @@ async def fetch(
             doc_id = id.replace("local_", "")
             doc = await bedesten_client_instance.get_document_as_markdown(doc_id)
         """
-        
+
+    except BEDESTEN_UPSTREAM_FAILURES as e:
+        # Deep Research callers get the same structured envelope as the court
+        # tools: a raw MCP protocol error is indistinguishable from a bug and
+        # carries no retry_after.
+        fields = bedesten_failure_fields(e)
+        logger.exception("Upstream failure fetching Deep Research document %s", id)
+        return {
+            "id": id,
+            "title": f"Turkish Legal Document {id} (unavailable)",
+            "text": fields["message"],
+            "url": f"https://mevzuat.adalet.gov.tr/ictihat/{id}",
+            "metadata": {
+                "database": "Turkish Legal Database via Bedesten API",
+                "document_id": id,
+                "source_url": f"https://mevzuat.adalet.gov.tr/ictihat/{id}",
+                "mime_type": None,
+                "api_source": "Bedesten Unified API",
+                "chatgpt_deep_research": True,
+                "rate_limit_optimized": True,
+                "error_code": fields["error_code"],
+                "retry_after": fields["retry_after"],
+            },
+            **fields,
+        }
     except Exception:
         logger.exception(f"Error fetching ChatGPT Deep Research document {id}")
         raise
 
 # --- Token Metrics Tool Removed for Optimization ---
+
+# Expose both upstream projects through one MCP connection without changing
+# their documented tool names. All Bedesten clients share one rate limiter.
+from mevzuat_mcp_server import (
+    app as mevzuat_app,
+    mevzuat_client as mevzuat_client_instance,
+    bedesten_client as mevzuat_bedesten_client_instance,
+)
+app.mount(mevzuat_app)
 
 def main():
     # Initialize the app properly with create_app()

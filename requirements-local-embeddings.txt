@@ -1,0 +1,4 @@
+# Optional CPU inference runtime; core application dependencies remain separate.
+# Install using: uv pip install --python .venv/Scripts/python.exe -r requirements-local-embeddings.txt
+onnxruntime==1.20.1
+tokenizers==0.23.2

@@ -1,0 +1,539 @@
+# Kaynak hakkı / lisans / veritabanı riski kayıt defteri (brief §12.2 şablonu).
+#
+# DURUM: Bütün girdiler "legal_review.status: blocked" ile başlar.
+# terms.url / captured_at alanları null'dur; her upstream'in güncel kullanım
+# şartları ve robots.txt anlık görüntüsü TARİHLİ olarak araştırılıp
+# doldurulacaktır (robots.txt lisans DEĞİLDİR). "unknown/prohibited" kalan
+# kaynak, common corpus backfill'ine giremez (üretim ingestion kapısı).
+#
+# HUKUKÇU İNCELEMESİ GEREKLİ — bu dosya nihai hukuki değerlendirme değildir.
+# Tamamlayan hukukçu: legal_review.reviewer / reviewed_at / evidence_paths
+# alanlarını doldurur ve status'u günceller.
+
+sources:
+  - source_id: bedesten_yargitay
+    owner: "T.C. Adalet Bakanlığı"
+    document_types: [court_decision]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null # robots.txt lisans değildir
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: true
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: bedesten_danistay
+    owner: "T.C. Adalet Bakanlığı"
+    document_types: [court_decision]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: true
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: bedesten_yerel_istinaf
+    owner: "T.C. Adalet Bakanlığı"
+    document_types: [court_decision]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: true
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: bedesten_kyb
+    owner: "T.C. Adalet Bakanlığı"
+    document_types: [court_decision]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: true
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: bedesten_mevzuat
+    owner: "T.C. Adalet Bakanlığı"
+    document_types: [legislation]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: false
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: emsal_uyap
+    owner: "T.C. Adalet Bakanlığı (UYAP)"
+    document_types: [court_decision]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: true
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: anayasa
+    owner: "T.C. Anayasa Mahkemesi"
+    document_types: [court_decision]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: true
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: uyusmazlik
+    owner: "T.C. Uyuşmazlık Mahkemesi"
+    document_types: [court_decision]
+    access_method: html_scrape
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: true
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: kik
+    owner: "Kamu İhale Kurumu"
+    document_types: [board_decision]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: false
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: kvkk_kararlar
+    owner: "Kişisel Verileri Koruma Kurumu"
+    document_types: [board_decision]
+    access_method: search_api_via_brave # keşif Brave Search API; belge kvkk.gov.tr
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: true
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: rekabet
+    owner: "Rekabet Kurumu"
+    document_types: [board_decision]
+    access_method: html_scrape
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: false
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: sayistay
+    owner: "T.C. Sayıştay Başkanlığı"
+    document_types: [court_decision]
+    access_method: html_scrape
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: false
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: bddk
+    owner: "Bankacılık Düzenleme ve Denetleme Kurumu"
+    document_types: [board_decision]
+    access_method: search_api_via_tavily # keşif Tavily; belge bddk.org.tr
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: false
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: btk
+    owner: "Bilgi Teknolojileri ve İletişim Kurumu"
+    document_types: [board_decision]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: false
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: gib_ozelge
+    owner: "Gelir İdaresi Başkanlığı"
+    document_types: [tax_ruling]
+    access_method: api
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: false
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: sigorta_tahkim
+    owner: "Sigorta Tahkim Komisyonu"
+    document_types: [arbitration_decision]
+    access_method: search_api_via_tavily # keşif Tavily; belge resmi site
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: true
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []
+
+  - source_id: resmi_gazete
+    owner: "T.C. Cumhurbaşkanlığı (Resmî Gazete)"
+    document_types: [official_gazette]
+    access_method: web
+    official_source: true
+    terms:
+      url: null
+      captured_at: null
+    robots_snapshot: null
+    rights:
+      underlying_text_basis: FSEK_31
+      database_right_risk: unknown
+      editorial_content_included: false
+      commercial_reuse: unknown
+      redistribution_mode: link_and_quote_only
+    privacy:
+      personal_data_present: possible
+      special_category_possible: false
+      source_anonymized: unknown
+      reidentification_prohibited: true
+    operations:
+      documented_rate_limit: null
+      permitted_cache_duration: null
+      freshness_sla: null
+      takedown_contact: null
+    legal_review:
+      status: blocked
+      reviewer: null
+      reviewed_at: null
+      evidence_paths: []

@@ -38,13 +38,11 @@ class BddkApiClient:
     
     def __init__(self, request_timeout: float = 60.0):
         """Initialize the BDDK API client."""
-        self.tavily_api_key = os.getenv("TAVILY_API_KEY")
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY", "").strip()
         if not self.tavily_api_key:
-            # Fallback to development token
-            self.tavily_api_key = "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"
-            logger.info("Using fallback Tavily API token (development token)")
+            logger.warning("BDDK search disabled: TAVILY_API_KEY is not configured")
         else:
-            logger.info("Using Tavily API key from environment variable")
+            logger.info("BDDK search enabled with TAVILY_API_KEY")
         
         self.http_client = httpx.AsyncClient(
             headers={
@@ -58,6 +56,10 @@ class BddkApiClient:
         """Close the HTTP client session."""
         await self.http_client.aclose()
         logger.info("BddkApiClient: HTTP client session closed.")
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.tavily_api_key)
     
     def _extract_document_id(self, url: str) -> Optional[str]:
         """Extract document ID from BDDK URL."""
@@ -92,6 +94,9 @@ class BddkApiClient:
         Returns:
             BddkSearchResult with matching decisions
         """
+        if not self.is_configured:
+            raise RuntimeError("BDDK module disabled: set TAVILY_API_KEY in the environment.")
+
         try:
             headers = {
                 "Content-Type": "application/json",

@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "notice": "SENTETİK TEST VERİSİ — bu dosya gerçek bir dilekçe değildir; içindeki tüm kişi ve olaylar uydurmadır, yalnızca alakasız-doküman (retrieval noise) testi için üretilmiştir.",
+    "synthetic": true,
+    "version_label": "v1",
+    "fixture_file": "filler_dilekce.json",
+    "scope": "tenant",
+    "tenant_id": "00000000-0000-4000-8000-0000000000aa"
+  },
+  "source": "fixture-tenant-upload",
+  "external_id": "dilekce-2026-0001",
+  "document_type": "dilekce",
+  "title": "Kira bedelinin tespiti dilekçesi (sentetik, alakasız doküman)",
+  "retrieved_url": "https://example.invalid/fixture/tenant/dilekce-2026-0001",
+  "media_type": "application/json",
+  "dates": {
+    "publication": "2026-02-10"
+  },
+  "structure_hints": {
+    "kind": "generic"
+  },
+  "text": "SAYIN İSTANBUL 3. SULH HUKUK MAHKEMESİ HAKİMLİĞİNE\n\nDAVACI: Ayşe Yılmaz (sentetik kişi)\nVEKİLİ: Av. Mehmet Demir (sentetik kişi)\nDAVALI: Mert Kaya (sentetik kişi)\nKONU: Kira bedelinin tespiti istemimizden ibarettir.\n\nAÇIKLAMALAR:\n1. Davacı müvekkil, İstanbul ili Kadıköy ilçesinde bulunan taşınmazın malikidir. Taşınmaz, 01.09.2021 tarihli kira sözleşmesi ile davalıya konut olarak kiralanmıştır.\n2. Sözleşmede kararlaştırılan kira bedeli, emsal taşınmazların kira bedellerinin oldukça altında kalmıştır. Tarafların yenileme dönemlerinde anlaşamaması nedeniyle kira bedelinin mahkemece tespiti gerekmektedir.\n\nHUKUKİ NEDENLER: 6098 sayılı Türk Borçlar Kanunu ve ilgili mevzuat.\n\nSONUÇ VE İSTEM: Yukarıda açıklanan nedenlerle, dava konusu taşınmazın aylık kira bedelinin emsallere uygun şekilde tespitine karar verilmesini saygılarımızla vekaleten arz ve talep ederiz.\n"
+}

@@ -1,0 +1,53 @@
+{
+  "schema": "collex.answer.evidence-bundle/v1",
+  "question": "Kripto varlık aracı kurumlarının teminat yükümlülüğü hangi tebliğle düzenlenmiştir?",
+  "asOf": "2026-08-20",
+  "status": "ABSTAIN",
+  "finalizable": false,
+  "verifiedAt": "2026-08-20T09:07:00Z",
+  "reasons": [
+    "Hiçbir aday pasaj entailment eşiğini geçemedi.",
+    "En yüksek skorlu aday, soruyla konu bakımından ilgisiz bir dilekçedir."
+  ],
+  "claims": [],
+  "evidence": [
+    {
+      "evidenceId": "ev-filler-dilekce",
+      "documentId": "doc-filler_dilekce",
+      "documentVersionId": "ver-filler_dilekce",
+      "chunkId": "chunk-filler_dilekce-610",
+      "source": "TENANT_UPLOAD",
+      "sourceUrl": "https://example.invalid/fixture/tenant/dilekce-2026-0001",
+      "title": "Kira bedelinin tespiti dilekçesi (sentetik, alakasız doküman)",
+      "locator": {
+        "startChar": 610,
+        "endChar": 677
+      },
+      "quote": "HUKUKİ NEDENLER: 6098 sayılı Türk Borçlar Kanunu ve ilgili mevzuat.",
+      "quoteSha256": "50e8272a5ab13afc953ed7772ec88bfcff5353e444a76d587b4efbe378b39809",
+      "contentSha256": "47063e7600bfe29c9bbc71e0cadcb0dd089f97eba8179f085461b7b95cbe9ace",
+      "retrievedAt": "2026-08-20T09:00:00Z",
+      "authority": {
+        "tier": 7,
+        "label": "Taraf beyanı / dilekçe",
+        "rationale": "sentetik fixture için elle atanmıştır",
+        "score": 0.28
+      },
+      "currentness": {
+        "status": "UNKNOWN",
+        "score": 0.5,
+        "asOf": "2026-08-20",
+        "rationale": "sentetik fixture için elle atanmıştır"
+      },
+      "stance": "neutral",
+      "retrievalScore": 0.18,
+      "synthetic": true
+    }
+  ],
+  "texts": {
+    "ver-filler_dilekce": "SAYIN İSTANBUL 3. SULH HUKUK MAHKEMESİ HAKİMLİĞİNE\n\nDAVACI: Ayşe Yılmaz (sentetik kişi)\nVEKİLİ: Av. Mehmet Demir (sentetik kişi)\nDAVALI: Mert Kaya (sentetik kişi)\nKONU: Kira bedelinin tespiti istemimizden ibarettir.\n\nAÇIKLAMALAR:\n1. Davacı müvekkil, İstanbul ili Kadıköy ilçesinde bulunan taşınmazın malikidir. Taşınmaz, 01.09.2021 tarihli kira sözleşmesi ile davalıya konut olarak kiralanmıştır.\n2. Sözleşmede kararlaştırılan kira bedeli, emsal taşınmazların kira bedellerinin oldukça altında kalmıştır. Tarafların yenileme dönemlerinde anlaşamaması nedeniyle kira bedelinin mahkemece tespiti gerekmektedir.\n\nHUKUKİ NEDENLER: 6098 sayılı Türk Borçlar Kanunu ve ilgili mevzuat.\n\nSONUÇ VE İSTEM: Yukarıda açıklanan nedenlerle, dava konusu taşınmazın aylık kira bedelinin emsallere uygun şekilde tespitine karar verilmesini saygılarımızla vekaleten arz ve talep ederiz.\n"
+  },
+  "synthetic": true,
+  "syntheticNotice": "Kaynaklar evals/fixtures/corpus altındaki sentetik test korpusundan üretilmiştir; gerçek Türk mevzuatı veya gerçek mahkeme kararı değildir.",
+  "producer": "collex-control-plane (sentetik fixture üreticisi)"
+}

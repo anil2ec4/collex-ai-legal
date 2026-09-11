@@ -1,0 +1,16 @@
+# Minimal Supabase CLI project configuration for ColleX / Yargi-Mevzuat.
+# All values not listed here use the Supabase CLI defaults.
+# NOTE: nothing in this repo has been applied to any live/remote Supabase
+# project; migrations are verified against a local scratch PostgreSQL only
+# (see scripts/db_local_check.py).
+
+project_id = "collex-yargi"
+
+[db]
+# Align with the Postgres major version of the future remote project
+# (check the Supabase dashboard: Project Settings -> Infrastructure).
+major_version = 17
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]

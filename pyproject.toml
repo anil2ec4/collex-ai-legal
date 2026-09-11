@@ -1,17 +1,16 @@
 [project]
-name = "yargi-mcp"
-version = "0.2.1"
-description = "MCP Server For Turkish Legal Databases"
-readme = "README.md"
-requires-python = ">=3.11"
-license = {text = "MIT"}
+name = "yargi-mevzuat-mcp-independent"
+version = "1.0.0"
+description = "Self-hosted MCP server for Turkish case law and legislation"
+readme = "README-INDEPENDENT.md"
+requires-python = ">=3.11,<3.14"
+license = "MIT"
 authors = [{name = "Said Surucu", email = "saidsrc@gmail.com"}]
 keywords = ["mcp", "turkish-law", "legal", "yargitay", "danistay", "bddk", "btk", "kvkk", "turkish", "law", "court", "decisions"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Legal Industry",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -23,11 +22,14 @@ dependencies = [
     "beautifulsoup4>=4.13.4",
     "httpx>=0.28.1",
     "markitdown[pdf]>=0.1.1",
-    "pydantic>=2.11.4",
+    "pydantic>=2.11.4,<3",
     "aiohttp>=3.11.18",
-    "fastmcp>=2.10.5",
+    "fastmcp>=2.13.3,<3",
     "pypdf>=5.5.0",
     "fastapi>=0.115.14",
+    "lxml>=4.9.0",
+    "playwright==1.55.0",
+    "python-dotenv>=1.0.0",
     "cryptography>=44.0.0",
     "openai>=1.0.0",
     "numpy>=1.24.0",
@@ -42,20 +44,101 @@ api = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
 ]
+ocr = [
+    "mistralai>=1.0.0",
+]
+# Lawyer-facing DOCX deliverable (export/bundle_docx.py). Deliberately
+# OPTIONAL: the MCP server itself never writes Word files, and
+# `export.bundle_markdown` + the whole verification path are stdlib-only, so a
+# lean server install stays lean. Install with: pip install ".[export]"
+export = [
+    "python-docx>=1.1",
+]
+# File intake (intake/): tenant upload quarantine + extraction. python-docx
+# reads DOCX paragraphs/tables; defusedxml parses UDF content.xml with DTD,
+# entity and external-reference processing hard-disabled (stdlib ElementTree
+# on Python 3.13 does not FETCH external entities, but it raises on some
+# entity constructs rather than refusing them by policy — defusedxml makes
+# the refusal explicit and versioned). pypdf is already a core dependency.
+intake = [
+    "python-docx>=1.1",
+    "defusedxml>=0.7.1",
+]
 production = [
     "gunicorn>=22.0.0",
     "uvicorn[standard]>=0.30.0",
 ]
 
 [project.scripts]
-yargi-mcp = "mcp_server_main:main"
+yargi-mevzuat-mcp = "mcp_server_main:main"
+
+[dependency-groups]
+# Everything `pytest tests evals/tests` needs. These are LOCAL TOOLING, not
+# runtime dependencies of the MCP server — which is why they live in a
+# dependency group rather than in `dependencies` above — but the suite does not
+# merely prefer them:
+#   psycopg      tests/ingestion/ are real integration tests against the local
+#                scratch PostgreSQL. The package now SKIPS cleanly when psycopg
+#                is missing (tests/ingestion/conftest.py), but skipping means
+#                the ingestion contracts are not exercised at all, so CI must
+#                have it.
+#   python-docx  the `[export]` extra. Without it
+#                tests/export/test_cli.py::test_tampered_bundle_exits_non_zero_
+#                and_writes_nothing FAILS (not skips): it asserts the DOCX
+#                export REFUSAL path — exit code 2, nothing written — which is
+#                a contract, so it must really run.
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=1",
+    "respx>=0.22",
+    "pglast>=7",
+    "psycopg[binary]>=3.2",
+    "python-docx>=1.1",
+    # tests/intake exercise the `[intake]` extra's UDF path (defusedxml).
+    "defusedxml>=0.7.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.setuptools]
-py-modules = ["mcp_server_main", "asgi_app"]
+py-modules = [
+    "mcp_server_main",
+    "asgi_app",
+    "app",
+    "article_search",
+    "bedesten_rate_limit",
+    "emsal_semantic",
+    "mevzuat_bedesten_client",
+    "mevzuat_bedesten_models",
+    "mevzuat_client",
+    "mevzuat_mcp_server",
+    "mevzuat_models",
+]
 
 [tool.setuptools.packages.find]
-include = ["*_mcp_module", "semantic_search"]
+# EVERY first-party package must be listed here. A package that is missing
+# imports fine under pytest (the repo root happens to be on sys.path) but is
+# absent from the built wheel, so an installed distribution raises
+# ModuleNotFoundError — which previously forced a lane to duplicate code
+# instead of importing `legal_contracts`. The trailing `*` also picks up any
+# future subpackage (e.g. `ingestion.sources`).
+# Proven by: build a wheel, install it into a throwaway venv, and import all of
+# these (see docs/implementation/EXPORT.md, "Paketleme boşluğu").
+include = [
+    "*_mcp_module",
+    "semantic_search",
+    "mevzuat_semantic_search",
+    "legal_contracts*",
+    "legal_reference*",
+    "ingestion*",
+    "export*",
+    "intake*",
+]
 
 [build-system]
-requires = ["setuptools>=65.0", "wheel"]
+# setuptools>=77 is the first release with PEP 639 support (SPDX license
+# expression strings such as `license = "MIT"` above).
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"

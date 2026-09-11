@@ -1,0 +1,58 @@
+# MANUAL, OPT-IN live regression checks against real upstreams.
+#
+# - Never runs on push/PR. workflow_dispatch only.
+# - Live scripts MUST run sequentially (single job, no matrix, no parallel
+#   steps): court and legislation clients share one process-wide Bedesten
+#   token bucket, and parallel runs trip upstream 429 rate limits.
+# - Required repository secrets (NAMES only — never echo values, never add
+#   fallbacks in code):
+#     MCP_API_TOKEN       (>= 32 chars; HTTP auth for the e2e/live HTTP paths)
+#     BRAVE_API_TOKEN     (KVKK search lane)
+#     TAVILY_API_KEY      (BDDK + Sigorta Tahkim search lanes)
+#     OPENROUTER_API_KEY  (optional; enables the 55th tool / embedding lanes)
+name: live-checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Which live script to run (sequential, one at a time)"
+        required: true
+        default: live_regression_check
+        type: choice
+        options:
+          - live_regression_check
+          - live_remaining_check
+          - embedding_quality_check
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never allow two live runs at once — shared upstream quota.
+  group: live-checks
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: Live check (sequential, manual)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (Python 3.13)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Sync dependencies
+        run: uv sync --group dev
+
+      - name: Run selected live script
+        env:
+          MCP_API_TOKEN: ${{ secrets.MCP_API_TOKEN }}
+          BRAVE_API_TOKEN: ${{ secrets.BRAVE_API_TOKEN }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: uv run --no-sync python "scripts/${{ inputs.script }}.py"

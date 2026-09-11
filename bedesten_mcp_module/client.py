@@ -2,14 +2,19 @@
 
 import asyncio
 import base64
+import hashlib
 import io
 import logging
-import os
-import time
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 from markitdown import MarkItDown
+
+from bedesten_rate_limit import (
+    BedestenRateLimited,
+    bedesten_rate_limiter,
+)
 
 from .models import (
     BedestenSearchRequest, BedestenSearchResponse,
@@ -21,71 +26,6 @@ from .enums import get_full_birim_adi
 logger = logging.getLogger(__name__)
 
 
-class BedestenRateLimited(Exception):
-    """Raised when the local rate-limit bucket would block longer than allowed.
-
-    Carries the suggested retry-after (seconds) so callers can surface a
-    structured 429-style response to the MCP client instead of silently
-    blocking the event-loop slot for the full bucket-pause window.
-    """
-
-    def __init__(self, retry_after: float) -> None:
-        self.retry_after = retry_after
-        super().__init__(f"local bucket would block {retry_after:.1f}s")
-
-
-class _TokenBucket:
-    """Asyncio token bucket with explicit back-pressure.
-
-    Measured Bedesten limit (per source IP, 2026-05-08): 10 requests per
-    rolling 30s window with full refill — equivalent to capacity=10,
-    refill_rate=1 token / 3s. Even with margin, 429s still leak through
-    when other clients share the egress IP, so we also expose
-    ``penalize_until`` so callers can freeze the bucket when the server
-    actually returns 429 (Retry-After).
-    """
-
-    def __init__(self, capacity: int, refill_per_s: float) -> None:
-        self.capacity = float(capacity)
-        self.refill_per_s = float(refill_per_s)
-        self._tokens = float(capacity)
-        self._last = time.monotonic()
-        self._not_before = 0.0
-        self._lock = asyncio.Lock()
-
-    async def acquire(self, max_wait: Optional[float] = None) -> None:
-        """Acquire one token. If ``max_wait`` is set and the next wait would
-        exceed it, raise :class:`BedestenRateLimited` immediately instead of
-        sleeping — keeps a single rate-limited request from holding the
-        worker-slot for the full bucket-pause window (up to ~30s on 429)."""
-        deadline = (time.monotonic() + max_wait) if max_wait is not None else None
-        while True:
-            async with self._lock:
-                now = time.monotonic()
-                if now < self._not_before:
-                    wait_s = self._not_before - now
-                else:
-                    self._tokens = min(
-                        self.capacity,
-                        self._tokens + (now - self._last) * self.refill_per_s,
-                    )
-                    self._last = now
-                    if self._tokens >= 1.0:
-                        self._tokens -= 1.0
-                        return
-                    wait_s = (1.0 - self._tokens) / self.refill_per_s
-            if deadline is not None:
-                remaining = deadline - time.monotonic()
-                if wait_s > remaining:
-                    raise BedestenRateLimited(retry_after=wait_s)
-            await asyncio.sleep(wait_s)
-
-    def penalize_until(self, monotonic_deadline: float) -> None:
-        """Pause the bucket until ``monotonic_deadline`` (drains tokens)."""
-        self._not_before = max(self._not_before, monotonic_deadline)
-        self._tokens = 0.0
-        self._last = time.monotonic()
-
 class BedestenApiClient:
     """
     API Client for Bedesten (bedesten.adalet.gov.tr) - Alternative legal decision search system.
@@ -95,17 +35,6 @@ class BedestenApiClient:
     SEARCH_ENDPOINT = "/emsal-karar/searchDocuments"
     DOCUMENT_ENDPOINT = "/emsal-karar/getDocumentContent"
     
-    # Measured limit (per source IP): 10 requests per 30s window with full
-    # refill (≈ 1 token / 3s steady). We default to 1-token capacity and
-    # 3.5s spacing (no burst, ~14% safety margin). Override via env:
-    #   BEDESTEN_RATE_CAPACITY (default 1)
-    #   BEDESTEN_RATE_REFILL_S (default 3.5; seconds per token)
-    #   BEDESTEN_RATE_MAX_WAIT_S (default 8.0; max seconds to wait in the
-    #     local bucket before returning a structured 429 to the caller)
-    _DEFAULT_CAPACITY = int(os.getenv("BEDESTEN_RATE_CAPACITY", "1"))
-    _DEFAULT_REFILL_S = float(os.getenv("BEDESTEN_RATE_REFILL_S", "3.5"))
-    _DEFAULT_MAX_WAIT_S = float(os.getenv("BEDESTEN_RATE_MAX_WAIT_S", "8.0"))
-
     def __init__(self, request_timeout: float = 60.0):
         self.http_client = httpx.AsyncClient(
             base_url=self.BASE_URL,
@@ -122,24 +51,6 @@ class BedestenApiClient:
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
             },
             timeout=request_timeout
-        )
-        self._bucket = _TokenBucket(
-            capacity=self._DEFAULT_CAPACITY,
-            refill_per_s=1.0 / self._DEFAULT_REFILL_S,
-        )
-
-    def _handle_429(self, response: httpx.Response, op: str) -> None:
-        """Apply back-pressure to the shared bucket based on Retry-After."""
-        retry_after_raw = response.headers.get("Retry-After", "")
-        try:
-            retry_after = float(retry_after_raw)
-        except (TypeError, ValueError):
-            retry_after = 30.0
-        # Cap penalty so a hostile/buggy server can't freeze us indefinitely.
-        retry_after = max(1.0, min(retry_after, 60.0))
-        self._bucket.penalize_until(time.monotonic() + retry_after + 0.5)
-        logger.warning(
-            f"BedestenApiClient: 429 on {op}; bucket paused {retry_after + 0.5:.1f}s"
         )
     
     async def search_documents(self, search_request: BedestenSearchRequest) -> BedestenSearchResponse:
@@ -162,13 +73,9 @@ class BedestenApiClient:
             if not request_dict["data"]["birimAdi"]:  # Remove if empty string
                 del request_dict["data"]["birimAdi"]
             
-            await self._bucket.acquire(max_wait=self._DEFAULT_MAX_WAIT_S)
-            response = await self.http_client.post(
-                self.SEARCH_ENDPOINT,
-                json=request_dict
+            response = await bedesten_rate_limiter.post(
+                self.http_client, self.SEARCH_ENDPOINT, "court search", json=request_dict,
             )
-            if response.status_code == 429:
-                self._handle_429(response, "search")
             response.raise_for_status()
             response_json = response.json()
 
@@ -196,13 +103,10 @@ class BedestenApiClient:
             )
             
             # Get document
-            await self._bucket.acquire(max_wait=self._DEFAULT_MAX_WAIT_S)
-            response = await self.http_client.post(
-                self.DOCUMENT_ENDPOINT,
-                json=doc_request.model_dump()
+            response = await bedesten_rate_limiter.post(
+                self.http_client, self.DOCUMENT_ENDPOINT,
+                f"court document {document_id}", json=doc_request.model_dump(),
             )
-            if response.status_code == 429:
-                self._handle_429(response, f"document {document_id}")
             response.raise_for_status()
             response_json = response.json()
             doc_response = BedestenDocumentResponse(**response_json)
@@ -245,11 +149,20 @@ class BedestenApiClient:
                 logger.warning(f"Unsupported mime type: {mime_type}")
                 markdown_content = f"Unsupported content type: {mime_type}. Unable to convert to markdown."
             
+            # Canonical fetch contract: every consumer of this method (the
+            # 'fetch' facade and 'get_bedesten_document_markdown' tool) gets
+            # the same integrity hash and retrieval timestamp.
+            content_sha256 = hashlib.sha256(
+                (markdown_content or "").encode("utf-8")
+            ).hexdigest()
+
             return BedestenDocumentMarkdown(
                 documentId=document_id,
                 markdown_content=markdown_content,
                 source_url=f"https://mevzuat.adalet.gov.tr/ictihat/{document_id}",
-                mime_type=mime_type
+                mime_type=mime_type,
+                content_sha256=content_sha256,
+                retrieved_at=datetime.now(timezone.utc).isoformat(),
             )
             
         except httpx.RequestError as e:
