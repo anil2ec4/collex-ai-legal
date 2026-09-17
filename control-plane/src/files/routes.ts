@@ -24,7 +24,11 @@
  * typed errors ({error:{kind,message}}, exit 2) map onto HTTP:
  *
  *   INVALID_REQUEST -> 400, UNSUPPORTED_TYPE -> 415,
- *   EXTRACTION_FAILED -> 422, NOT_FOUND -> 404,
+ *   EXTRACTION_FAILED -> 422 (its body ALWAYS carries `error.warnings:
+ *   string[]`, W21 CD1: a scanned PDF's cause travels there as one machine
+ *   code — SCANNED_PDF_NO_OCR / SCANNED_PDF_OCR_FAILED /
+ *   SCANNED_PDF_OCR_NOT_APPLIED — so the console never matches prose),
+ *   NOT_FOUND -> 404,
  *   STORE_UNAVAILABLE -> 503 (contract [X]: the CLI answers it within ~6 s
  *   when the local PostgreSQL does not accept a connection).
  *
@@ -56,10 +60,13 @@ import {
   DEFAULT_FILE_PAGE,
   MAX_CHUNK_WINDOW,
   MAX_FILE_PAGE,
+  extractionUsedOcr,
+  pageStatsOf,
   type FileDetail,
   type FileListEntry,
   type FilesReadStore,
 } from "./store.js";
+import { databaseDownHintTr } from "../platform/operatorHints.js";
 
 /**
  * Upload cap in MiB. MIRRORS `intake/quarantine.py` `UPLOAD_CAP_MIB` — that
@@ -78,7 +85,7 @@ export const INTAKE_EXEC_TIMEOUT_MS = 180_000;
 
 /** Fixed Turkish messages (lawyer-facing; machine kinds stay English). */
 export const STORE_UNAVAILABLE_MESSAGE =
-  "Yerel veritabanına ulaşılamadı; ColleX-Baslat.cmd ile veritabanını başlatın.";
+  databaseDownHintTr(); // W21: names the launcher of the platform the server runs on
 export const STORE_MISSING_MESSAGE =
   "Yerel veritabanı (collex_local) veya şeması bulunamadı; " +
   "intake.cli --ensure-db ile oluşturun.";
@@ -428,6 +435,33 @@ export function withUploadAction(body: Record<string, unknown>): Record<string, 
   };
 }
 
+/**
+ * W21 (#29): the upload response's `extraction.ocr` says whether local OCR
+ * read any page, from what the intake itself reported (`pages.ocrPages` or
+ * an `OCR_PAGES:<n>` warning). The CLI still writes a constant `false`
+ * there (intake/ingest.py); a `true` it reports is kept.
+ */
+export function withExtractionOcr(body: Record<string, unknown>): Record<string, unknown> {
+  const extraction = body["extraction"];
+  if (extraction === null || typeof extraction !== "object" || Array.isArray(extraction)) return body;
+  const record = extraction as Record<string, unknown>;
+  const ocr = record["ocr"] === true || extractionUsedOcr(pageStatsOf(body["pages"]), body["warnings"]);
+  return { ...body, extraction: { ...record, ocr } };
+}
+
+/**
+ * W21 (CD1): a 422 EXTRACTION_FAILED body always carries `warnings` as an
+ * array of strings — empty when the intake had nothing to add — so a client
+ * can switch on a machine code without first checking that the field exists.
+ */
+export function extractionFailureBody(
+  parsed: { error: { kind: string; message: string; warnings?: unknown } } & Record<string, unknown>,
+): Record<string, unknown> {
+  const raw = parsed.error.warnings;
+  const warnings = Array.isArray(raw) ? raw.filter((w): w is string => typeof w === "string") : [];
+  return { ...parsed, error: { ...parsed.error, warnings } };
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -520,6 +554,9 @@ export function createFilesRouter(deps: FilesRouterDeps): Hono {
           { error: { ...parsed.error, message: STORE_UNAVAILABLE_MESSAGE } },
           503,
         );
+      }
+      if (parsed.error.kind === "EXTRACTION_FAILED") {
+        return c.json(extractionFailureBody(parsed), status);
       }
       return c.json(parsed, status);
     }
@@ -622,7 +659,7 @@ export function createFilesRouter(deps: FilesRouterDeps): Hono {
         // New chunks exist: the lexical lane's document-frequency cache is
         // stale (it would also expire on its own TTL; this makes it immediate).
         invalidateLexicalStats();
-        const body = withUploadAction(parsed);
+        const body = withExtractionOcr(withUploadAction(parsed));
         const analysis = body["analysis"];
         const fileId = body["fileId"];
         if (

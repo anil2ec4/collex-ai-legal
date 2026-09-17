@@ -1344,10 +1344,15 @@ label.fchk input:focus-visible + span { box-shadow: var(--ring); }
   padding: 6px 0 12px;
   border-bottom: 1px solid var(--line);
 }
-/* Geniş ekranda üst çubuk TEK satırdır; iki satırlık hâli dar ekranlarda kalır. */
-@media (min-width: 1201px) {
-  .topbar { grid-template-columns: auto auto 1fr auto; grid-template-areas: "brand matter pills theme"; }
-}
+/* Üst çubuk HER genişlikte iki satırdır. W21 kapanış ölçümü: tek satırlık hâl
+   hiçbir ekranda sığmıyordu — kabuk (.wrap) en çok 1120 px olduğu için içerik
+   alanı 1064 px'te sabitken tek satır 1255 px istiyor (marka 90 + dosya seçici
+   320 + rozetler 534 + araçlar 269 + boşluklar 42). 1280 px'te sayfa 91 px yana
+   taşıyor, tema düğmesi ekranın dışında kalıyordu. İki satırda hiçbir rozet
+   kırpılmaz ve sayfa yatay kaymaz. Kompakt kabuk KENDİ şablonunu taşımaz;
+   yukarıdaki tek şablon ve aşağıdaki tek kırılma noktası dizisi iki kabuk için
+   de geçerlidir (eskiden kompakt kural, kendisinden önceki dar ekran
+   kurallarını da eziyordu). */
 .topbar .right { display: contents; }
 .topbar .brandmini { grid-area: brand; }
 .topbar .tools { grid-area: theme; justify-self: end; display: inline-flex; align-items: center; gap: 8px; }
@@ -1493,6 +1498,11 @@ button.gsrc:hover { border-color: var(--seal); }
 .anlz-src { display: grid; gap: 4px; padding-left: 10px; border-left: 2px solid var(--line); }
 .anlz-quote { font-size: var(--fs-sm); color: var(--ink-soft); overflow-wrap: anywhere; }
 .anlz-runs .itemrow { align-items: center; }
+/* W21 · okunan, çıkarılan ve analiz edilen ayrı ayrı */
+.anlz-layers { display: grid; gap: 6px; margin: var(--sp-2) 0; padding: var(--sp-2); border: 1px solid var(--line); border-radius: 8px; }
+.anlz-layer { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.anlz-layer strong { min-width: 9.5em; font-family: var(--ui); }
+.anlz-head { margin: 0; font-weight: 600; }
 
 /* Şeritler: dosyasız çalışma (sarı), bilgi (soluk), arıza (kırmızı). */
 .strip {
@@ -1821,11 +1831,9 @@ label.rchip.disabled { cursor: not-allowed; opacity: .75; }
 body.compact .monomark, body.compact .masthead .brand, body.compact .masthead .tagline, body.compact .masthead .rule { display: none; }
 body.compact .masthead .brandline { display: none; }
 body.compact .masthead { padding-top: 8px; }
-body.compact .topbar {
-  grid-template-columns: auto auto 1fr auto;
-  grid-template-areas: "brand matter pills theme";
-  padding: 6px 0 12px;
-}
+/* Kompakt kabuk üst çubuğun ŞABLONUNU değiştirmez (W21 kapanış ölçümü):
+   yalnız iç boşluğu kendisine aittir. */
+body.compact .topbar { padding: 6px 0 12px; }
 body.compact .wrap { max-width: 1120px; }
 body.compact .topbar .pills { flex-wrap: nowrap; }
 body.compact button.pill { white-space: nowrap; }
@@ -1850,9 +1858,6 @@ body.compact .strip { margin-bottom: 12px; }
   body:not(.compact) .viewtab { padding: 9px 18px 10px; }
   body:not(.compact) .stamp { margin: 10px auto 14px; padding: 8px 16px; max-width: none; }
   body:not(.compact) .topbar .brandmini { display: none; }
-}
-@media (max-width: 900px) {
-  body.compact .topbar { grid-template-columns: auto 1fr auto; grid-template-areas: "brand . theme" "matter pills pills"; }
 }
 @media (max-width: 640px) {
   body.compact .topbar { grid-template-columns: 1fr auto; grid-template-areas: "brand theme" "matter matter" "pills pills"; }
@@ -3014,7 +3019,7 @@ details.tech .techline {
       <div class="res3 broke" id="griddrop" role="status" hidden></div>
       <div class="runbar" id="gridbar" aria-hidden="true"><div class="sweep"></div></div>
       <p class="expl-def" id="gridnote">Tablo bu bilgisayarda saklanır: sayfayı kapatsanız ya da ColleX yeniden başlasa da kaldığı hücreden sürer. Hesaplanamayan bir hücreyi tek başına yeniden deneyebilirsiniz. “Belgedeki bütün …” sütunları belgenin tamamını okur; öteki sorular belgenin en ilgili pasajlarına bakar. “Durdur” ile kalan hücreleri durdurabilirsiniz; dolan hücreler ekranda kalır.</p>
-      <div id="gridrecent"></div>
+      <div id="gridstale"></div><div id="gridrecent"></div>
     </section>
     <div class="scrollx card" id="gridout" aria-live="polite"></div>
   </section>
@@ -3899,6 +3904,9 @@ details.tech .techline {
       "İç doğrulama bileşenlerinden biri hata bildirdi — cevabı kullanmadan önce bu bölümü okuyun."],
     [/^CLAIM_UNSUPPORTED:/,
       "Bir tespit için yeterli doğrulanmış kanıt bulunamadı."],
+    /* W21 (#22): a judge that never answered is not a passage that fell short. */
+    [/^ENTAILMENT_NOT_CHECKED:/,
+      "Bir tespitin pasaj desteği denetlenemedi (doğrulama bileşeni yanıt vermedi); tespit kesinleştirilmedi."],
     [/^ENTAILMENT_BELOW_THRESHOLD:/,
       "Bir tespitte pasaj desteği eşiğin altında kaldı."],
     [/^OUT_OF_DATE_SOURCE:/,
@@ -3985,8 +3993,17 @@ details.tech .techline {
   ];
 
   /* Bir uyarı/gerekçe kodunu {text, raw} çiftine çevirir. */
-  function warnTR(code) {
+  /* W21: TIME_BUDGET_EXCEEDED tek koddur; tespitler yazıldıktan SONRA dolan bütçe
+     "tespit yazımı ve doğrulama eksik bırakıldı" değildir (renderer.ts
+     TIME_BUDGET_AFTER_DRAFT_TR ile aynı cümle). */
+  var TIME_BUDGET_AFTER_DRAFT_TEXT = "Cevap süre bütçesini tespitler yazıldıktan sonra aştı; doğrulama adımı yine de çalıştı ve her " +
+    "tespitin sonucu kendi satırında yazıyor, ancak cevap KISMİ sayıldı ve kesinleştirilmedi.";
+
+  function warnTR(code, ctx) {
     var raw = String(code === undefined || code === null ? "" : code);
+    if (ctx && ctx.claimsWritten === true && /^TIME_BUDGET_EXCEEDED/.test(raw)) {
+      return { text: TIME_BUDGET_AFTER_DRAFT_TEXT, raw: raw };
+    }
     for (var i = 0; i < WARN_PATTERNS.length; i += 1) {
       var m = raw.match(WARN_PATTERNS[i][0]);
       if (m) {
@@ -4018,6 +4035,7 @@ details.tech .techline {
     UPLOAD_TIMEOUT: "Belge okunurken süre doldu. Daha küçük bir belge deneyin ya da belgeyi bölüp parça parça yükleyin.",
     AI_CONSENT_REQUIRED: "Bulut yapay zekâ için bu istekte onay verilmedi.",
     AI_NOT_CONFIGURED: AI_OFF_TEXT + ".",
+    DATA_BOUNDARY_LOCAL_ONLY: "Bulut yapay zekâ bu kurulumda kullanılamaz: yapay zekâ ilkesi yalnız bu bilgisayarda çalışmaya izin veriyor. Belge dışarı gönderilmedi.",
     RULE_NOT_COMPUTABLE: "Bu süre hesaplanamaz — kuralın notlarını okuyun ve gerekirse özel süre girin.",
     CORPUS_UNAVAILABLE: "Bu bilgisayardaki arşive ulaşılamadı — kayıtlarınız şu an açılmıyor olabilir. " +
       "ColleX'i kapatıp masaüstündeki ColleX simgesine yeniden çift tıklayın.",
@@ -4133,11 +4151,56 @@ details.tech .techline {
   var HISTORY_KEY = "collex.console.history.v1";
   var THEME_KEY = "collex.console.theme.v1";
 
+  /* W21 round two (R2-36): "masaüstündeki ColleX simgesi" yalnız Windows'ta
+     vardır. Ekrana giden her metin el() üzerinden geçtiği için cümle burada,
+     sunucunun bildirdiği platforma göre yazılır (sunucudan gelen hata
+     cümleleri de dahil). Windows'ta ve platform bilinmiyorken metin aynen
+     kalır. */
+  var RESTART_WINDOWS_TR = "ColleX'i kapatıp masaüstündeki ColleX simgesine yeniden çift tıklayın";
+
+  function restartSentenceTr() {
+    var op = operatorHintsOf(null);
+    if (!op || !op.platform || op.platform === "win32") { return RESTART_WINDOWS_TR; }
+    var start = op.hints && op.hints.start;
+    return start
+      ? "ColleX'i kapatıp " + start + " ile yeniden başlatın"
+      : "ColleX'i kapatıp kurulum belgesindeki başlatma adımıyla yeniden başlatın";
+  }
+
+  function platformText(text) {
+    if (typeof text !== "string" || text.indexOf(RESTART_WINDOWS_TR) < 0) { return text; }
+    try {
+      return text.split(RESTART_WINDOWS_TR).join(restartSentenceTr());
+    } catch (error) {
+      return text;  /* health not loaded yet: the Windows wording stands */
+    }
+  }
+
   function el(tag, cls, text) {
     var n = document.createElement(tag);
     if (cls) { n.className = cls; }
-    if (text !== undefined && text !== null) { n.textContent = String(text); }
+    if (text !== undefined && text !== null) {
+      /* platformText is defined in the full page; a test slice without it
+         keeps the text as it is. */
+      n.textContent = typeof platformText === "function" ? platformText(String(text)) : String(text);
+    }
     return n;
+  }
+
+  /* Sayfanın kendi HTML'inde yazan iki rozet ipucu ve iki durum cümlesi:
+     sunucu platformu bildirdiğinde (health) aynı kural onlara da uygulanır. */
+  function applyPlatformTexts() {
+    if (restartSentenceTr() === RESTART_WINDOWS_TR) { return; }
+    var nodes = document.querySelectorAll("[title], .statusline, .offreason, #livehint, #nolive");
+    for (var i = 0; i < nodes.length; i += 1) {
+      var node = nodes[i];
+      var title = node.getAttribute("title");
+      if (title) { node.setAttribute("title", platformText(title)); }
+      if (node.children.length === 0 && node.textContent) {
+        var swapped = platformText(node.textContent);
+        if (swapped !== node.textContent) { node.textContent = swapped; }
+      }
+    }
   }
 
   function pct(v) {
@@ -4301,6 +4364,18 @@ details.tech .techline {
 
   /* ----------------------------- claims ----------------------------- */
 
+  /* W21 (#22): no judgement reached this claim's passage support (the judge
+     did not answer). Its 0 is not a measurement, so it is never drawn as a
+     "zayıf" bar or a percentage. When part of a segmented claim WAS measured
+     short, the measured value is the honest one and is shown. */
+  var ENTAILMENT_NA_TR = "denetlenemedi";
+  function claimEntailmentNotChecked(claim) {
+    var reasons = (claim && claim.reasons) || [];
+    var id = claim && claim.claimId;
+    return reasons.indexOf("ENTAILMENT_NOT_CHECKED:" + id) >= 0 &&
+      reasons.indexOf("ENTAILMENT_BELOW_THRESHOLD:" + id) < 0;
+  }
+
   /* W15-SÖZLÜK [P0] · ölçüt yüzdeleri kalkar. Ölçülen kusur: beş boyut için
      çıplak yüzde yazılıyordu, gerektiğinde "%100" de çıkabiliyordu ve neye
      göre hesaplandığı hiçbir yerde yazmıyordu — açıklamasız bir %100, ürünün
@@ -4326,7 +4401,7 @@ details.tech .techline {
       /* B2: currentnessApplicable === false → kademe yerine açıklama (asla "güçlü"). */
       if (notApplicable && notApplicable[dim[0]]) {
         box.appendChild(el("div", "track"));
-        box.appendChild(el("div", "val na", CURRENTNESS_NA_TR));
+        box.appendChild(el("div", "val na", dim[0] === "entailment" ? ENTAILMENT_NA_TR : CURRENTNESS_NA_TR));
         return;
       }
       var lvl = meterLevel(value);
@@ -4350,8 +4425,10 @@ details.tech .techline {
     var rows = (claims || []).map(function (claim) {
       var conf = claim.confidence || {};
       var naCurrentness = claim.currentnessApplicable === false;
+      var naEntailment = claimEntailmentNotChecked(claim);
       var cells = [refList(claim.evidenceIds, numbers) || String(claim.claimId || "-")];
       DIMENSIONS.forEach(function (dim) {
+        if (dim[0] === "entailment" && naEntailment) { cells.push(ENTAILMENT_NA_TR); return; }
         if (dim[0] === "currentness" && naCurrentness) { cells.push(CURRENTNESS_NA_TR); return; }
         cells.push("%" + pct(conf[dim[0]]));
       });
@@ -4403,6 +4480,12 @@ details.tech .techline {
      çekmecesine iner. Üçüncü ve dördüncü dönüş değerleri oradaki döküm
      içindir. */
   function confidenceSummary(confidence, notApplicable) {
+    /* W21 (#22): skipping an unchecked axis would leave the other axes to
+       say "zayıf yanı çıkmadı" about a claim nobody checked. */
+    if (notApplicable && notApplicable.entailment) {
+      return ["weak", "Dikkat: bu tespitin pasaj desteği denetlenemedi — doğrulama bileşeni yanıt vermedi, " +
+        "tespit kesinleştirilmedi. Kaynağı açıp kendiniz okumadan bu tespiti kullanmayın.", "-", DIMENSIONS[1][1]];
+    }
     var minVal = 1;
     var minName = DIMENSIONS[0][1];
     DIMENSIONS.forEach(function (dim) {
@@ -4480,6 +4563,7 @@ details.tech .techline {
     var ids = claim.evidenceIds || [];
     var uploadClaim = ids.length > 0 && ids.every(function (id) { var e = currentEvidenceById[id]; return e && e.origin === "upload"; });
     var na = claim.currentnessApplicable === false ? { currentness: true } : null;
+    if (claimEntailmentNotChecked(claim)) { na = na || {}; na.entailment = true; }
 
     /* Alıntı kısaltılır; tam metin hemen aşağıdaki dayanak bloğundadır.
        Katlanmış kartta CSS bu metni iki satıra kırpar — silmez. */
@@ -4490,10 +4574,14 @@ details.tech .techline {
          yüklenen belgeye dayanan bir cevapta künyeye BİR kez yazılır; burada
          yalnız karışık kanıtlı cevaplarda kalır. */
       if (!currentUploadOnly) { box.appendChild(el("p", "conf-note", UPLOAD_CLAIM_NOTE_TR)); }
+      if (na && na.entailment) {
+        var uploadConf = confidenceSummary(claim.confidence, na);
+        box.appendChild(el("p", "conf-note " + uploadConf[0], uploadConf[1]));
+      }
     } else {
       var conf = confidenceSummary(claim.confidence, na);
       box.appendChild(el("p", "conf-note " + conf[0], conf[1]));
-      if (na) { box.appendChild(el("p", "conf-note", "Güncellik: " + CURRENTNESS_NA_TR + ".")); }
+      if (na && na.currentness) { box.appendChild(el("p", "conf-note", "Güncellik: " + CURRENTNESS_NA_TR + ".")); }
     }
 
     /* N-5: sayılar katlanmış kartta da görünür. W15: "Karşıt otorite" kanonik
@@ -5003,7 +5091,7 @@ details.tech .techline {
     var groups = [];
     var byText = {};
     (codes || []).forEach(function (code) {
-      var t = warnTR(code);
+      var t = warnTR(code, opts);
       if (!byText[t.text]) {
         byText[t.text] = { text: t.text, raws: [], count: 0 };
         groups.push(byText[t.text]);
@@ -5907,11 +5995,11 @@ details.tech .techline {
       }
       if ((data.warnings || []).length) {
         fold.appendChild(el("div", "empty", "İşleyiş uyarıları:"));
-        fold.appendChild(warnGroupList(data.warnings, { raw: true }));
+        fold.appendChild(warnGroupList(data.warnings, { raw: true, claimsWritten: (data.claims || []).length > 0 }));
       }
       if ((data.reasons || []).length) {
         fold.appendChild(el("div", "empty", "Doğrulama gerekçeleri:"));
-        fold.appendChild(warnGroupList(data.reasons, { raw: true }));
+        fold.appendChild(warnGroupList(data.reasons, { raw: true, claimsWritten: (data.claims || []).length > 0 }));
       }
       box.appendChild(fold);
       audit.appendChild(box);
@@ -6494,12 +6582,24 @@ details.tech .techline {
     files.forEach(function (f) { list.appendChild(fileRowCard(f)); });
   }
 
-  /* Taranmış/seyrek sayfa uyarısı: sayfa istatistiklerinden avukat dilinde cümle. */
+  /* Taranmış/seyrek sayfa uyarısı: sayfa istatistiklerinden avukat dilinde cümle.
+     W21 (#29): yerel OCR'ın okuduğu sayfalar (pages.ocrPages) "metin yok" diye
+     bildirilmez; onlar için ayrı bir OCR notu yazılır.
+     R2-33: OCR'ın yalnız kısmen okuduğu sayfalar (hem ocrPages hem
+     sparsePages: düşük güven, çok az yazı ya da R2-32 ile metne eklenmeyen
+     satırlar) "aramada çıkar" diye yazılmaz ve "metin katmanı seyrek" diye
+     de anılmaz; tamamının okunduğu doğrulanmamış sayılır. Sayfa listesi nedeni
+     taşımaz, cümle nedeni uydurmaz: nedeni belge uyarısı söyler. */
   function scannedText(pages) {
     if (!pages) { return ""; }
-    var empty = Array.isArray(pages.emptyPages) ? pages.emptyPages : [];
+    var empty = unreadEmptyPages(pages);
     var sparse = Array.isArray(pages.sparsePages) ? pages.sparsePages : [];
-    if (!empty.length && !sparse.length) { return ""; }
+    var ocrRead = Array.isArray(pages.ocrPages) ? pages.ocrPages : [];
+    var ocrPartial = ocrSparsePages(pages);
+    var textSparse = sparse.filter(function (p) { return ocrPartial.indexOf(p) < 0; });
+    var ocrFull = ocrRead.filter(function (p) { return ocrPartial.indexOf(p) < 0; });
+    if (!empty.length && !sparse.length && !ocrRead.length) { return ""; }
+    var listed = function (list) { return list.slice(0, 15).join(", ") + (list.length > 15 ? ", …" : ""); };
     /* FIX: sayıya ek getirilmez ("9'unda / 3'ünde" ünlü uyumu) — "N tanesinde". */
     var parts = [];
     if (empty.length) {
@@ -6508,11 +6608,81 @@ details.tech .techline {
         " aramada çıkmaz ve bu sayfalardan alıntı yapılamaz (sayfa " + empty.slice(0, 15).join(", ") +
         (empty.length > 15 ? ", …" : "") + ").");
     }
-    if (sparse.length) {
+    if (textSparse.length) {
       parts.push("Metin katmanı çok seyrek olan sayfalar ayrıca işaretlendi; bu sayfalardaki içerik eksik olabilir (sayfa " +
-        sparse.slice(0, 15).join(", ") + (sparse.length > 15 ? ", …" : "") + ").");
+        listed(textSparse) + ").");
+    }
+    if (ocrFull.length) {
+      parts.push(ocrFull.length + " sayfanın yazısı bu bilgisayarda görüntüden okundu (yerel OCR; sayfa " +
+        listed(ocrFull) +
+        "): bu sayfalar aramada çıkar, ama görüntüden okunan metin hata içerebilir — alıntıları belgenin aslıyla karşılaştırın.");
+    }
+    if (ocrPartial.length) {
+      parts.push(ocrPartial.length + " sayfanın yazısı bu bilgisayarda görüntüden yalnız kısmen okunabildi (yerel OCR; sayfa " +
+        listed(ocrPartial) +
+        "): bu sayfaların tamamının okunduğu doğrulanmadı — okuma düşük güvenle yapılmış, görüntüden çok az yazı çıkmış ya da metin katmanına çok benzeyen bazı satırlar metne eklenmemiş olabilir; nedeni belge sayfasındaki uyarıda. Bu sayfalarda aramanın sonuç vermemesi, aranan ifadenin orada geçmediğini göstermez.");
     }
     return parts.join(" ");
+  }
+
+  /* W21 (#29): pages NOTHING read. The server lists pages local OCR read in
+     pages.ocrPages and no longer in emptyPages; a page found in both (an
+     older record) was read and is never reported as unread. */
+  function unreadEmptyPages(pages) {
+    var empty = pages && Array.isArray(pages.emptyPages) ? pages.emptyPages : [];
+    var ocrRead = pages && Array.isArray(pages.ocrPages) ? pages.ocrPages : [];
+    return empty.filter(function (p) { return ocrRead.indexOf(p) < 0; });
+  }
+
+  /* R2-33: pages local OCR read only in part — low confidence, only a few
+     characters, or (R2-32) OCR lines withheld because they nearly match a
+     text-layer value. The server lists them in BOTH ocrPages and sparsePages:
+     read, never fully read — never "aramada çıkar", never "bütün sayfalar
+     metne çevrildi". */
+  function ocrSparsePages(pages) {
+    var sparse = pages && Array.isArray(pages.sparsePages) ? pages.sparsePages : [];
+    var ocrRead = pages && Array.isArray(pages.ocrPages) ? pages.ocrPages : [];
+    return ocrRead.filter(function (p) { return sparse.indexOf(p) >= 0; });
+  }
+
+  /* Page-statistics machine codes; each travels with its own Turkish
+     sentence (or with pages{}), so the bare code is not shown to the lawyer. */
+  function isPageStatCode(w) {
+    return /^(SCANNED_PAGES|OCR_PAGES|OCR_FAILED_PAGES|OCR_BUDGET_EXCEEDED|IMAGE_TEXT_PAGES|OCR_LOW_CONFIDENCE_PAGES|OCR_WITHHELD_LINES_PAGES):\d+$/.test(String(w));
+  }
+
+  /* Belge sayfasının "Okunabilirlik" satırı (renderDocumentPage). ext =
+     f.extraction ({ocr, pages, ...}). */
+  function readabilityText(pages, ext) {
+    ext = ext || {};
+    var sparsePageWarning = pages && Array.isArray(pages.sparsePages) && pages.sparsePages.length;
+    /* W21 (#29): OCR having read SOME pages never hides the pages nothing
+       read; unread and sparse pages are named first. */
+    var unreadPages = unreadEmptyPages(pages);
+    /* R2-33: pages OCR read only in part (ocrPages AND sparsePages) are named
+       as such; "başka sayfaların yazısı çevrildi" only when some OCR page was
+       read in full (or an older record has no page list). */
+    var ocrPartialPages = ocrSparsePages(pages);
+    var ocrPageCount = pages && Array.isArray(pages.ocrPages) ? pages.ocrPages.length : 0;
+    var ocrTail = (ext.ocr && (!ocrPageCount || ocrPageCount > ocrPartialPages.length)
+      ? " Başka sayfaların yazısı görüntüden metne çevrildi." : "") +
+      (unreadPages.length && ocrPartialPages.length
+        ? " Bazı sayfaların yazısı görüntüden yalnız kısmen okunabildi; o sayfaların tamamı okunmuş sayılmaz." : "");
+    return (unreadPages.length
+        ? "Bazı sayfalarda yazı yok — o sayfalar taranmış görüntü olabilir." + ocrTail
+        : (sparsePageWarning
+          ? (ocrPartialPages.length
+            ? "Bazı sayfaların yazısı görüntüden yalnız kısmen ya da düşük güvenle okunabildi — bu sayfaların tamamı okunmuş sayılmaz; nedeni aşağıdaki uyarıda."
+            : "Bazı sayfalarda çok az yazı çıkarıldı — bu sayfaların tamamı okunmuş sayılmaz.") + ocrTail
+          : (ext.ocr
+            ? (pages && Array.isArray(pages.ocrPages) && pages.ocrPages.length
+              /* the OCR note below names the pages and carries the caution once */
+              ? (pages.ocrPages.length === pages.pageCount
+                ? "Belgenin bütün sayfalarının yazısı görüntüden metne çevrildi; ayrıntı aşağıdaki uyarıda."
+                : "Belgenin yazısı okundu; " + pages.ocrPages.length + " sayfanın yazısı görüntüden metne çevrildi, ayrıntı aşağıdaki uyarıda.")
+              : "Sayfa görüntülerindeki yazı metne çevrildi; görüntüden okunan metin hata içerebilir, alıntıları belgenin aslıyla karşılaştırın.")
+            : "Belgenin yazısı okundu; içinde arama yapabilir ve alıntı alabilirsiniz."))) +
+      (ext.pages ? " (" + ext.pages + " sayfa)" : "");
   }
 
   /* Belge kartı — W12: "Belgeye sor", "Belge sayfası", "Dosyaya ekle",
@@ -6532,13 +6702,24 @@ details.tech .techline {
     var pages = (up && up.pages) || f.pages;
     /* API-2: liste kaydındaki pages {pageCount, pagesWithText, emptyPages, sparsePages}. */
     if (pages && typeof pages.pageCount === "number") {
+      /* W21 (#29): pagesWithText also counts pages local OCR read; those
+         pages have no text layer. */
+      var textLayerPages = typeof pages.pagesWithText === "number"
+        ? Math.max(0, pages.pagesWithText - (Array.isArray(pages.ocrPages) ? pages.ocrPages.length : 0))
+        : null;
       head.appendChild(chip(pages.pageCount + " sayfa" +
-        (typeof pages.pagesWithText === "number" && pages.pagesWithText !== pages.pageCount ? " · " + pages.pagesWithText + " metin katmanlı" : ""), "mute"));
+        (textLayerPages !== null && textLayerPages !== pages.pageCount ? " · " + textLayerPages + " metin katmanlı" : ""), "mute"));
     }
-    if (pages && Array.isArray(pages.emptyPages) && pages.emptyPages.length) {
+    if (unreadEmptyPages(pages).length) {
       head.appendChild(chip("taranmış sayfa uyarısı", "bad"));
     } else if (pages && Array.isArray(pages.sparsePages) && pages.sparsePages.length) {
       head.appendChild(chip("seyrek metin uyarısı", "warn"));
+    }
+    if (pages && Array.isArray(pages.ocrPages) && pages.ocrPages.length) {
+      /* R2-33: pages OCR read only in part are counted on the chip too. */
+      var ocrPartialCount = ocrSparsePages(pages).length;
+      head.appendChild(chip(pages.ocrPages.length + " sayfa görüntüden okundu (yerel OCR)" +
+        (ocrPartialCount ? " · " + ocrPartialCount + " tanesi yalnız kısmen" : ""), "warn"));
     }
     box.appendChild(head);
     if (up && up.action === "already-existed" && up.message) {
@@ -6777,6 +6958,68 @@ details.tech .techline {
     btns.appendChild(conf);
   }
 
+  /* W21 (#28, CD1): why a scanned PDF could not be read, from the machine code
+     the intake puts in error.warnings — "NO_OCR" (no local OCR on this
+     computer, or it is off), "OCR_FAILED" (local OCR ran and read no page, or
+     its time budget ran out), "OCR_NOT_APPLIED" (every page carries a few
+     characters of text layer, so OCR never ran). An older server sends no
+     code: its sentence is read instead, and a scanned-PDF message whose cause
+     cannot be told is "UNKNOWN" — never "this computer cannot OCR".
+     null: not a scanned-PDF failure. */
+  function scannedPdfCause(err) {
+    if (!err || err.kind !== "EXTRACTION_FAILED") { return null; }
+    var codes = Array.isArray(err.warnings) ? err.warnings.map(String) : [];
+    if (codes.indexOf("SCANNED_PDF_OCR_FAILED") >= 0) { return "OCR_FAILED"; }
+    if (codes.indexOf("SCANNED_PDF_OCR_NOT_APPLIED") >= 0) { return "OCR_NOT_APPLIED"; }
+    if (codes.indexOf("SCANNED_PDF_NO_OCR") >= 0) { return "NO_OCR"; }
+    var message = String(err.message || "");
+    if (!/taranm|OCR/i.test(message)) { return null; }
+    if (/yerel OCR denendi|yerel OCR süre sınırı/i.test(message)) { return "OCR_FAILED"; }
+    if (/yerel OCR bu sayfalara uygulanmadı/i.test(message)) { return "OCR_NOT_APPLIED"; }
+    if (/OCR bu modda devre dışı/i.test(message)) { return "NO_OCR"; }
+    return "UNKNOWN";
+  }
+
+  /* The lawyer's sentence for a scanned-PDF failure: the cause, then the ways
+     out that exist on THIS installation (the cloud is offered only as a
+     conditional, and named as closed when the AI policy closes it). */
+  function scannedPdfTR(cause, err) {
+    var budget = 0;
+    (Array.isArray(err && err.warnings) ? err.warnings : []).forEach(function (w) {
+      var m = String(w).match(/^OCR_BUDGET_EXCEEDED:(\d+)$/);
+      if (m) { budget = Number(m[1]); }
+    });
+    var head;
+    var first = "belgeyi tarayıcınızda “aranabilir PDF” olarak yeniden kaydedip yükleyin";
+    if (cause === "OCR_FAILED") {
+      head = "Bu PDF taranmış bir görüntüden ibaret; içinde seçilebilir yazı yok. " +
+        (budget > 0
+          ? "Bu bilgisayardaki yerel OCR sayfaları okumaya başladı ama belge başına süre sınırı doldu ve hiçbir sayfa okunamadı (" + budget + " sayfaya süre yetmedi). "
+          : "Bu bilgisayardaki yerel OCR sayfaları okumayı denedi ama hiçbir sayfadan yazı çıkaramadı — tarama silik, çözünürlüğü düşük ya da el yazısı olabilir. ");
+      first = budget > 0
+        ? "belgeyi bölüp parçaları ayrı yükleyin ya da tarayıcınızda “aranabilir PDF” olarak yeniden kaydedip yükleyin"
+        : "belgeyi daha net taratıp ya da tarayıcınızda “aranabilir PDF” olarak yeniden kaydedip yükleyin";
+    } else if (cause === "OCR_NOT_APPLIED") {
+      head = "Bu PDF'in sayfalarında yalnız birkaç harflik bir metin katmanı var (ör. sayfa numarası); " +
+        "bu yüzden yerel OCR bu sayfalara uygulanmadı ve belgenin içeriği okunmadı. ";
+    } else if (cause === "NO_OCR") {
+      /* The upload did not use local OCR; when health says this computer HAS
+         a usable local OCR, the card must not contradict it. */
+      head = "Bu PDF taranmış bir görüntüden ibaret; içinde seçilebilir yazı yok. " +
+        (health && health.ocr && health.ocr.state === "OCR_READY"
+          ? "Bu belge okunurken yerel OCR kullanılmadı (kapalıydı ya da o an bulunamadı); görüntüdeki yazı bu yüklemede metne çevrilmedi. "
+          : "ColleX bu bilgisayarda görüntüdeki yazıyı metne çeviremez. ");
+    } else {
+      head = "Bu PDF taranmış bir görüntüden oluşuyor olabilir; içinden okunabilir yazı çıkarılamadı. ";
+    }
+    if (cloudAiRefusedByPolicy()) {
+      return head + "Yapılabilecek: " + first + ". Bulut yapay zekâ ile metne çevirme bu kurulumda kullanılamaz: yapay zekâ ilkesi bulutu kapatıyor.";
+    }
+    return head + "İki yol var: (1) " + first + "; " +
+      "(2) bulut yapay zekâ açıksa, sayfa görüntüsündeki yazıyı metne çevirmesi için belgeyi ona gönderin — " +
+      "bu durumda belgenin görüntüsü bu bilgisayardan dışarı çıkar.";
+  }
+
   /* Yükleme hatası: soluk statusline yerine görünür hata KARTI.
      Metinler avukat dilinde; ham tür/mesaj teknik satırda kalır. */
   function intakeErrTR(err) {
@@ -6785,13 +7028,8 @@ details.tech .techline {
     if (err.kind === "INVALID_REQUEST" && /boş/i.test(message)) {
       return "Belge boş — içeriği olan bir belge seçin.";
     }
-    if (err.kind === "EXTRACTION_FAILED" && /taranm|OCR/i.test(message)) {
-      return "Bu PDF taranmış bir görüntüden ibaret; içinde seçilebilir yazı yok. " +
-        "ColleX bu bilgisayarda görüntüdeki yazıyı metne çeviremez. İki yol var: " +
-        "(1) belgeyi tarayıcınızda “aranabilir PDF” olarak yeniden kaydedip yükleyin; " +
-        "(2) bulut yapay zekâ açıksa, sayfa görüntüsündeki yazıyı metne çevirmesi için belgeyi ona gönderin — " +
-        "bu durumda belgenin görüntüsü bu bilgisayardan dışarı çıkar.";
-    }
+    var scannedCause = scannedPdfCause(err);
+    if (scannedCause !== null) { return scannedPdfTR(scannedCause, err); }
     if (err.kind === "EXTRACTION_FAILED") {
       return "Belge okunamadı; bozuk görünüyor. Kaynağından yeniden indirip deneyin.";
     }
@@ -6812,10 +7050,10 @@ details.tech .techline {
       (err && err.kind ? err.kind + (err.message ? ": " + err.message : "") : "HTTP " + httpStatus) +
       ")"));
     /* UI-2: taranmış PDF (422) → Bulut OCR teklifi (anahtar yoksa devre dışı + ipucu). */
-    if (err && err.kind === "EXTRACTION_FAILED" && /taranm|OCR/i.test(String(err.message || "")) && /\.pdf$/i.test(String(fileName || ""))) {
+    if (scannedPdfCause(err) !== null && /\.pdf$/i.test(String(fileName || ""))) {
       var row = el("div", "filebtns");
       var b = ghostBtn("Taranmış belgeyi metne çevir (bulut yapay zekâ)", function () { openOcrDialog(fileName, { matterId: activeMatter ? activeMatter.id : null }); });
-      if (!aiConfigured()) { aiDisabledButton(b); }
+      if (!cloudAiUsable()) { aiDisabledButton(b); }
       row.appendChild(b);
       box.appendChild(row);
     }
@@ -6942,7 +7180,7 @@ details.tech .techline {
           action: body.action, message: body.message, pages: body.pages, warnings: body.warnings || []
         };
         results.push(body);
-        var w = (body.warnings || []).filter(function (x) { return !/^SCANNED_PAGES:/.test(String(x)); });
+        var w = (body.warnings || []).filter(function (x) { return !isPageStatCode(x); });
         var sc = scannedText(body.pages);
         fileStatus(done + "/" + total + " · " + f.name + (body.action === "already-existed"
           ? " zaten yüklüydü — aynı belge daha önce eklenmişti" : " yüklendi") +
@@ -8494,10 +8732,11 @@ details.tech .techline {
           markDirty();
         }, "small"));
         var aiB = ghostBtn("Bu paragrafı yaz (bulut yapay zekâ)", function () { openAiParagraphDialog(s, p); }, "small");
-        if (!aiConfigured()) {
+        if (!cloudAiUsable()) {
           aiB.disabled = true;
           aiB.classList.add("disabled");
           aiB.title = AI_OFF_TEXT;
+          if (cloudAiRefusedByPolicy()) { aiB.title = AI_POLICY_OFF_TEXT; }
         } else {
           aiB.title = "Bu istek için talimat, seçili kanıtlar ve bu paragraf Anthropic'e gönderilir";
         }
@@ -9019,7 +9258,7 @@ details.tech .techline {
 
   /* bulut yapay zekâ paragrafı: talimat + kanıt seçimi + uzunluk → POST /v1/ai/draft-paragraph. */
   function openAiParagraphDialog(s, p) {
-    if (!aiConfigured()) { toast(AI_OFF_TEXT, "bad"); return; }
+    if (!cloudAiUsable()) { toast(cloudAiOffText(), "bad"); return; }
     if (editorDirty()) { toast("Önce “Kaydet”e basın: bulut yapay zekânın yazacağı paragraf kayıtlı sürümün üzerine yazılır ve kaydedilmemiş düzenlemeleriniz kaybolur.", "bad"); return; }
     var panel = openModal("Bu paragrafı yaz (bulut yapay zekâ)", "formpanel");
     modalHead(panel, "Bu paragrafı yaz — Bulut yapay zekâ");
@@ -9094,7 +9333,7 @@ details.tech .techline {
         return getJson("/v1/drafts/" + enc(editor.draft.draftId)).then(function (g) {
           var fresh = (g.status === 200 && g.body) ? g.body : result.draft;
           openEditor(fresh, { aiResult: result, keepSavedAt: true });
-          toast(result.kaynakli ? "AI paragrafı kaynaklı olarak yazıldı." : "AI paragrafı KAYNAKSIZ kaldı — hiçbir kanıt eşiği geçmedi.", result.kaynakli ? "ok" : "bad");
+          toast(aiParagraphToastText(result), aiParagraphVerdict(result).sourced ? "ok" : "bad");
         });
       }).catch(function (error) { go.disabled = false; st.textContent = ""; toast(humanError(error), "bad"); });
     });
@@ -9104,22 +9343,96 @@ details.tech .techline {
     inst.focus();
   }
 
+  /* W21 R2-29: bir dayanağın hâli, sunucunun satırından okunur. Hakemin yanıtı
+     okunamayan dayanak (checked:false; skoru ölçüm değil, yer tutucu 0) ne geçti ne
+     kaldı: "denetlenemedi" yazılır, "zayıf" asla. Hakemin tuttuğu ama taslağın dayanak
+     kurallarının kabul etmediği dayanakta son söz taslağındır: paragraph.supported
+     false iken paragraf hiçbir yüzeyde "kaynaklı" sayılmaz. Kaynaklı bir paragrafta
+     da hakemin tuttuğu bir dayanak, kaydedilen paragrafın evidenceIds listesinde
+     yoksa "korundu" sayılmaz: onu taslağın dayanak kuralları paragrafa yazmadı. */
+  function aiParagraphVerdict(r) {
+    var rows = r && Array.isArray(r.entailment)
+      ? r.entailment.filter(function (e) { return e !== null && typeof e === "object"; })
+      : [];
+    var unchecked = rows.filter(function (e) { return e.checked === false; }).length;
+    var measured = rows.filter(function (e) { return e.checked !== false; });
+    var judgeKept = measured.some(function (e) { return e.kept === true; });
+    var rejected = !!(r && r.paragraph && r.paragraph.supported === false);
+    var sourced = !!r && r.kaynakli === true && !rejected;
+    var savedIds = r && r.paragraph && Array.isArray(r.paragraph.evidenceIds) ? r.paragraph.evidenceIds : null;
+    /* Eski sunucu evidenceIds göndermiyorsa kaynaklı paragrafın tuttuğu bağ yazılmış sayılır. */
+    var written = function (e) {
+      return sourced && e.checked !== false && e.kept === true &&
+        (savedIds === null || savedIds.indexOf(e.evidenceId) !== -1);
+    };
+    return {
+      rows: rows,
+      unchecked: unchecked,
+      measured: measured.length,
+      measuredOut: measured.filter(function (e) { return e.kept !== true; }).length,
+      sourced: sourced,
+      reviserRejected: !sourced && judgeKept,
+      reviserDropped: sourced ? measured.filter(function (e) { return e.kept === true && !written(e); }).length : 0,
+      written: written
+    };
+  }
+
+  function aiParagraphHeadText(v) {
+    var tail = "; paragraf KAYNAKSIZ kaldı ve dayanağını sizin eklemeniz gerekiyor.";
+    if (v.sourced) { return "Bu paragrafın en az bir dayanağı denetimi geçti; paragraf kaynaklı sayıldı."; }
+    if (v.reviserRejected) { return "Bir dayanak anlam denetimini geçti, ancak taslağın dayanak kuralları onu kabul etmedi" + tail; }
+    if (!v.rows.length) { return "Yapay zekâ bu paragraf için hiçbir dayanak göstermedi" + tail; }
+    if (v.unchecked === v.rows.length) { return "Bu paragrafın dayanakları denetlenemedi, bu yüzden hiçbiri paragrafa yazılmadı" + tail; }
+    if (v.unchecked) {
+      return "Bu paragrafa hiçbir dayanak yazılmadı: " + v.measuredOut + " dayanak denetimi geçemedi, " +
+        v.unchecked + " dayanak denetlenemedi" + tail;
+    }
+    return "Bu paragrafın hiçbir dayanağı denetimi geçemedi" + tail;
+  }
+
+  function aiParagraphExplText(v) {
+    var untested = "Bu bulut yapay zekâ özelliği gerçek kullanımda hiç sınanmadı — çıkan metni satır satır okuyun.";
+    var dropped = v.reviserDropped
+      ? v.reviserDropped + " dayanak denetimi geçtiği hâlde taslağın dayanak kurallarınca kabul edilmedi ve paragrafa yazılmadı. "
+      : "";
+    if (!v.rows.length) { return "Denetlenecek dayanak olmadığı için hiçbir dayanak denetimi yapılmadı. " + untested; }
+    if (!v.unchecked) { return "Program her dayanağı ayrıca denetledi; denetimi geçmeyen dayanaklar paragraftan çıkarıldı. " + dropped + untested; }
+    return "Program her dayanağı ayrıca denetlemeye çalıştı; " + v.unchecked +
+      " dayanakta yapay zekâ hakeminin yanıtı okunamadı. Bu dayanaklar denetlenemedi ve paragrafa yazılmadı; " +
+      "doğrulanmış da çürütülmüş de sayılmazlar. " +
+      (v.measuredOut ? "Denetlenip geçemeyen dayanaklar da paragraftan çıkarıldı. " : "") + dropped + untested;
+  }
+
+  function aiParagraphToastText(r) {
+    var v = aiParagraphVerdict(r);
+    var skipped = v.unchecked ? v.unchecked + " dayanak denetlenemedi ve paragrafa yazılmadı" : "";
+    var dropped = v.reviserDropped ? v.reviserDropped + " dayanağı taslağın dayanak kuralları kabul etmedi" : "";
+    if (v.sourced) {
+      var tail = [skipped, dropped].filter(function (s) { return s !== ""; }).join("; ");
+      return "AI paragrafı kaynaklı olarak yazıldı" + (tail ? "; " + tail + "." : ".");
+    }
+    if (v.reviserRejected) { return "AI paragrafı KAYNAKSIZ kaldı — denetimi geçen dayanağı taslağın dayanak kuralları kabul etmedi."; }
+    if (!v.rows.length) { return "AI paragrafı KAYNAKSIZ kaldı — yapay zekâ bir dayanak göstermedi."; }
+    if (v.unchecked) { return "AI paragrafı KAYNAKSIZ kaldı — " + skipped + (v.measuredOut ? ", kalanlar eşiği geçmedi." : "."); }
+    return "AI paragrafı KAYNAKSIZ kaldı — hiçbir kanıt eşiği geçmedi.";
+  }
+
   function renderAiParagraphResult(r) {
+    var v = aiParagraphVerdict(r);
     var c = el("section", "card aicard");
     c.appendChild(el("div", "fieldlabel", "Bulut yapay zekâ paragrafı — anlamsal doğrulama sonucu"));
-    c.appendChild(el("p", "note-p", r.kaynakli
-      ? "Bu paragrafın en az bir dayanağı denetimi geçti; paragraf kaynaklı sayıldı."
-      : "Bu paragrafın hiçbir dayanağı denetimi geçemedi; paragraf KAYNAKSIZ kaldı ve dayanağını sizin eklemeniz gerekiyor."));
-    c.appendChild(el("p", "expl-def",
-      "Program her dayanağı ayrıca denetledi; denetimi geçmeyen dayanaklar paragraftan çıkarıldı. " +
-      "Bu bulut yapay zekâ özelliği gerçek kullanımda hiç sınanmadı — çıkan metni satır satır okuyun."));
+    c.appendChild(el("p", "note-p", aiParagraphHeadText(v)));
+    c.appendChild(el("p", "expl-def", aiParagraphExplText(v)));
     techBox(c, [
       "Anlam bağı eşiği: %" + Math.round((r.threshold || 0.85) * 100),
       "Kullanılan model: " + (r.model || "bilinmiyor")
     ]);
-    var rows = (r.entailment || []).map(function (e) {
+    var rows = v.rows.map(function (e) {
       var x = evidenceById(e.evidenceId);
-      return [x ? x.no : e.evidenceId, meterLevel(pct(e.score))[1], e.kept ? "korundu" : "atıldı", e.rationale || ""];
+      var no = x ? x.no : e.evidenceId;
+      if (e.checked === false) { return [no, "denetlenemedi", "paragrafa yazılmadı", e.rationale || ""]; }
+      var outcome = e.kept ? (v.written(e) ? "korundu" : "denetimi geçti; taslak kabul etmedi") : "atıldı";
+      return [no, meterLevel(pct(e.score))[1], outcome, e.rationale || ""];
     });
     /* W15-SÖZLÜK [P0]: "Skor" sütunundaki çıplak yüzde, açıklaması olmadığı
        için bir doğruluk oranı gibi okunuyordu. Üç kademeli sözel etiket ve
@@ -9996,6 +10309,7 @@ details.tech .techline {
       var got = res.status === 200 && res.body;
       healthKnown = !!got;
       health = got ? res.body : { db: "down", mcp: "off", ai: { configured: false } };
+      applyPlatformTexts();
       applyHealth();
       return health;
     }).catch(function () {
@@ -10045,8 +10359,13 @@ details.tech .techline {
     setPill("pill-mcp", mcp === "ok" ? "ok" : mcp === "starting" ? "warn" : mcp === "down" ? "bad" : "mute",
       "Canlı araştırma: " + (MCP_STATE_TR[mcp] || mcp));
     var ai = h.ai || {};
-    setPill("pill-ai", ai.configured ? "ok" : "mute",
-      "Bulut yapay zekâ: " + (ai.configured ? "açık" + (ai.model ? " · " + ai.model : "") : "kapalı"));
+    /* W21 (#26): the always-visible pill follows the AI policy, not the key
+       alone. Under LOCAL_ONLY the server refuses every cloud request, so a
+       set key reads "kapalı" here too, with the policy named as the reason. */
+    setPill("pill-ai", cloudAiUsable() ? "ok" : "mute",
+      "Bulut yapay zekâ: " + (cloudAiUsable()
+        ? "açık" + (ai.model ? " · " + ai.model : "")
+        : cloudAiRefusedByPolicy() ? "kapalı — yapay zekâ ilkesi kapatıyor" : "kapalı"));
     /* W15 adım 2 · ÖLÜ KOD KALDIRILDI. Burada #demobanner KOŞULSUZ
        gizleniyordu; yani şerit hiçbir koşulda çizilmiyordu ve deneme
        belgeleri uyarısını TAŞIYAN tek yer damganın içiydi. Uyarı önce iki
@@ -10115,18 +10434,42 @@ details.tech .techline {
 
   function aiConfigured() { return !!(health && health.ai && health.ai.configured); }
 
+  /* W21 (#26): a key being set is not permission to use the cloud. Under the
+     LOCAL_ONLY data boundary (or an AI policy that keeps the cloud closed)
+     the server refuses every /v1/ai/* request, so no cloud surface may look
+     usable. health.aiPolicy.cloud.allowed decides; an older server without
+     aiPolicy is judged by its effective data boundary. An aiPolicy without a
+     cloud verdict fails closed. */
+  function cloudAiUsable() {
+    if (!aiConfigured()) { return false; }
+    if (health.dataBoundary === "LOCAL_ONLY") { return false; }
+    var p = health.aiPolicy;
+    if (p) { return !!(p.cloud && p.cloud.allowed === true); }
+    return true;
+  }
+
+  /* The key is set, but the AI policy / data boundary keeps the cloud closed. */
+  function cloudAiRefusedByPolicy() { return aiConfigured() && !cloudAiUsable(); }
+
+  var AI_POLICY_OFF_TEXT = "Bulut yapay zekâ kullanılamaz — anahtar tanımlı ama yapay zekâ ilkesi bulutu kapatıyor; bu bilgisayardan dışarı metin gitmez";
+
+  /* The one reason a disabled cloud surface names: no key, or the policy. */
+  function cloudAiOffText() { return cloudAiRefusedByPolicy() ? AI_POLICY_OFF_TEXT : AI_OFF_TEXT; }
+
   function applyCloudAiState() {
     var cb = document.getElementById("cloudai");
     var lab = document.getElementById("cloudailabel");
     var hint = document.getElementById("cloudaihint");
-    if (!aiConfigured()) {
+    if (!cloudAiUsable()) {
       cb.checked = false;
       cb.disabled = true;
       lab.classList.add("disabled");
-      lab.title = AI_OFF_TEXT;
+      lab.title = cloudAiOffText();
       /* B-27: makine adı Türkçe cümleden SONRA gelir; anahtarın adı yalnız
          Ayarlar > Sistem durumu satırında teknik ayrıntı olarak durur. */
-      hint.textContent = "Bulut yapay zekâ bu bilgisayarda kapalı — anahtar tanımlı değil. Resmî kaynaklarda arama seçilirse arama sözcükleri yine ilgili kaynaklara gönderilir.";
+      hint.textContent = cloudAiRefusedByPolicy()
+        ? "Bulut yapay zekâ bu bilgisayarda kapalı — anahtar tanımlı ama yapay zekâ ilkesi bulutu kapatıyor; soru ve belge metni dışarı gönderilmez. Resmî kaynaklarda arama seçilirse arama sözcükleri yine ilgili kaynaklara gönderilir."
+        : "Bulut yapay zekâ bu bilgisayarda kapalı — anahtar tanımlı değil. Resmî kaynaklarda arama seçilirse arama sözcükleri yine ilgili kaynaklara gönderilir.";
     } else {
       cb.disabled = false;
       lab.classList.remove("disabled");
@@ -10142,7 +10485,7 @@ details.tech .techline {
     document.getElementById("cloudaitext").textContent = "Bulut yapay zekâ: " + (cb.checked ? "açık" : "kapalı");
   }
 
-  function cloudAiOn() { return aiConfigured() && document.getElementById("cloudai").checked; }
+  function cloudAiOn() { return cloudAiUsable() && document.getElementById("cloudai").checked; }
 
   function showCloudAiConsent(onAccept) {
     var panel = openModal("Bulut yapay zekâ açıklaması", "formpanel");
@@ -10360,7 +10703,9 @@ details.tech .techline {
       kutuphane = "hukuk kütüphanesi sayılamadı";
     }
     var canli = "canlı araştırma " + (MCP_STATE_TR[h.mcp] || "durumu bilinmiyor");
-    var ai = "bulut yapay zekâ " + (h.ai && h.ai.configured ? "açık" : "kapalı");
+    /* W21 (#26): "açık" only when the AI policy lets the cloud be used. */
+    var ai = "bulut yapay zekâ " + (cloudAiUsable() ? "açık"
+      : cloudAiRefusedByPolicy() ? "kapalı (anahtar tanımlı ama yapay zekâ ilkesi bulutu kapatıyor)" : "kapalı");
     return "Şu an: " + kayit + " · " + kutuphane + " · " + canli + " · " + ai + ".";
   }
 
@@ -10908,9 +11253,11 @@ details.tech .techline {
     EXCLUDED_BY_REQUEST: "incelemeden çıkarıldı",
     NO_SOURCE_MAP: "sayfa eşlemesi yok (eski yükleme; belgeyi yeniden analiz edin)",
     SYNTHESIS_FAILED: "değerlendirme aşaması tamamlanamadı",
-    OCR_LOW_CONFIDENCE: "taranmış sayfa düşük güvenle okundu"
+    OCR_LOW_CONFIDENCE: "yerel OCR ile yalnız kısmen ya da düşük güvenle okunan sayfa (nedeni belge sayfasındaki uyarıda)"
   };
   var INTEL_SECTIONS = [
+    ["review_summary", "Genel değerlendirme"],
+    ["issue_summary", "Kısım özetleri"],
     ["event", "Kronoloji"],
     ["contradiction", "Çelişkiler"],
     ["question", "Açık sorular"],
@@ -10938,7 +11285,10 @@ details.tech .techline {
     opposed: ["Delil aleyhine", "bad"],
     disputed: ["Deliller çelişiyor", "warn"],
     ambiguous: ["Delil belirsiz", "warn"],
-    unsupported: ["Destek bulunamadı", "bad"]
+    unsupported: ["Destek bulunamadı", "bad"],
+    no_support_in_candidates: ["Aday deliller arasında destek bulunamadı", "warn"],
+    search_incomplete: ["Karşılaştırma tamamlanmadı", "warn"],
+    not_weighed: ["Delillerle karşılaştırılmadı", "warn"]
   };
   var SOURCE_ROLE_TR = { support: " · destekleyen", oppose: " · aleyhe", ambiguous: " · belirsiz", mention: " · ayrıca geçtiği yer" };
 
@@ -10954,7 +11304,7 @@ details.tech .techline {
     var d = matterPageState.data;
     var m = d.matter;
     panel.appendChild(el("p", "screenlead",
-      "Bu sekmede dosyaya bağlı belgelerin tamamını bölüm bölüm okutursunuz; sonuçta ne kadarının okunduğu her zaman yazar."));
+      "Bu sekmede dosyaya bağlı belgelerin tamamını bölüm bölüm okutursunuz; sonuçta ne kadarının okunduğu, neyin çıkarıldığı ve hangi analiz aşamalarının bittiği ayrı ayrı yazar."));
     var controls = el("section", "card");
     panel.appendChild(controls);
     var runsBox = el("div", "anlz-runs");
@@ -11034,9 +11384,19 @@ details.tech .techline {
         var sub = el("div", "sub");
         var active = ANALYSIS_ACTIVE.indexOf(r.status) >= 0;
         sub.appendChild(chip(active ? "sürüyor" : r.status === "cancelled" ? "durduruldu" : r.status === "failed" ? "tamamlanamadı" : "bitti", active ? "warn" : "mute"));
-        if (!active) {
+        if (!active && r.stale) {
+          /* W21 (ikinci denetim): sonradan belge eklenen ya da değişen dosyada eski
+             incelemenin "tamamı okundu / tamamlandı" çipleri gösterilmez. */
+          sub.appendChild(document.createTextNode(" "));
+          sub.appendChild(chip("güncel değil: dosyaya sonradan belge eklendi, değişti ya da çıkarıldı", "warn"));
+        } else if (!active) {
           sub.appendChild(document.createTextNode(" "));
           sub.appendChild(chip(r.complete ? "dosyanın tamamı okundu" : "dosyanın tamamı okunmadı", r.complete ? "ok" : "bad"));
+          if (r.status === "done") {
+            // W21: bütün sayfaların okunması ile incelemenin tamamlanması ayrı iddialardır.
+            sub.appendChild(document.createTextNode(" "));
+            sub.appendChild(chip(r.analysisComplete ? "inceleme tamamlandı" : "inceleme eksik kaldı", r.analysisComplete ? "ok" : "warn"));
+          }
         }
         g.appendChild(sub);
         row.appendChild(g);
@@ -11066,10 +11426,12 @@ details.tech .techline {
       card.appendChild(el("h3", null, run.taskTitle));
       var p = run.progress || { done: 0, total: 0 };
       card.appendChild(el("p", "statusline", active
-        ? p.done + "/" + p.total + " bölüm okundu" + (run.cancelRequested ? " — durduruluyor…" : "")
+        ? p.done + "/" + p.total + " bölüm okundu" + analysisProgressTr(run) + (run.cancelRequested ? " — durduruluyor…" : "")
         : run.status === "cancelled" ? "İnceleme durduruldu (" + p.done + "/" + p.total + " bölüm okunmuştu)."
-        : run.status === "failed" ? "İnceleme tamamlanamadı."
+        : run.status === "failed" ? "İnceleme tamamlanamadı." + analysisFailureTr(run)
         : "İnceleme bitti."));
+      /* W21 (ikinci denetim): başarısızlığın ham kaydı yalnız teknik ayrıntıda. */
+      if (run.status === "failed" && run.error) { techBox(card, ["Kayıtlı hata: " + run.error]); }
       if (active) {
         var bar = el("div", "runbar on");
         bar.setAttribute("aria-hidden", "true");
@@ -11100,17 +11462,93 @@ details.tech .techline {
     }).catch(function (error) { errCard(view, "İnceleme açılamadı", humanError(error)); });
   }
 
+  /* W21 (ikinci denetim): tamamlanamayan bir incelemenin NEDENİ (sürüm değişti,
+     planlama ya da derleme bütçesi doldu) sunucunun Türkçe notlarından yazılır. */
+  function analysisFailureTr(run) {
+    var notes = run && run.summary && Array.isArray(run.summary.notes) ? run.summary.notes : [];
+    return notes.length ? " " + notes.join(" ") : "";
+  }
+
+  /* W21 (ikinci denetim): destek durumu, karşılaştırma yarım kaldıysa bulunan
+     desteği ya da aleyhe delili "tamamlanmadı" diye yazar; hiçbirini kesinleştirmez. */
+  function supportStatusLabel(it) {
+    var a = it.attributes || {};
+    if (it.supportStatus === "search_incomplete" && a.supportsFound > 0 && !(a.opposesFound > 0)) {
+      return ["Destekleyen delil bulundu; karşılaştırma tamamlanmadı (aleyhe delil olup olmadığı bilinmiyor)", "warn"];
+    }
+    if (it.supportStatus === "search_incomplete" && a.opposesFound > 0 && !(a.supportsFound > 0)) {
+      return ["Aleyhe delil bulundu; karşılaştırma tamamlanmadı", "warn"];
+    }
+    return SUPPORT_STATUS_TR[it.supportStatus];
+  }
+
+  /* W21 · analiz görevlerinin ilerleyişi (her iddia, her karşılaştırma ve
+     her sentez grubu ayrı bir kalıcı görevdir). */
+  function analysisProgressTr(run) {
+    var done = 0;
+    var total = 0;
+    (run.analysisProgress || []).forEach(function (rowp) {
+      total += rowp.count;
+      if (rowp.state === "done") { done += rowp.count; }
+    });
+    return total > 0 ? "; analiz görevleri " + done + "/" + total : "";
+  }
+
+  /* W21 · üç ayrı kapsam: okunan, çıkarılan, analiz edilen. Bütün incelemenin
+     tamamlandığını yalnız sunucu söyler (analysisCompleteness); konsol bu
+     cümleyi kendisi kurmaz. */
+  function renderAnalysisLayers(card, run) {
+    var ac = run.analysisCompleteness;
+    if (!ac || !ac.sectionsTr) { return; }
+    var box = el("div", "anlz-layers");
+    box.setAttribute("role", "status");
+    box.appendChild(el("p", "anlz-head", ac.headlineTr));
+    [
+      ["Kaynak kapsamı", ac.sectionsTr.source, ac.sourceComplete],
+      ["Çıkarım kapsamı", ac.sectionsTr.extraction, ac.extractionComplete],
+      ["Analiz kapsamı", ac.sectionsTr.analysis, ac.intelligenceComplete]
+    ].forEach(function (layer) {
+      var rowl = el("div", "anlz-layer");
+      rowl.appendChild(el("strong", null, layer[0]));
+      rowl.appendChild(chip(layer[2] ? "tamam" : "eksik", layer[2] ? "ok" : "warn"));
+      rowl.appendChild(el("span", null, layer[1]));
+      box.appendChild(rowl);
+    });
+    var gaps = [].concat(
+      (run.extractionCoverage && run.extractionCoverage.gapsTr) || [],
+      (run.intelligenceCoverage && run.intelligenceCoverage.gapsTr) || []
+    );
+    if (gaps.length && !ac.complete) {
+      var ulg = el("ul", "audnotices");
+      /* En çok 16 satır; hiçbiri sessizce kesilmez. */
+      gaps.forEach(function (line) { ulg.appendChild(el("li", null, line)); });
+      box.appendChild(ulg);
+    }
+    card.appendChild(box);
+  }
+
   function renderRunCoverage(card, run, active) {
     if (run.coverageSummary) { card.appendChild(el("p", null, run.coverageSummary)); }
+    renderAnalysisLayers(card, run);
     if (run.stale) {
       var st = el("div", "res3 broke");
       st.setAttribute("role", "status");
-      st.appendChild(el("strong", "r3t", "Bu inceleme belgelerin eski sürümüne dayanıyor."));
-      st.appendChild(el("p", null, "Sonradan değişen belgeler: " + (run.sourceChanged || []).join(", ") + ". Güncel sonuç için incelemeyi yeniden başlatın."));
+      var changedDocs = run.sourceChanged || [];
+      var addedDocs = run.sourceAdded || [];
+      var removedDocs = run.sourceRemoved || [];
+      st.appendChild(el("strong", "r3t", changedDocs.length && !addedDocs.length && !removedDocs.length
+        ? "Bu inceleme belgelerin eski sürümüne dayanıyor."
+        : "Bu inceleme dosyanın bugünkü hâlini yansıtmıyor."));
+      if (changedDocs.length) { st.appendChild(el("p", null, "Sonradan değişen ya da silinen belgeler: " + changedDocs.join(", ") + ".")); }
+      if (addedDocs.length) { st.appendChild(el("p", null, "İncelemeden sonra dosyaya eklenen, bu incelemede okunmamış belgeler: " + addedDocs.join(", ") + ".")); }
+      if (removedDocs.length) { st.appendChild(el("p", null, "Dosyadan çıkarılan ama bu sonuçta hâlâ yer alan belgeler: " + removedDocs.join(", ") + ".")); }
+      st.appendChild(el("p", null, "Güncel sonuç için incelemeyi yeniden başlatın."));
       card.appendChild(st);
     }
     var cov = run.processingCoverage;
-    if (active || !cov || !run.exhaustiveClaimRefusedBecause) { return; }
+    /* Bu kutu yalnız KAYNAK eksikse çizilir; çıkarım ya da analiz eksikliği
+       yukarıdaki üç katmanlı blokta yazar ("okunmadı" demek yanlış olur). */
+    if (active || !cov || cov.complete !== false) { return; }
     var box = el("div", "res3 broke");
     box.setAttribute("role", "status");
     box.appendChild(el("strong", "r3t", "Dosyanın tamamı okunmadı; bu sonuç “bütün dosya” için söylenemez."));
@@ -11129,7 +11567,7 @@ details.tech .techline {
       var f = res.body;
       var names = f.fileNames || {};
       var synthesis = (f.summary && f.summary.synthesis) || {};
-      var limits = (f.limitsTr || []).concat(synthesis.notes || []);
+      var limits = (f.limitsTr || []).concat(synthesis.notes || [], (f.summary && Array.isArray(f.summary.notes)) ? f.summary.notes : []);
       if (synthesis.contraryAuthority && synthesis.contraryAuthority.reasonTr) { limits.push(synthesis.contraryAuthority.reasonTr); }
       if (limits.length) {
         var lim = el("section", "card");
@@ -11153,7 +11591,17 @@ details.tech .techline {
         view.appendChild(sec);
         shown += items.length;
       });
-      if (!shown) { emptyLine(view, "Bu incelemede gösterilecek bir tespit çıkmadı. Ne kadarının okunduğu yukarıda yazıyor."); }
+      if (!shown) {
+        /* "Tespit yok" ile "tespitler derlenmedi" aynı şey değildir. */
+        var acE = f.analysisCompleteness;
+        emptyLine(view, f.status === "cancelled"
+          ? "İnceleme durdurulduğu için tespitler derlenmedi; bu, okunan bölümlerde tespit olmadığı anlamına gelmez."
+          : (f.status === "failed" || (f.summary && f.summary.saveFailed))
+            ? "İnceleme tamamlanamadığı için tespitler kaydedilmedi; dosyada tespit olmadığı sonucuna varılamaz."
+            : (acE && acE.complete === false)
+              ? "Gösterilecek tespit yok; ancak inceleme eksik kaldığı için bu, dosyada tespit olmadığı anlamına gelmez."
+              : "Bu incelemede gösterilecek bir tespit çıkmadı. Ne kadarının okunduğu yukarıda yazıyor.");
+      }
     }).catch(function (error) { errCard(view, "Sonuçlar alınamadı", humanError(error)); });
   }
 
@@ -11165,9 +11613,23 @@ details.tech .techline {
     row.appendChild(head);
     var chips = el("div", "partychips");
     if (it.supportStatus && SUPPORT_STATUS_TR[it.supportStatus]) {
-      chips.appendChild(chip(SUPPORT_STATUS_TR[it.supportStatus][0], SUPPORT_STATUS_TR[it.supportStatus][1]));
+      var supportLabel = supportStatusLabel(it);
+      chips.appendChild(chip(supportLabel[0], supportLabel[1]));
+      /* The status was reached on the verified quote, not on the model's title. */
+      if (it.attributes && it.attributes.judgedText === "quote") {
+        chips.appendChild(chip("durum belgedeki alıntıya göre, başlıktaki özete göre değil", "mute"));
+      }
+    }
+    if (it.attributes && it.attributes.partial) {
+      chips.appendChild(chip("Kısmi değerlendirme — " + (it.attributes.missingParts || "bazı") + " kısım değerlendirilemedi", "warn"));
+    }
+    if (it.attributes && it.attributes.judgedOnClippedQuote) {
+      chips.appendChild(chip("Alıntılar kısaltılarak karşılaştırıldı — kesin çelişki sayılmadı", "warn"));
     }
     if (it.hypothetical) { chips.appendChild(chip("Varsayım — belgeden çıkan bir tespit değil", "warn")); }
+    if (it.attributes && it.attributes.lane === "semantic") {
+      chips.appendChild(chip("Serbest metin karşılaştırması — iki alıntıyı birlikte okuyun", "mute"));
+    }
     if (it.producer === "model") { chips.appendChild(chip("Yerel dil modelinin tespiti — alıntıdan doğrulayın", "mute")); }
     if (it.partyRole) { chips.appendChild(chip(it.partyRole, "mute")); }
     if (chips.childNodes.length) { row.appendChild(chips); }
@@ -12008,9 +12470,7 @@ details.tech .techline {
        artık bunu doğrudan cevaplıyor. Makine etiketi silinmez, teknik
        ayrıntıda kalır. */
     if (data.aiUsed && data.aiUsed.label) {
-      noticeLine(box, "line", data.aiUsed.drafter
-        ? "Taslağı bulut yapay zekâ yazdı; yazdığı her cümlenin dayanağı bu bilgisayarda tek tek doğrulandı."
-        : "Bu cevabı yapay zekâ yazmadı: cümleler kaynaklardan olduğu gibi alındı, sıralaması kurallarla yapıldı.");
+      noticeLine(box, "line", aiUsedNoticeTr(data.aiUsed));
       any = true;
     }
     /* Deneme belgeleri / veri kaynağı notu cevabın yanında durur. Sunucudan
@@ -12088,7 +12548,16 @@ details.tech .techline {
     partially_verified: ["Kısmen destekleniyor", "warn"],
     unverified: ["Dayanak yetersiz", "bad"],
     exhaustive_complete: ["Belgenin tamamı okundu", "ok"],
-    exhaustive_incomplete: ["Belge tam okunamadı", "bad"]
+    /* W21 R2-22: every page was read, but the census is PARTIAL — it met
+       value-like text it could not read, or an older extractor counted it
+       (the server export's reviewTables/routes.ts CENSUS_PARTIAL_TR). */
+    exhaustive_partial: ["Belgenin tamamı okundu; sayım eksik olabilir", "warn"],
+    exhaustive_incomplete: ["Belge tam okunamadı", "bad"],
+    /* W21 (#18): an abstention speaks about the passages retrieved for the
+       question, never the whole document — the same labels as the server's
+       export (reviewTables/routes.ts SUPPORT_TR). */
+    abstained: ["getirilen pasajlarda karşılık bulunamadı", "warn"],
+    no_evidence: ["bu soru için pasaj getirilemedi", "warn"]
   };
   var gridState = {
     wired: false, running: false, cancelled: false,
@@ -12214,17 +12683,78 @@ details.tech .techline {
     return out;
   }
 
-  /* Bir cevaptan tek hücre üretir. Kapsanmayan hücre ASLA boş kalmaz. */
+  /* W21 (#17, CB2): the reasons with which the answer pipeline marks a run it
+     could not finish — the same list as reviewTables/worker.ts
+     isIncompleteAnswer. Such a run says nothing about the document. */
+  /* DRAFTER_DEGRADED burada yok: yerel taslakçı düşünce kural tabanlı yedeğin doğrulanmış
+     tespitleri cevaptır; tespitsiz bir arıza aşağıdaki "tespit yok" kuralına takılır. */
+  var GRID_INCOMPLETE_REASONS = ["RETRIEVAL_DEGRADED", "CORPUS_UNAVAILABLE"];
+  /* W21 R2-24: a spent time budget makes a run incomplete only when it left no
+     claim — a claim drafted and verified before the clock ran out is an answer. */
+  var GRID_NO_CLAIM_REASONS = ["TIME_BUDGET_EXCEEDED"];
+  var GRID_INCOMPLETE_TR = "Bu hücre tamamlanamadı: arama başarısız oldu, cevap cümleleri yazılamadı ya da süre doldu; bu, belgede karşılık olmadığı anlamına gelmez.";
+  /* W21 R2-23: a failed lane that searches the document's passages (worker.ts PASSAGE_LANE_FAILED). */
+  var GRID_LANE_FAILED = /^RETRIEVAL_LANE_DEGRADED:(?:[^:]+:)*lane (?:exact|lexical|trigram|dense) failed/;
+  /* Aynı kural sunucuda (reviewTables/worker.ts PLAN_QUERY_FAILED): arama planının bir
+     sorgusu bütünüyle başarısız olduysa pasaj bulunamaması da sonuç sayılmaz. */
+  var GRID_PLAN_QUERY_FAILED = /^(?:RETRIEVAL_ERROR|CORPUS_UNAVAILABLE):/;
+  var GRID_LANE_DEGRADED_TR = "Bu hücre tamamlanamadı: arama şeritlerinden biri başarısız oldu (ör. süre sınırına takıldı); pasaj bulunamaması, belgede karşılık olmadığı anlamına gelmez.";
+  /* W21 R2-21: a claim whose passage support the judge never assessed is not "Kısmen destekleniyor". */
+  var GRID_NOT_CHECKED_TR = "Bu hücre tamamlanamadı: cevap cümlesi yazıldı, ama pasajın bu cümleyi destekleyip desteklemediği denetlenemedi (doğrulama bileşeni yanıt vermedi); bu, cümlenin doğru ya da yanlış olduğunu göstermez.";
+
+  /* Why a /v1/answer run is not a finished cell, or "" — the same rules as
+     reviewTables/worker.ts incompleteAnswerReason and claimSupportNotChecked. */
+  function gridIncompleteText(data) {
+    if (!data) { return GRID_INCOMPLETE_TR; }
+    var reasons = Array.isArray(data.reasons) ? data.reasons : [];
+    var has = function (list, codes) {
+      return list.some(function (r) {
+        return typeof r === "string" && codes.some(function (code) { return r === code || r.indexOf(code + ":") === 0; });
+      });
+    };
+    var claims = data.claims || [];
+    var noClaim = claims.length === 0;
+    if (has(reasons, GRID_INCOMPLETE_REASONS)) { return GRID_INCOMPLETE_TR; }
+    if (noClaim && has(reasons, GRID_NO_CLAIM_REASONS)) { return GRID_INCOMPLETE_TR; }
+    if (noClaim && data.status !== "ABSTAIN") { return GRID_INCOMPLETE_TR; }
+    if (noClaim || data.status === "ABSTAIN") {
+      var warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      return warnings.some(function (w) {
+        return typeof w === "string" && (GRID_LANE_FAILED.test(w) || GRID_PLAN_QUERY_FAILED.test(w));
+      }) ? GRID_LANE_DEGRADED_TR : "";
+    }
+    var claim = claims[0] || {};
+    var own = Array.isArray(claim.reasons) ? claim.reasons : [];
+    var notChecked = has(own, ["ENTAILMENT_NOT_CHECKED"]) ||
+      (typeof claim.claimId === "string" && reasons.indexOf("ENTAILMENT_NOT_CHECKED:" + claim.claimId) >= 0);
+    return notChecked ? GRID_NOT_CHECKED_TR : "";
+  }
+
+  function gridAnswerIncomplete(data) {
+    return gridIncompleteText(data) !== "";
+  }
+
+  /* Bir cevaptan tek hücre üretir. Kapsanmayan hücre ASLA boş kalmaz.
+     W21 (#17): tamamlanamayan bir cevap "karşılık yok" sayılmaz; hata olarak
+     yazılır. W21 (#18, CB3): tarayıcıda belgenin tamamı taranmaz — hücre
+     yalnız bu soru için getirilen pasajlar hakkında konuşur. */
   function gridCellOf(data) {
     var claims = (data && data.claims) || [];
     var evidence = (data && data.evidence) || [];
+    var incomplete = gridIncompleteText(data);
+    if (incomplete) {
+      return { covered: false, error: true, text: incomplete + " Izgarayı yeniden çalıştırın.", status: data ? data.status : "" };
+    }
     if (!claims.length || data.status === "ABSTAIN") {
-      var why = "Bu belgede bu soruya karşılık bulunamadı.";
+      var why = evidence.length
+        ? "Bu soru için getirilen pasajlarda karşılık bulunamadı; belgenin tamamı taranmadı."
+        : "Arama bu soru için belgeden pasaj getirmedi; belgenin tamamı taranmadı.";
       var cov = data && data.coverage;
       if (cov && (cov.missing || []).length) {
-        why = "Bu belgede karşılığı bulunamadı — şu sözcüklerin geçtiği bir yer yok: " + cov.missing.slice(0, 4).join(", ");
+        why = "Bu soru için getirilen pasajlarda karşılığı bulunamadı — bu pasajlarda şu sözcükler geçmiyor: " +
+          cov.missing.slice(0, 4).join(", ") + "; belgenin tamamı taranmadı.";
       }
-      return { covered: false, text: why, status: data ? data.status : "" };
+      return { covered: false, text: why, status: data.status, support: evidence.length ? "abstained" : "no_evidence" };
     }
     var claim = claims[0];
     var byId = {};
@@ -12350,6 +12880,7 @@ details.tech .techline {
       if (res.status !== 200 || gridState.tableId !== id) { return; }
       applyGridTable(res.body);
       renderGridTable();
+      renderGridStale(res.body);
       var p = res.body.progress;
       var settled = p.done + p.failed + p.cancelled;
       document.getElementById("gridtiming").textContent = settled + "/" + p.total + " hücre";
@@ -12364,8 +12895,63 @@ details.tech .techline {
     }).catch(function () { gridState.pollTimer = setTimeout(pollGridTable, 2500); });
   }
 
+  /* W21 · her satır, tablo kurulduğundaki belge sürümüne sabitlidir; hücreler
+     (yeniden denenenler dahil) yine sabit sürümden hesaplanır, başka bir
+     sürümden sessizce cevap verilmez.
+     W21 (#19, CB1): bayat satırlar NEDENLERİNE göre ayrı yazılır. "Daha yeni
+     bir sürümü yüklendi" yalnız newer_version içindir; silinmiş bir belge için
+     yeni tablo önerilmez (sunucu o belgeyi reddeder). "Belge durumu" cümleleri
+     sunucunun dışa aktardığı tablodakiyle aynıdır (reviewTables/routes.ts
+     ROW_STATUS_TR). [başlık, Belge durumu, açıklama] */
+  var GRID_STALE_TR = {
+    newer_version: ["Bu tablodaki bazı belgelerin daha yeni bir sürümü yüklendi.",
+      "daha yeni bir sürümü yüklendi; hücreler sabitlenen sürümden",
+      "Tablo, oluşturulduğu andaki sürüme göre hesaplandı; yeniden denenen hücreler de o sürümü okur. Güncel sürüm için yeni bir tablo oluşturun."],
+    no_readable_current: ["Bu tablodaki bazı belgelerin daha yeni bir yüklemesi var ama okunabilir değil.",
+      "daha yeni bir yükleme var ama okunabilir değil; hücreler sabitlenen sürümden",
+      "Yeni yükleme henüz işleniyor ya da okunamadı; tablo sabitlenen sürüme göre hesaplandı ve yeniden denenen hücreler de o sürümü okur."],
+    pin_gone: ["Bu tablodaki bazı belgelerin sabitlenen sürümü artık okunamıyor.",
+      "sabitlenen sürüm artık okunamıyor; hücreler yeniden hesaplanamaz",
+      "Hesaplanmış hücreler o sürümden alınmıştı; bu belgelerin hücreleri başka bir sürümden yeniden hesaplanmaz."],
+    file_deleted: ["Bu tablodaki bazı belgeler sistemden silindi.",
+      "belge silindi; hücreler sabitlenen sürümden, yeniden hesaplanamaz",
+      "Hesaplanmış hücreler, belge silinmeden önce sabitlenen sürümden alınmıştı. Bu belgeler yeni bir tabloya da eklenemez."]
+  };
+  var GRID_STALE_ORDER = ["newer_version", "no_readable_current", "pin_gone", "file_deleted"];
+
+  function renderGridStale(body) {
+    var box = document.getElementById("gridstale");
+    if (!box) { return; }
+    box.textContent = "";
+    var groups = {};
+    (body.rows || []).forEach(function (r) {
+      if (!r.stale && !r.staleReason) { return; }
+      /* An older server (or an unknown reason) is named without a cause —
+         never dropped, never guessed. */
+      var reason = Object.prototype.hasOwnProperty.call(GRID_STALE_TR, r.staleReason) ? r.staleReason : "unknown";
+      (groups[reason] = groups[reason] || []).push(r.fileName || r.fileId);
+    });
+    GRID_STALE_ORDER.concat(["unknown"]).forEach(function (reason) {
+      var names = groups[reason];
+      if (!names) { return; }
+      var tr = GRID_STALE_TR[reason];
+      var note = el("div", "res3 broke");
+      note.setAttribute("role", "status");
+      if (tr) {
+        note.appendChild(el("strong", "r3t", tr[0]));
+        note.appendChild(el("p", null, "Belge durumu: " + tr[1] + ". " + tr[2] + " Belgeler: " + names.join(", ") + "."));
+      } else {
+        note.appendChild(el("strong", "r3t", "Bu tablodaki bazı belgeler, tablo oluşturulurken sabitlenen sürümle artık aynı değil."));
+        note.appendChild(el("p", null, "Hücreler sabitlenen sürümden hesaplandı; nedenini bu sunucu bildirmedi. Belgeler: " + names.join(", ") + "."));
+      }
+      box.appendChild(note);
+    });
+  }
+
   function applyGridTable(body) {
-    gridState.files = body.rows.map(function (r) { return { fileId: r.fileId, name: r.fileName || r.fileId }; });
+    gridState.files = body.rows.map(function (r) {
+      return { fileId: r.fileId, name: r.fileName || r.fileId, pinned: true, stale: r.stale === true, staleReason: r.staleReason || null };
+    });
     gridState.questions = body.columns.map(function (c) { return c.question; });
     gridState.cells = {};
     body.cells.forEach(function (c) {
@@ -12382,20 +12968,61 @@ details.tech .techline {
   function gridCellOfStored(c) {
     if (c.state === "pending" || c.state === "running") { return null; }
     var at = { rowNo: c.rowNo, columnNo: c.columnNo };
-    if (c.state === "failed") { return { covered: false, error: true, retry: at, text: "Bu hücre hesaplanamadı — " + (c.error || "neden bilinmiyor") }; }
-    if (c.state === "cancelled") { return { covered: false, retry: at, text: "Durduruldu; bu hücre hesaplanmadı." }; }
+    /* W21 (#17, CB2): a failed cell shows the server's own reason — an answer
+       run that could not finish says so itself — and its retry; it is never
+       drawn as an abstention. */
+    if (c.state === "failed") {
+      var reason = String(c.error || "");
+      return { covered: false, error: true, retry: at,
+        text: /^Bu hücre /.test(reason) ? reason : "Bu hücre hesaplanamadı — " + (reason || "neden bilinmiyor") };
+    }
+    if (c.state === "cancelled") { return { covered: false, cancelled: true, retry: at, text: "Durduruldu; bu hücre hesaplanmadı." }; }
+    /* W21 (#17): a "not found" cell whose answer run did not end in ABSTAIN
+       was a run the pipeline could not finish, stored before CB2 — shown as
+       the incomplete cell it is, with its retry. */
+    if ((c.supportState === "abstained" || c.supportState === "no_evidence") &&
+        typeof c.answerStatus === "string" && c.answerStatus !== "ABSTAIN") {
+      return { covered: false, error: true, retry: at, status: c.answerStatus, text: GRID_INCOMPLETE_TR + " Bu hücreyi yeniden deneyin." };
+    }
     var p = (c.provenance || [])[0] || null;
-    return {
+    /* W21 (#18, CB3): a cell stored before CB3 may carry the old
+       whole-document sentence although only the retrieved passages were read;
+       the server no longer writes it, and it is shown passage-scoped. */
+    var answerText = c.answerText || "";
+    if (answerText === "Bu belgede bu soruya karşılık bulunamadı.") {
+      answerText = c.supportState === "no_evidence"
+        ? "Arama bu soru için belgeden pasaj getirmedi; belgenin tamamı taranmadı."
+        : "Bu soru için getirilen pasajlarda karşılık bulunamadı; belgenin tamamı taranmadı.";
+    }
+    /* W21 R2-22: a census (extract_*) cell. One that read every page but is not
+       COMPLETE — it met value-like text it could not read, or an older
+       extractor counted it — gets the partial chip, never "Belgenin tamamı
+       okundu" alone. An old census (the server re-states it with
+       store.ts LEGACY_CENSUS_TR) carries its retry; an old absolute sentence
+       is never shown. */
+    var census = c.supportState === "exhaustive_complete" || c.supportState === "exhaustive_incomplete";
+    var support = c.supportState;
+    var status = c.answerStatus;
+    var legacyCensus = census && answerText.indexOf("Bu hücre, bazı yazımları tanımayan eski bir sayımla hesaplandı") === 0;
+    if (census && /^Belgenin (tamamında|okunabilen kısmında) (tarih|tutar|oran) bulunmadı/.test(answerText)) {
+      answerText = "Bu hücre, bazı yazımları tanımayan eski bir sayımla hesaplandı; sonucu eksik olabilir, hücreyi yeniden deneyin.";
+      status = "PARTIAL";
+      legacyCensus = true;
+    }
+    if (support === "exhaustive_complete" && status !== "COMPLETE") { support = "exhaustive_partial"; }
+    var cell = {
       covered: c.supportState !== "abstained" && c.supportState !== "no_evidence",
-      status: c.answerStatus,
-      text: cpTruncate(c.answerText || "", 400),
-      support: c.supportState,
+      status: status,
+      text: cpTruncate(answerText, 400),
+      support: support,
       chunkId: p && p.chunkId ? p.chunkId : "",
       startChar: p ? p.startChar : "",
       endChar: p ? p.endChar : "",
       sha: p ? p.quoteSha256 : "",
       runId: c.answerRunId || ""
     };
+    if (legacyCensus) { cell.retry = at; }
+    return cell;
   }
 
   function retryGridCell(at) {
@@ -12436,13 +13063,35 @@ details.tech .techline {
     }).catch(function () { host.textContent = ""; });
   }
 
+  /* W21 (#17): cells that could not be computed (failed, incomplete). */
+  function gridFailedCount() {
+    var cells = gridState.cells || {};
+    return Object.keys(cells).filter(function (k) { return !!(cells[k] && cells[k].error); }).length;
+  }
+
+  /* W21: cells stopped before they were computed. A table cancelled and
+     then partly retried is "done" on the server, and its stopped cells are
+     still not answers. */
+  function gridCancelledCount() {
+    var cells = gridState.cells || {};
+    return Object.keys(cells).filter(function (k) { return !!(cells[k] && cells[k].cancelled && !cells[k].error); }).length;
+  }
+
   function finishGrid(done, total) {
     gridState.running = false;
     setBar("gridbar", false);
     document.getElementById("gridstop").hidden = true;
     document.getElementById("gridrun").disabled = false;
-    document.getElementById("gridtiming").textContent =
-      gridState.cancelled ? "durduruldu — " + done + "/" + total + " hücre" : done + "/" + total + " hücre tamam";
+    /* W21 (#17): "tamam" only when every cell settled and none failed; a
+       failed cell is settled but not done, and the summary says so. */
+    var failed = gridFailedCount();
+    var stopped = gridCancelledCount();
+    var count = done + "/" + total + " hücre";
+    var failedTail = (failed ? " · " + failed + " hücre hesaplanamadı" : "") +
+      (stopped ? " · " + stopped + " hücre durduruldu, hesaplanmadı" : "");
+    document.getElementById("gridtiming").textContent = gridState.cancelled
+      ? "durduruldu — " + count + failedTail
+      : (failed || stopped || done < total ? count + failedTail : count + " tamam");
     renderGridTable();
     var csv = gridCsv();
     var a = document.getElementById("gridcsv");
@@ -12498,8 +13147,15 @@ details.tech .techline {
             gotoDocument(f.fileId, { focusChunk: cell.chunkId });
           });
           wrap.appendChild(src);
+          /* W21 R2-22: an old census is recounted with the current extractor. */
+          if (cell.retry) {
+            wrap.appendChild(ghostBtn("Bu hücreyi yeniden dene", function () { retryGridCell(cell.retry); }, "small"));
+          }
         } else {
           td.className = "miss";
+          /* W21 (#17): a cell that could not be computed carries its own chip,
+             so it never reads as "nothing found". */
+          if (cell.error) { wrap.appendChild(chip("hesaplanamadı", "bad")); }
           if (cell.retry) {
             var again = ghostBtn("Bu hücreyi yeniden dene", function () { retryGridCell(cell.retry); }, "small");
             wrap.appendChild(again);
@@ -12523,22 +13179,51 @@ details.tech .techline {
 
   /* Her hücrenin kaynağı ayrı SÜTUN olarak yazılır (fileId + parça + konum +
      alıntı SHA-256): tablo, kaynağından koparılmış bir özet olmasın. */
+  /* W21 (#19): the row's pinned-version state, in the server export's words
+     (routes.ts ROW_STATUS_TR). A row of the in-browser grid has no pin: empty. */
+  function gridRowStatus(f) {
+    if (!f || !f.pinned) { return ""; }
+    if (!f.stale && !f.staleReason) { return "güncel sürüm"; }
+    return Object.prototype.hasOwnProperty.call(GRID_STALE_TR, f.staleReason)
+      ? GRID_STALE_TR[f.staleReason][1]
+      : "sabitlenen sürümle artık aynı değil; nedeni bildirilmedi";
+  }
+
   function gridCsv() {
-    var rows = [["Belge", "Belge kimliği", "Soru", "Durum", "Cevap", "Kaynak pasaj", "Metindeki yeri", "Alıntının parmak izi", "Araştırma no"]];
+    var rows = [["Belge", "Belge kimliği", "Soru", "Durum", "Cevap", "Kaynak pasaj", "Metindeki yeri", "Alıntının parmak izi", "Araştırma no", "Belge durumu"]];
     gridState.files.forEach(function (f) {
+      var rowStatus = gridRowStatus(f);
       gridState.questions.forEach(function (q, qi) {
         var c = gridState.cells[gridKey(f.fileId, qi)];
-        if (!c) { rows.push([f.name, f.fileId, q, "çalıştırılmadı", "", "", "", "", ""]); return; }
+        if (!c) { rows.push([f.name, f.fileId, q, "çalıştırılmadı", "", "", "", "", "", rowStatus]); return; }
         rows.push([
           f.name, f.fileId, q,
-          c.error ? "hesaplanamadı" : (c.covered ? (STATUS_TR[c.status] ? STATUS_TR[c.status][0] : c.status) : "karşılık bulunamadı"),
+          c.error ? "hesaplanamadı" : (c.cancelled ? "iptal edildi" : (c.covered
+            ? (STATUS_TR[c.status] ? STATUS_TR[c.status][0] : c.status)
+            : (Object.prototype.hasOwnProperty.call(GRID_SUPPORT_TR, c.support) ? GRID_SUPPORT_TR[c.support] : GRID_SUPPORT_TR.abstained)[0])),
           c.text, c.chunkId || "",
           (c.startChar === "" || c.startChar === undefined) ? "" : c.startChar + "-" + c.endChar,
-          c.sha || "", c.runId || ""
+          c.sha || "", c.runId || "", rowStatus
         ]);
       });
     });
     return rows.map(function (r) { return r.map(csvField).join(";"); }).join("\r\n");
+  }
+
+  /* W21: "bulut" is written only for a cloud model. The server labels a
+     local model "Yerel model <ad> (bu bilgisayar|yerel ağ)" and an endpoint
+     outside this network "Dışarıdaki model <ad> (…)"
+     (llm/providerFactory.ts localModelLabel); anything else is the cloud. */
+  function aiUsedNoticeTr(aiUsed) {
+    var label = String((aiUsed && aiUsed.label) || "");
+    var who = /^Yerel model /.test(label)
+      ? (/\(yerel ağ\)$/.test(label) ? "kendi ağınızdaki yerel model" : "bu bilgisayardaki yerel model")
+      : (/^Dışarıdaki model /.test(label) ? "dışarıdaki bir servisteki model" : "bulut yapay zekâ");
+    if (aiUsed && aiUsed.drafter) {
+      return "Taslağı " + who + " yazdı; yazdığı her cümlenin dayanağı bu bilgisayarda tek tek doğrulandı.";
+    }
+    return "Bu cevabı yapay zekâ yazmadı: cümleler kaynaklardan olduğu gibi alındı, sıralaması kurallarla yapıldı." +
+      (aiUsed && aiUsed.entailment ? " Alıntıların tespiti destekleyip desteklemediğini " + who + " denetledi." : "");
   }
 
   /* ==================== W14 B-22 · ADLANDIRILMIŞ İŞ KARTLARI ====================
@@ -13040,16 +13725,7 @@ details.tech .techline {
     /* W15 şerit E: bu satır "48213 karakter, 62 bölüm" gibi avukat için
        karşılığı olmayan sayılar gösteriyordu. Sayfa sayısı ve taranmışlık
        gerçekten işine yarar; ölçüler tek "Teknik ayrıntı" kabına indi. */
-    var sparsePageWarning = pages && Array.isArray(pages.sparsePages) && pages.sparsePages.length;
-    metaRow(list, "Okunabilirlik",
-      (ext.ocr
-        ? "Sayfa görüntülerindeki yazı metne çevrildi."
-        : (pages && pages.emptyPages && pages.emptyPages.length
-          ? "Bazı sayfalarda yazı yok — o sayfalar taranmış görüntü olabilir."
-          : (sparsePageWarning
-            ? "Bazı sayfalarda çok az yazı çıkarıldı — bu sayfaların tamamı okunmuş sayılmaz."
-            : "Belgenin yazısı okundu; içinde arama yapabilir ve alıntı alabilirsiniz."))) +
-      (ext.pages ? " (" + ext.pages + " sayfa)" : ""));
+    metaRow(list, "Okunabilirlik", readabilityText(pages, ext));
     metaRow(list, "Yüklenme", fmtDateTimeTR(f.uploadedAt) || f.uploadedAt);
     head.appendChild(list);
     techBox(head, [
@@ -13059,7 +13735,7 @@ details.tech .techline {
     ]);
     var sc = scannedText(pages);
     if (sc) { head.appendChild(el("div", "flagline", "⚠ " + sc)); }
-    var otherWarnings = (f.warnings || []).filter(function (w) { return !/^SCANNED_PAGES:/.test(String(w)); });
+    var otherWarnings = (f.warnings || []).filter(function (w) { return !isPageStatCode(w); });
     if (otherWarnings.length) { head.appendChild(el("div", "flagline", "⚠ " + otherWarnings.join(" · "))); }
     var acts = el("div", "filebtns");
     acts.appendChild(ghostBtn("Bu dosyayla araştır", function () { attachFile(f.fileId, f.name || f.fileId); }));
@@ -13220,13 +13896,13 @@ details.tech .techline {
   function aiDisabledButton(b) {
     b.disabled = true;
     b.classList.add("disabled");
-    b.title = AI_DISABLED_HINT;
+    b.title = cloudAiOffText();
     return b;
   }
 
   /* Onay: çip açık değilse açıklama penceresi; kabulde devam. */
   function ensureCloudAi(onReady) {
-    if (!aiConfigured()) { toast(AI_DISABLED_HINT, "bad"); return; }
+    if (!cloudAiUsable()) { toast(cloudAiOffText(), "bad"); return; }
     if (cloudAiOn()) { onReady(); return; }
     showCloudAiConsent(onReady);
   }
@@ -13249,9 +13925,9 @@ details.tech .techline {
     status.setAttribute("role", "status");
     status.setAttribute("aria-live", "polite");
     var out = el("div");
-    if (!aiConfigured()) {
+    if (!cloudAiUsable()) {
       aiDisabledButton(go);
-      status.textContent = AI_DISABLED_HINT;
+      status.textContent = cloudAiOffText();
     } else {
       go.title = "Bu istek için belge metni Anthropic'e gönderilir";
       status.textContent = "model " + ((health.ai && health.ai.model) || "?") + " · canlı sınanmadı · her istek için ayrı onay";
@@ -13349,19 +14025,23 @@ details.tech .techline {
      upload.fileName ile POST /v1/files (matterId) — intake hattından geçer. */
   function renderOcrHook(f, holder, pages) {
     holder.textContent = "";
-    var scanned = (pages && Array.isArray(pages.emptyPages) && pages.emptyPages.length > 0) ||
-      (f.warnings || []).some(function (w) { return /^SCANNED_PAGES/.test(String(w)); }) ||
-      (f.extraction && f.extraction.ocr === true && false);
+    /* W21 (#29): only pages NOTHING read ask for the cloud — pages local OCR
+       already read (pages.ocrPages) do not. A record without page statistics
+       falls back to its SCANNED_PAGES warning. */
+    var hasPageStats = !!(pages && Array.isArray(pages.emptyPages));
+    /* R2-33: a page local OCR read only in part is not a read page either. */
+    var scanned = unreadEmptyPages(pages).length > 0 || ocrSparsePages(pages).length > 0 ||
+      (!hasPageStats && (f.warnings || []).some(function (w) { return /^SCANNED_PAGES/.test(String(w)); }));
     if (!scanned) { return; }
     var b = ghostBtn("Taranmış belgeyi metne çevir (bulut yapay zekâ)", function () { openOcrDialog(f.name || "", { matterId: activeMatter ? activeMatter.id : null }); });
-    if (!aiConfigured()) { aiDisabledButton(b); }
+    if (!cloudAiUsable()) { aiDisabledButton(b); }
     else { b.title = "PDF'in tamamı Anthropic'e gönderilir (≤ 32 MB, ≤ 100 sayfa)"; }
     holder.appendChild(b);
   }
 
   function openOcrDialog(fileName, opts) {
     opts = opts || {};
-    if (!aiConfigured()) { toast(AI_DISABLED_HINT, "bad"); return; }
+    if (!cloudAiUsable()) { toast(cloudAiOffText(), "bad"); return; }
     var panel = openModal("Taranmış belgeyi metne çevir", "formpanel");
     modalHead(panel, "Taranmış belgeyi metne çevir — bulut yapay zekâ ile");
     panel.appendChild(el("p", "note-p",
@@ -13404,13 +14084,19 @@ details.tech .techline {
       fd.append("file", file, file.name);
       fd.append("useCloudAi", "true");
       go.disabled = true;
-      st.textContent = "Anthropic'e gönderildi, sayfalar okunuyor…";
+      /* W21 (#26): nothing is said to be sent or finished before the server
+         answers — under a closed AI policy the request is refused here. */
+      st.textContent = "İstek gönderiliyor — sayfalar okunurken bekleyin…";
       var started = Date.now();
       fetch("/v1/ai/ocr", { method: "POST", body: fd }).then(parseJson).then(function (res) {
         go.disabled = false;
-        st.textContent = "Tamamlandı (" + busySeconds(Date.now() - started) + " sürdü).";
         out.textContent = "";
-        if (res.status !== 200 || !res.body) { errCard(out, "Belge metne çevrilemedi", errMessage(res), errMessageTech(res)); return; }
+        if (res.status !== 200 || !res.body) {
+          st.textContent = "Metne çevrilemedi (" + busySeconds(Date.now() - started) + " sürdü).";
+          errCard(out, "Belge metne çevrilemedi", errMessage(res), errMessageTech(res));
+          return;
+        }
+        st.textContent = "Tamamlandı (" + busySeconds(Date.now() - started) + " sürdü).";
         var r = res.body;
         var head = el("div", "filehead");
         head.appendChild(chip((r.pageCount || 0) + " sayfa", "ok"));
@@ -13840,6 +14526,14 @@ details.tech .techline {
     updateThemeButton();
   }
 
+  /* W21: yapay zekâ ilkesinin avukat dilindeki adı; teknik ad "Teknik ayrıntı"da. */
+  var AI_POLICY_TR = {
+    LOCAL_ONLY: "yalnız bu bilgisayar — dışarıya hiçbir metin gitmez",
+    LOCAL_PREFERRED: "önce yerel model — bulut yalnız her istekte ayrı onayla",
+    CLOUD_ALLOWED: "bulut izinli — her istekte ayrı onayla",
+    DETERMINISTIC_ONLY: "yapay zekâ kapalı — yalnız kural tabanlı"
+  };
+
   function renderSysStatus() {
     var body = document.getElementById("sysstatusbody");
     if (!body) { return; }
@@ -13859,12 +14553,41 @@ details.tech .techline {
         : " · veri yapısı güncel") : ""));
     row("Resmî kaynak bağlantısı", MCP_STATE_TR[h.mcp] || "durumu bilinmiyor");
     var ai = h.ai || {};
-    row("Bulut yapay zekâ", ai.configured
+    /* W21 (#26): "açık" only when the AI policy lets the cloud be used. A key
+       under LOCAL_ONLY is its own case and never reads as usable next to the
+       "yalnız bu bilgisayar" policy row. */
+    var cloudUsable = cloudAiUsable();
+    var cloudRefused = cloudAiRefusedByPolicy();
+    row("Bulut yapay zekâ", cloudUsable
       ? "açık" + (ai.liveTested ? "" : " — bu özellik gerçek kullanımda hiç sınanmadı")
-      : "kapalı — bu bilgisayardan dışarı hiçbir metin gitmiyor");
-    row("Taranmış belgeyi metne çevirme", ai.configured
+      : (cloudRefused
+        ? "kapalı — anahtar tanımlı ama yapay zekâ ilkesi bulutu kapatıyor; bu bilgisayardan dışarı hiçbir metin gitmiyor"
+        : "kapalı — bu bilgisayardan dışarı hiçbir metin gitmiyor"));
+    row("Taranmış belgeyi metne çevirme", cloudUsable
       ? "açık — belge sayfasındaki “Taranmış belgeyi metne çevir” düğmesiyle kullanılır (en çok 32 MB ve 100 sayfa)"
-      : "kapalı — önce bulut yapay zekâ açılmalı");
+      : (cloudRefused
+        ? "kullanılamaz — anahtar tanımlı ama yapay zekâ ilkesi bulutu kapatıyor; taranmış belge bulut yapay zekâya gönderilmez"
+        : "kapalı — önce bulut yapay zekâ açılmalı"));
+    /* W21: uygulamanın yapay zekâ ilkesi, yerel model ve bu bilgisayarda
+       taranmış sayfa okuma (OCR). "Ayarlı" "çalışıyor" demek değildir;
+       hiçbiri buradan canlı sınanmadı. */
+    var pol = h.aiPolicy;
+    row("Yapay zekâ ilkesi", pol
+      ? (AI_POLICY_TR[pol.policy] || pol.policy) + (pol.reasonTr ? " · " + pol.reasonTr : "")
+      : "bilinmiyor — sunucu bu bilgiyi vermedi");
+    if (pol && pol.localModel) {
+      var lm = pol.localModel;
+      row("Yerel model", lm.state === "configured"
+        ? "ayarlı" + (lm.where ? " (" + lm.where + ")" : "") + " · canlı sınanmadı · " +
+          (lm.usableForMatterAnalysis ? "dosya incelemesinde kullanılabilir" : "dosya incelemesinde kullanılmaz")
+        : lm.state === "refused"
+          ? "kullanılmıyor — " + (lm.reasonTr || "ayar reddedildi")
+          : "ayarlı değil — cevaplar kural tabanlı hazırlanır");
+    }
+    var ocr = h.ocr;
+    row("Taranmış sayfaları bu bilgisayarda okuma", ocr
+      ? (ocr.state === "OCR_READY" ? "kurulu ve kullanılabilir" : "kullanılamıyor") + " — " + (ocr.messageTr || ocr.state)
+      : "denetleniyor — sonuç gelene kadar taranmış sayfalar okunmamış sayılır");
     var c = h.corpus;
     row("Bu bilgisayardaki arşiv", c
       ? c.publicDocuments + " mevzuat ve karar belgesi · " + c.uploads + " yüklediğiniz belge" +
@@ -13896,10 +14619,12 @@ details.tech .techline {
         (mig.missing && mig.missing.length ? " · eksik: " + mig.missing.join(", ") : "") : null,
       typeof h.registeredToolCount === "number" ? "Kayıtlı araç: " + h.registeredToolCount : null,
       "Bulut yapay zekâ modeli: " + (ai.model || "tanımlı değil"),
-      ai.configured ? null : "Ortam değişkeni: ANTHROPIC_API_KEY",
-      "Başlatma: ColleX-Baslat.cmd · Durdurma: ColleX-Durdur.cmd",
-      "Yedekleme: ColleX-Yedekle.cmd · Geri yükleme: ColleX-Geri-Yukle.cmd"
-    ]);
+      pol ? "Yapay zekâ ilkesi: " + pol.policy + (pol.configuredPolicy !== pol.policy ? " (ayar: " + pol.configuredPolicy + ")" : "") +
+        " · veri sınırı: " + pol.effectiveBoundary : null,
+      pol && pol.modelTasks ? "Dosya incelemesi modeli: " + pol.modelTasks.code : null,
+      "OCR: " + (ocr ? ocr.state + (ocr.provider ? " · " + ocr.provider : "") + (ocr.rasterizer ? " · " + ocr.rasterizer : "") : "denetleniyor"),
+      ai.configured ? null : "Ortam değişkeni: ANTHROPIC_API_KEY"
+    ].concat(operatorScriptLines(h)));
   }
 
   /* ====================================================================
@@ -17259,6 +17984,41 @@ details.tech .techline {
 
   /* ========================= B-03 · Yedekleme ========================= */
 
+  /* W21 round two (R2-36): başlatma, durdurma, yedekleme ve geri yükleme
+     betiklerinin adları sunucudan gelir (health ya da GET /v1/backup:
+     platform + operatorHints) — sunucunun ÇALIŞTIĞI işletim sisteminin
+     adları. Mac mini'de .cmd dosyası, masaüstü kısayolu ya da Dosya Gezgini
+     yoktur; ekran onları yalnız Windows'ta anar. */
+  function operatorHintsOf(source) {
+    var from = source && source.operatorHints ? source
+      : (typeof health !== "undefined" && health && health.operatorHints ? health : null);
+    if (!from || typeof from.operatorHints !== "object") { return null; }
+    return { platform: typeof from.platform === "string" ? from.platform : null, hints: from.operatorHints };
+  }
+
+  function operatorScriptLines(source) {
+    var op = operatorHintsOf(source);
+    var h = op && op.hints;
+    if (!h || !h.start || !h.stop) {
+      return ["Başlatma, durdurma, yedekleme ve geri yükleme betikleri: kurulum belgesine bakın (sunucu adlarını bildirmedi)"];
+    }
+    return [
+      "Başlatma: " + h.start + " · Durdurma: " + h.stop,
+      "Yedekleme: " + (h.backup || "?") + " · Geri yükleme: " + (h.restore || "?")
+    ];
+  }
+
+  function openFolderSentence(op) {
+    var platform = op && op.platform;
+    if (platform === "win32") {
+      return "Bu yazıyı kopyalayıp Dosya Gezgini'nin adres çubuğuna yapıştırarak klasöre ulaşabilirsiniz.";
+    }
+    if (platform === "darwin") {
+      return "Bu yazıyı kopyalayıp Finder'da Git › Klasöre Git (⇧⌘G) penceresine yapıştırarak klasöre ulaşabilirsiniz.";
+    }
+    return "Bu yazıyı kopyalayıp dosya yöneticinizde bu klasörü açarak ulaşabilirsiniz.";
+  }
+
   function loadBackup() {
     var body = document.getElementById("backupbody");
     if (!body) { return; }
@@ -17268,41 +18028,63 @@ details.tech .techline {
       body.textContent = "";
       if (res.status === 404) {
         document.getElementById("backupgo").disabled = true;
-        body.appendChild(el("p", "note-p",
-          "Yedekleme bu ekrandan açılmamış. Bilgisayarınızın masaüstünde ya da ColleX klasöründe bulunan " +
-          "“ColleX Yedekle” kısayolunu çift tıklayarak yedek alabilirsiniz; ekrandan da alınabilmesi için " +
-          "ColleX'i kuran kişiye söyleyin."));
-        techBox(body, "ColleX-Yedekle.cmd");
+        var op = operatorHintsOf(null);
+        if (op && op.platform === "win32") {
+          body.appendChild(el("p", "note-p",
+            "Yedekleme bu ekrandan açılmamış. Bilgisayarınızın masaüstünde ya da ColleX klasöründe bulunan " +
+            "“ColleX Yedekle” kısayolunu çift tıklayarak yedek alabilirsiniz; ekrandan da alınabilmesi için " +
+            "ColleX'i kuran kişiye söyleyin."));
+        } else {
+          /* Windows dışında masaüstü kısayolu yoktur: yedek, kurulumun
+             yedekleme betiğiyle (Mac mini'de zamanlanmış görev) alınır. */
+          body.appendChild(el("p", "note-p",
+            "Yedekleme bu ekrandan açılmamış. Yedek, ColleX'in kurulu olduğu bilgisayarda kurulumun yedekleme " +
+            "betiğiyle alınır; ekrandan da alınabilmesi için ColleX'i kuran kişiye söyleyin."));
+        }
+        techBox(body, op && op.hints && op.hints.backup
+          ? op.hints.backup
+          : "Yedekleme betiği: kurulum belgesine bakın (sunucu adını bildirmedi)");
         return;
       }
       if (res.status !== 200) { errCard(body, "Yedek durumu okunamadı", errMessage(res), errMessageTech(res)); return; }
-      renderBackup(body, (res.body || {}).backup || null);
+      renderBackup(body, (res.body || {}).backup || null, res.body);
     }).catch(function (error) {
       body.textContent = "";
       errCard(body, "Yedek durumu okunamadı", humanError(error));
     });
   }
 
-  function renderBackup(body, b) {
+  function renderBackup(body, b, source) {
     body.textContent = "";
+    var op = operatorHintsOf(source);
     var line = el("div", "backline");
     if (!b) {
       line.appendChild(el("span", "state none",
         "Henüz hiç yedek alınmadı. Bilgisayarınız bozulursa dosyalarınızın kopyası olmaz — aşağıdaki düğmeyle şimdi bir yedek alın."));
     } else {
-      line.appendChild(el("span", "state " + (b.stale === true ? "stale" : "ok"),
+      /* W21 (#24): a backup that is not KNOWN to hold every original the
+         database names is never drawn green. */
+      var originalsGap = b.originalsState === "INCOMPLETE" || b.originalsState === "UNVERIFIED";
+      line.appendChild(el("span", "state " + (b.stale === true || originalsGap ? "stale" : "ok"),
         "Son yedek: " + (fmtDateTimeTR(b.lastAt) || "-")));
       line.appendChild(el("span", null,
         (typeof b.files === "number" ? b.files + " belge · " : "") +
         (typeof b.sizeBytes === "number" ? fmtSizeTR(b.sizeBytes) : "")));
       if (b.stale === true) { line.appendChild(chip("son bir haftadır yedek alınmadı — yenileyin", "warn")); }
+      if (b.originalsState === "INCOMPLETE") {
+        line.appendChild(chip("yedek EKSİK — bazı belge asılları yedekte yok", "bad"));
+      } else if (b.originalsState === "UNVERIFIED") {
+        line.appendChild(chip("belge asıllarının tamamı denetlenmedi", "warn"));
+      }
     }
     body.appendChild(line);
+    if (b && (b.originalsState === "INCOMPLETE" || b.originalsState === "UNVERIFIED") && b.originalsWarning) {
+      body.appendChild(el("div", "flagline", "⚠ " + b.originalsWarning));
+    }
     if (b && b.path) {
       body.appendChild(el("div", "fieldlabel", "Yedeğin bulunduğu klasör"));
       body.appendChild(el("div", "backpath", b.path));
-      body.appendChild(el("p", "expl-def",
-        "Bu yazıyı kopyalayıp Dosya Gezgini'nin adres çubuğuna yapıştırarak klasöre ulaşabilirsiniz."));
+      body.appendChild(el("p", "expl-def", openFolderSentence(op)));
     }
     /* W15 şerit E: "BitLocker'lı klasör" avukatın bilmediği bir Windows
        özelliğiydi ve cümle yapamayacağı bir işi emrediyordu. */
@@ -17316,7 +18098,9 @@ details.tech .techline {
     techBox(body, [
       "Yedek klasöründe yedek.json (MANIFEST) dosyası bulunur.",
       "Geri yükleme: veritabanı dökümü ve “<veri klasörü>/uploads (varsayılan: var/uploads)” klasörü birlikte geri alınır.",
-      "ColleX-Geri-Yukle.cmd"
+      op && op.hints && op.hints.restore
+        ? op.hints.restore
+        : "Geri yükleme betiği: kurulum belgesine bakın (sunucu adını bildirmedi)"
     ]);
   }
 
@@ -17343,8 +18127,17 @@ details.tech .techline {
       if (res.status === 409) { toast("Bir yedekleme zaten sürüyor; bitmesini bekleyin.", "warn"); loadBackup(); return; }
       if (res.status !== 200 || !res.body) { body.textContent = ""; errCard(body, "Yedek alınamadı", errMessage(res), errMessageTech(res)); return; }
       var b = res.body;
-      renderBackup(body, { path: b.path, lastAt: b.at, sizeBytes: b.sizeBytes, files: b.files, stale: false });
-      toast("Yedek alındı: " + b.path, "ok");
+      var gap = b.originalsState === "INCOMPLETE" || b.originalsState === "UNVERIFIED";
+      renderBackup(body, {
+        path: b.path, lastAt: b.at, sizeBytes: b.sizeBytes, files: b.files, stale: false,
+        originalsState: gap ? b.originalsState : undefined,
+        originalsWarning: gap ? b.originalsWarning : undefined
+      });
+      if (gap) {
+        toast("Yedek alındı ama belge asıllarının tamamı yedekte olduğu doğrulanamadı — ayrıntı ekranda.", "warn");
+      } else {
+        toast("Yedek alındı: " + b.path, "ok");
+      }
     }).catch(function (error) {
       busy.stop();
       release();
@@ -18440,9 +19233,17 @@ details.tech .techline {
       var lines = [];
       var note = "";
       if (st.status === 200 && st.body) {
-        lines.push(st.body.configured
-          ? "Bulut yapay zekâ bu bilgisayarda tanımlı" + (st.body.model ? " (model: " + st.body.model + ")" : "") + "; yine de her istekte ayrıca onayınız istenir."
-          : "Bulut yapay zekâ bu bilgisayarda tanımlı değil; bu yüzden bulut çağrısı yapılamaz.");
+        /* W21 (#26): /v1/ai/status reports the key only. Whether a cloud call
+           can be made at all is the AI policy's decision (health.aiPolicy);
+           when that is unknown the card does not suggest a call is possible. */
+        var aiModel = st.body.model ? " (model: " + st.body.model + ")" : "";
+        lines.push(!st.body.configured
+          ? "Bulut yapay zekâ bu bilgisayarda tanımlı değil; bu yüzden bulut çağrısı yapılamaz."
+          : cloudAiUsable()
+            ? "Bulut yapay zekâ bu bilgisayarda tanımlı" + aiModel + "; yine de her istekte ayrıca onayınız istenir."
+            : cloudAiRefusedByPolicy()
+              ? "Bulut yapay zekâ anahtarı bu bilgisayarda tanımlı" + aiModel + " ama yapay zekâ ilkesi bulutu kapatıyor; bu yüzden bulut çağrısı yapılamaz ve bu bilgisayardan dışarı metin gitmez."
+              : "Bulut yapay zekâ anahtarı bu bilgisayarda tanımlı" + aiModel + " ama yapay zekâ ilkesinin bulutu açıp açmadığı okunamadı; Ayarlar › Sistem durumu satırına bakın.");
       }
       if (lg.status === 200 && lg.body) {
         var t = lg.body.today || {};

@@ -1,12 +1,26 @@
 # M2 Mac mini (8 GB) — yerel çıkarım cihazı kurulum ve ölçüm rehberi (W20)
 
+> **W21 — bu belge bir ARA ÇÖZÜMDÜR.** Burada anlatılan yerleşim
+> (Windows ana makine + yerel ağdaki Mac'te yalnız dil modeli) yalnız
+> geliştirme döneminde kullanılabilecek geçici bir seçenektir. **Nihai
+> üretim yerleşimi** farklıdır: ColleX'in tamamı (konsol, kontrol düzlemi,
+> PostgreSQL, MCP ve belge alma, işçiler, dosya deposu, gömme, dosya
+> incelemesi, OCR ve yerel dil modeli) **tek bir M2 Mac mini** üzerinde
+> çalışır ve model **aynı Mac'te `127.0.0.1`'e** bağlanır (güven düzeyi
+> `LOCAL_PROCESS`); o yerleşimde yerel ağ adresi,
+> `COLLEX_TRUSTED_LOCAL_HOSTS`, `pf` kuralı ve ağ parolası gerekmez.
+> Nihai tasarım: [MAC-MINI-PRODUCTION.md](MAC-MINI-PRODUCTION.md). Taşıma:
+> [WINDOWS-TO-MAC-MIGRATION.md](WINDOWS-TO-MAC-MIGRATION.md). Yedek:
+> [BACKUP-RESTORE.md](BACKUP-RESTORE.md). Aşağıdaki bölümler ara yerleşim
+> için doğru kalır; hiçbiri fiziksel bir Mac'te doğrulanmadı.
+
 > **Durum (11.09.2026):** Bu belgedeki hiçbir performans değeri ÖLÇÜLMEDİ.
 > Mac mini üzerinde henüz hiçbir komut çalıştırılmadı; ColleX bu cihaza hiç
 > bağlanmadı. Aşağıdaki sayılar yalnız **ayar**dır (bağlam, eşzamanlılık, zaman
 > aşımı). Ölçüm, bu rehberin 6. adımındaki komutlar çalıştırıldığında ortaya
 > çıkar ve `STATUS.md`'ye ancak o zaman yazılır.
 
-## Rol dağılımı
+## Rol dağılımı (ara geliştirme yerleşimi)
 
 | Makine | Görev |
 |---|---|
@@ -108,6 +122,10 @@ Sınırlar (kod tarafından zorlanır, ayarla gevşetilemez):
 - Yerel uç ulaşılamazsa **buluta düşülmez**: cevap kural tabanlı taslakçıda
   kalır (`LOCAL_DRAFTER_FALLBACK`); dosya incelemesinin model gerektiren
   bölümleri "incelenemedi" sayılır ve kapsam eksik görünür.
+- W21: `COLLEX_AI_POLICY=LOCAL_ONLY` aynı sınırı uygulama düzeyinde de
+  zorlar (`control-plane/src/llm/aiPolicy.ts`); veri sınırıyla birlikte
+  **daha sıkı olan** geçerlidir. Politika verilmezse varsayılan
+  `LOCAL_PREFERRED`'dır.
 
 ColleX'i yeniden başlatın (`ColleX-Durdur.cmd`, sonra `ColleX-Baslat.cmd`).
 
@@ -135,6 +153,11 @@ Beklenen: `localAi.state` = `"configured"`, `localAi.trust` =
 `"TRUSTED_LOCAL_NETWORK"`, `localAi.roles` dört rolün modelini gösterir,
 `localAi.liveTested` = `false` (sağlık ucu modeli çağırmaz; canlı ölçüm
 6. adımdadır).
+W21: aynı bilgi üst düzey `aiPolicy` bloğunda da görünür —
+`aiPolicy.localModel.trust` = `"TRUSTED_LOCAL_NETWORK"`,
+`aiPolicy.localModel.usableForMatterAnalysis` = `true` (kendi ağınızdaki
+model dosya incelemesinde kullanılabilir), `aiPolicy.localModel.liveTested`
+= `false`.
 
 ## 6. ÖLÇÜM — çalıştırılması gereken komutlar
 
@@ -154,8 +177,36 @@ $env:COLLEX_LOCAL_LLM_BASE_URL = "http://192.168.1.50:8080"; $env:COLLEX_TRUSTED
 node control-plane/scripts/probe_local_generation.mjs --base-url http://192.168.1.50:8080 --model <model> --runs 20
 ```
 
-**6b. Model karşılaştırması** (her aday model Mac'te yüklü olmalı; ürünün
-kullandığı sağlayıcı fabrikasından ve sınır denetimlerinden geçer):
+**6b. Model karşılaştırması** (ürünün kullandığı sağlayıcı fabrikasından ve
+sınır denetimlerinden geçer). İstekteki model adı, cevabı hangi modelin
+verdiğini kanıtlamaz. Bu yüzden betik ölçümden önce uç noktanın model
+listesini (`/v1/models`, aynı parola ile) okur. `--models` adlarından biri
+listede yoksa ölçüm yapmaz, rapor yazmaz (çıkış kodu 2).
+
+**llama-server (seçenek A) tek model sunar** ve istekteki adı yok sayar: aynı
+sunucuya iki ad vermek, iki satırda aynı modeli ölçmek olurdu; betik bunu
+reddeder. Her model için sunucuyu o modelin GGUF dosyası ve `--alias` ile
+yeniden başlatın ve betiği yalnız o adla çalıştırın. Aynı gün yapılan iki
+çalıştırma aynı rapor adını kullanır; bu yüzden her modele ayrı `--out`
+klasörü verin (model adında ":" olabilir, klasör adında kullanmayın):
+
+```bash
+# Mac'te (önce A modeli)
+llama-server --model ~/models/<modelA>.gguf --alias <modelA> --host 192.168.1.50 --port 8080 --ctx-size 8192 --parallel 1 --api-key "$(cat ~/.collex-llm-key)"
+```
+
+```bash
+# Windows'ta
+node control-plane/scripts/bakeoff.mjs --models <modelA> --out evals/reports/bakeoff-a
+```
+
+Ardından sunucuyu `<modelB>` dosyası ve `--alias <modelB>` ile yeniden
+başlatıp aynı komutu `--models <modelB> --out evals/reports/bakeoff-b`
+ile tekrarlayın.
+
+Birden çok modeli adıyla seçerek sunan bir uç kullanıyorsanız (Ollama, ya da
+llama-swap gibi adla model yükleyen bir ara sunucu) tek komut yeter; her aday
+model o uçta yüklü olmalıdır:
 
 ```bash
 node control-plane/scripts/bakeoff.mjs --models <modelA>,<modelB>
@@ -168,12 +219,18 @@ Ollama kullanıyorsanız ve taban adres Ollama'nınkiyse
 node control-plane/scripts/bakeoff.mjs --models <modelA>,<modelB> --memory-probe ollama
 ```
 
+Model listesi okunamazsa ölçüm yapılır, ama raporda model adları
+"doğrulanmadı" diye işaretlenir: o satırların hangi modeli ölçtüğü
+kanıtlanmamıştır.
+
 Rapor `evals/reports/bakeoff-<tarih>.{json,md}` olarak yazılır: yapı
 geçerliliği, çıkarım duyarlılığı/kesinliği, alıntı geçerliliği, çelişki ve
-destek doğruluğu, terim kapsamı, talimata uyum, p50/p95 gecikme, token
-sayıları ve başarısızlık oranı. **Rapor kazanan seçmez.** Yalnız sentetik
-vakalarla yapılan ölçüm hukukî kalite için yeterli değildir; avukat vakaları
-için `evals/bakeoff/GOLD_FORMAT.md`.
+destek doğruluğu, terim kapsamı, talimata uyum (sentetik, onaylı, bekleyen ve
+tartışmalı vakalar için ayrı tablolarda), p50/p95 gecikme (süre aşımına
+uğrayan vaka alt sınır olarak, "≥"), token sayıları ve başarısızlık oranı.
+**Rapor kazanan seçmez.** Yalnız sentetik vakalarla yapılan ölçüm hukukî
+kalite için yeterli değildir; avukat vakaları için
+`evals/bakeoff/GOLD_FORMAT.md`.
 
 **6c. Mac'te bellek ve güç gözlemi** (bake-off sürerken Mac'te ayrı
 pencerelerde):

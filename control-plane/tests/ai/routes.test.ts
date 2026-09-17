@@ -12,7 +12,11 @@ import { OCR_MAX_BYTES } from "../../src/ai/ocr.js";
 import {
   NOTE_AI_KAYNAKLI,
   NOTE_AI_KAYNAKSIZ,
+  NOTE_AI_KAYNAKSIZ_DENETLENEMEDI,
+  NOTE_AI_KAYNAKSIZ_DUZENLEYICI,
+  RATIONALE_JUDGE_UNREADABLE_TR,
   WARNING_AI_PARAGRAPH,
+  WARNING_AI_PARAGRAPH_UNCHECKED,
 } from "../../src/ai/paragraph.js";
 import {
   AI_LOCKED_SECTION_MESSAGE_TR,
@@ -727,6 +731,9 @@ describe("POST /v1/ai/draft-paragraph", () => {
     expect(body["paragraph"]["note"]).toContain("KAYNAKSIZ");
     expect(body["paragraph"]["binding"]).toBeUndefined();
     expect(body["draft"]["unsupportedCount"]).toBe(2); // the existing KAYNAKSIZ + the AI one
+    // Every binding was measured: the entailment draft warning stays, no "denetlenemedi" line.
+    expect(body["draft"]["warnings"]).toContain(WARNING_AI_PARAGRAPH);
+    expect(body["draft"]["warnings"]).not.toContain(WARNING_AI_PARAGRAPH_UNCHECKED);
     expect(reviser.calls[0]!.patch.note).toContain("KAYNAKSIZ");
     expect(body["entailment"].every((row: { kept: boolean }) => !row.kept)).toBe(true);
   });
@@ -765,10 +772,40 @@ describe("POST /v1/ai/draft-paragraph", () => {
       string,
       any
     >;
-    expect(body["kaynakli"]).toBe(true);
+    // W21: was true — `kaynakli` now carries the reviser's final verdict, so the
+    // console never reads a paragraph stored as KAYNAKSIZ as "kaynaklı sayıldı".
+    expect(body["kaynakli"]).toBe(false);
     expect(body["paragraph"]["supported"]).toBe(false);
-    expect(body["paragraph"]["note"]).toBe(NOTE_AI_KAYNAKSIZ);
+    // W21: was NOTE_AI_KAYNAKSIZ ("hiçbir kanıt entailment eşiğini geçmedi"), untrue
+    // here: both bindings passed the judge and the reviser's rules rejected them.
+    expect(body["paragraph"]["note"]).toBe(NOTE_AI_KAYNAKSIZ_DUZENLEYICI);
+    expect(body["paragraph"]["note"]).not.toMatch(/hiçbir kanıt|geçmedi/u);
+    expect(body["paragraph"]["note"]).toMatch(/^KAYNAKSIZ — /u);
+    // The judge's own verdict is still reported per row.
+    expect(body["entailment"].map((row: { kept: boolean }) => row.kept)).toEqual([true, true]);
     expect((body["warnings"] as string[]).some((w) => w.includes("kabul etmedi"))).toBe(true);
+    const saved = store.store
+      .get("dft-1")!
+      .sections.flatMap((s) => s.paragraphs)
+      .find((p) => p.id === body["paragraph"]["id"])!;
+    expect(saved.supported).toBe(false);
+    expect(saved.note).toBe(NOTE_AI_KAYNAKSIZ_DUZENLEYICI);
+  });
+
+  it("W21 non-vacuity: a reviser that accepts the judged binding keeps kaynakli:true and the sourced note", async () => {
+    const store = draftStore();
+    const { app } = harness({
+      reply: paragraphReply({ "ev-1": { score: 0.95, entails: true } }, ["ev-1"]),
+      drafts: store.drafts,
+      revise: fakeRevise().revise,
+    });
+    const body = (await (
+      await jsonPost(app, "/v1/ai/draft-paragraph", request({ evidenceIds: ["ev-1"] }))
+    ).json()) as Record<string, any>;
+    expect(body["kaynakli"]).toBe(true);
+    expect(body["paragraph"]["supported"]).toBe(true);
+    expect(body["paragraph"]["note"]).toBe(NOTE_AI_KAYNAKLI);
+    expect((body["warnings"] as string[]).some((w) => w.includes("kabul etmedi"))).toBe(false);
   });
 
   it("replaces in place with paragraphId, sends the existing text, sanitizes model markup", async () => {
@@ -864,6 +901,159 @@ describe("POST /v1/ai/draft-paragraph", () => {
     expect(((await unavailable.json()) as { error: { kind: string } }).error.kind).toBe(
       "DRAFTING_UNAVAILABLE",
     );
+  });
+
+  /* W21 R2-29: a self-contradicting or unreadable judgement for ONE evidence
+     id used to throw out of the judge loop, so the route answered 502 and
+     discarded the paid paragraph and every other id's valid judgement. */
+  const perIdJudge =
+    (judged: Record<string, unknown>, text = "5237 sayılı Kanun m. 157 uyarınca fiil dolandırıcılık suçunu oluşturur."): ReplyFn =>
+    (body) => {
+      const tool = body.tools[0]!.name;
+      if (tool === "write_paragraph") return { toolInput: { text, evidenceIds: Object.keys(judged) } };
+      const content = String(body.messages[0]!.content);
+      const id = Object.keys(judged).find((key) => content.includes(`<untrusted_evidence id="${key}">`));
+      return { toolInput: id !== undefined ? judged[id] : {} };
+    };
+
+  it("R2-29: one self-contradicting judgement costs that binding only; the paragraph is saved with the rest", async () => {
+    const store = draftStore();
+    const reviser = fakeRevise();
+    const { app, calls } = harness({
+      reply: perIdJudge({
+        "ev-1": { entails: true, score: 0.92, rationale: "uyuyor" },
+        "ev-2": { entails: false, score: 0.9, rationale: "eminim: desteklemiyor" },
+      }),
+      drafts: store.drafts,
+      revise: reviser.revise,
+    });
+    const response = await jsonPost(app, "/v1/ai/draft-paragraph", request());
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, any>;
+    expect(calls.map((c) => c.body.tools[0]!.name)).toEqual([
+      "write_paragraph",
+      "assess_entailment",
+      "assess_entailment",
+    ]);
+    expect(body["entailment"]).toEqual([
+      { evidenceId: "ev-1", score: 0.92, entails: true, kept: true, rationale: "uyuyor" },
+      {
+        evidenceId: "ev-2",
+        score: 0,
+        entails: false,
+        kept: false,
+        rationale: RATIONALE_JUDGE_UNREADABLE_TR,
+        checked: false,
+      },
+    ]);
+    expect(RATIONALE_JUDGE_UNREADABLE_TR).toContain("denetlenemedi");
+    expect(body["kaynakli"]).toBe(true);
+    expect(body["paragraph"]["evidenceIds"]).toEqual(["ev-1"]);
+    expect(body["paragraph"]["binding"]).toEqual({ kind: "entailment", score: 0.92, judge: "claude-sonnet-5" });
+    const warnings = body["warnings"] as string[];
+    expect(warnings.some((w) => w.includes("denetlenemedi") && w.includes("ev-2"))).toBe(true);
+    // Not checked is not "below the threshold": no measured-shortfall line for ev-2.
+    expect(warnings.some((w) => w.includes("eşiğinin") && w.includes("ev-2"))).toBe(false);
+    expect(body["paragraph"]["note"]).toBe(NOTE_AI_KAYNAKLI);
+    expect(body["draft"]["warnings"]).toContain(WARNING_AI_PARAGRAPH);
+    expect(body["draft"]["warnings"]).toContain(WARNING_AI_PARAGRAPH_UNCHECKED);
+    expect(store.puts).toHaveLength(1);
+    expect(store.store.get("dft-1")!.version).toBe(2);
+  });
+
+  it("R2-29: when no judgement is readable (a 0-10 score, a broken shape) the paragraph is KAYNAKSIZ, saved, never sourced", async () => {
+    const store = draftStore();
+    const reviser = fakeRevise();
+    const { app } = harness({
+      reply: perIdJudge({
+        "ev-1": { entails: true, score: 7, rationale: "10 üzerinden 7" },
+        "ev-2": { entails: "evet", score: 0.95, rationale: "" },
+      }),
+      drafts: store.drafts,
+      revise: reviser.revise,
+    });
+    const response = await jsonPost(app, "/v1/ai/draft-paragraph", request());
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, any>;
+    expect(body["kaynakli"]).toBe(false);
+    expect(body["paragraph"]["evidenceIds"]).toEqual([]);
+    expect(body["paragraph"]["supported"]).toBe(false);
+    expect(body["paragraph"]["binding"]).toBeUndefined();
+    // Was NOTE_AI_KAYNAKSIZ ("hiçbir kanıt entailment eşiğini geçmedi"): a measured
+    // shortfall recorded for bindings the judge never gave a usable answer on.
+    expect(body["paragraph"]["note"]).toBe(NOTE_AI_KAYNAKSIZ_DENETLENEMEDI);
+    expect(body["paragraph"]["note"]).not.toMatch(/eşiğini|geçmedi/);
+    expect(
+      (body["entailment"] as Array<{ kept: boolean; checked?: boolean }>).map((row) => [row.kept, row.checked]),
+    ).toEqual([
+      [false, false],
+      [false, false],
+    ]);
+    expect((body["warnings"] as string[]).some((w) => w.startsWith("2 kanıt bağı denetlenemedi"))).toBe(true);
+    // The saved draft neither says its bindings were entailment-checked nor keeps the shortfall note.
+    expect(body["draft"]["warnings"]).toContain(WARNING_AI_PARAGRAPH_UNCHECKED);
+    expect(body["draft"]["warnings"]).not.toContain(WARNING_AI_PARAGRAPH);
+    expect(store.puts).toHaveLength(1);
+    const saved = store.store
+      .get("dft-1")!
+      .sections.flatMap((s) => s.paragraphs)
+      .find((p) => p.id === body["paragraph"]["id"])!;
+    expect(saved.note).toBe(NOTE_AI_KAYNAKSIZ_DENETLENEMEDI);
+    expect(saved.supported).toBe(false);
+    expect(store.store.get("dft-1")!.warnings).not.toContain(WARNING_AI_PARAGRAPH);
+  });
+
+  it("R2-29: one unreadable judgement plus one measured shortfall is still 'denetlenemedi', not 'no evidence passed'", async () => {
+    const store = draftStore();
+    const { app } = harness({
+      reply: perIdJudge({
+        "ev-1": { entails: false, score: 0.3, rationale: "uymuyor" },
+        "ev-2": { entails: true, score: 1.4, rationale: "" },
+      }),
+      drafts: store.drafts,
+      revise: fakeRevise().revise,
+    });
+    const response = await jsonPost(app, "/v1/ai/draft-paragraph", request());
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, any>;
+    expect(body["kaynakli"]).toBe(false);
+    expect(body["entailment"].map((row: { checked?: boolean }) => row.checked)).toEqual([undefined, false]);
+    expect(body["paragraph"]["note"]).toBe(NOTE_AI_KAYNAKSIZ_DENETLENEMEDI);
+    const warnings = body["warnings"] as string[];
+    expect(warnings.some((w) => w.includes("eşiğinin") && w.includes("ev-1"))).toBe(true);
+    expect(warnings.some((w) => w.includes("denetlenemedi") && w.includes("ev-2"))).toBe(true);
+    expect(body["draft"]["warnings"]).toContain(WARNING_AI_PARAGRAPH_UNCHECKED);
+    expect(body["draft"]["warnings"]).not.toContain(WARNING_AI_PARAGRAPH);
+  });
+
+  it("R2-29: a lenient reviser verdict does not bring back the measured-shortfall note", async () => {
+    const store = draftStore();
+    const { app } = harness({
+      reply: perIdJudge({ "ev-1": { entails: false, score: 0.97, rationale: "çelişkili" } }),
+      drafts: store.drafts,
+      revise: fakeRevise({ supported: true }).revise,
+    });
+    const response = await jsonPost(app, "/v1/ai/draft-paragraph", request({ evidenceIds: ["ev-1"] }));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, any>;
+    expect(body["kaynakli"]).toBe(false);
+    expect(body["paragraph"]["supported"]).toBe(false);
+    expect(body["paragraph"]["note"]).toBe(NOTE_AI_KAYNAKSIZ_DENETLENEMEDI);
+  });
+
+  it("R2-29 non-vacuity: a judge transport failure still fails the request and leaves the draft untouched", async () => {
+    const store = draftStore();
+    const { app } = harness({
+      reply: (body) =>
+        body.tools[0]!.name === "write_paragraph"
+          ? { toolInput: { text: "Metin m. 157.", evidenceIds: ["ev-1"] } }
+          : { status: 503 },
+      drafts: store.drafts,
+      revise: fakeRevise().revise,
+    });
+    const response = await jsonPost(app, "/v1/ai/draft-paragraph", request({ evidenceIds: ["ev-1"] }));
+    expect(response.status).toBe(502);
+    expect(store.puts).toHaveLength(0);
   });
 
   it("an upstream failure leaves the draft untouched", async () => {

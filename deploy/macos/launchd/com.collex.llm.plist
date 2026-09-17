@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- UNVALIDATED ON PHYSICAL MAC
+
+  ŞABLON: yerel dil modeli sunucusu (llama.cpp llama-server), yalnız bu
+  makinede 127.0.0.1:8080 dinler. ColleX ona OpenAI uyumlu uçtan bağlanır;
+  hiçbir istek bu makineden çıkmaz. Parola gerekmez, çünkü sunucu ağa
+  açılmaz; ağa açmak bu şablonun kapsamında değildir.
+
+  Kurulum:
+    1. Yer tutucuları değiştirin:
+         __LLAMA_SERVER__  llama-server programı, ör. Homebrew llama.cpp bin/llama-server
+         __MODEL_PATH__    GGUF model dosyasının tam yolu
+         __USER_HOME__     kullanıcının ev klasörü
+    2. Bağlam ve paralellik değerlerini makinenin belleğine göre ayarlayın
+       (ColleX tek istekle çalışır).
+    3. cp com.collex.llm.plist ~/Library/LaunchAgents/
+    4. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.collex.llm.plist
+    5. com.collex.app.plist ortamına COLLEX_LOCAL_LLM_BASE_URL =
+       http://127.0.0.1:8080 (without /v1: ColleX appends /v1/chat/completions itself) ve COLLEX_LOCAL_LLM_MODEL ekleyin.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.collex.llm</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__LLAMA_SERVER__</string>
+    <string>--model</string>
+    <string>__MODEL_PATH__</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8080</string>
+    <string>--ctx-size</string>
+    <string>8192</string>
+    <string>--parallel</string>
+    <string>1</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>__USER_HOME__/Library/Logs/ColleX/collex-llm.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__USER_HOME__/Library/Logs/ColleX/collex-llm.err.log</string>
+</dict>
+</plist>

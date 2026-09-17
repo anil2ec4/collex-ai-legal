@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import tempfile
 import unicodedata
 import uuid
@@ -46,6 +47,7 @@ from typing import Any, Iterable, Iterator
 import psycopg
 from psycopg.types.json import Jsonb
 
+from ingestion import segments as segments_mod
 from ingestion.migrations import REPO_ROOT
 from ingestion.pipeline import Pipeline, connect_local
 from ingestion.ports import DocumentRef, ParsedDocument, RawFetch
@@ -100,6 +102,16 @@ ACTION_ALREADY_EXISTED = "already-existed"
 #: Turkish message the API shows for ``already-existed``.
 ALREADY_EXISTED_MESSAGE = "Bu belge zaten yüklüydü"
 
+#: R2-34: stored with the document when a re-read of identical text could not
+#: re-judge how its pages were read (the stored page map describes other
+#: ranges, or this reading produced no page map).
+PAGE_STATUS_RESYNC_REFUSED_TR = (
+    "Sayfaların okunma durumu yeniden değerlendirilemedi: kayıtlı sayfa eşlemesi"
+    " bu okumayla örtüşmüyor. Kayıtlı sayfa durumları değiştirilmedi; dosya"
+    " incelemesi bu belgenin sayfalarını eski değerlendirmeyle sayıyor olabilir."
+    " Belgenin aslını kontrol edin."
+)
+
 
 @contextmanager
 def _store_guard() -> Iterator[None]:
@@ -114,6 +126,10 @@ def _store_guard() -> Iterator[None]:
         yield
     except psycopg.OperationalError as exc:
         raise StoreUnavailableError() from exc
+
+
+#: The page-statistics warning local OCR leaves (intake/extract.py).
+_OCR_PAGES_WARNING = re.compile(r"OCR_PAGES:[1-9]\d*")
 
 
 @dataclass(frozen=True)
@@ -138,6 +154,13 @@ class IntakeResult:
     page_stats: extract.PageStats | None = None
 
     @property
+    def used_ocr(self) -> bool:
+        """Local OCR read at least one page (``ocrPages`` or ``OCR_PAGES:n``)."""
+        if self.page_stats is not None and self.page_stats.ocr_pages:
+            return True
+        return any(_OCR_PAGES_WARNING.fullmatch(str(w)) for w in self.warnings)
+
+    @property
     def upload_action(self) -> str:
         """'created' for a freshly published document, else
         'already-existed' (identical bytes or identical text seen before)."""
@@ -150,7 +173,9 @@ class IntakeResult:
         extraction: dict[str, Any] = {
             "chars": self.chars,
             "chunkCount": self.chunk_count,
-            "ocr": False,
+            # W21 (#29): true when local OCR read at least one page — the same
+            # rule the control plane applies (files/store.ts extractionUsedOcr).
+            "ocr": self.used_ocr,
         }
         if self.pages is not None:
             extraction["pages"] = self.pages
@@ -405,29 +430,25 @@ def process_file(
             warnings=warnings,
         )
 
+    resynced: segments_mod.SegmentResync | None = None
     if doc_outcome.action == "published":
         chunk_count = doc_outcome.chunks_inserted
     else:
         # unchanged / reverted_content: same bytes (or same text) as an
         # existing version — count the chunks that version already has.
         with _store_guard(), connect_local(dsn) as conn:
-            # Re-analysis is derived metadata, not a new source version.
-            # Merge only calculated fields; preserve original identity,
-            # timestamps, reviewer metadata, canonical text and all chunks.
-            conn.execute(
-                "update legal.document_versions v set metadata = jsonb_set("
-                " v.metadata, '{fixture_meta,upload}',"
-                " (v.metadata #> '{fixture_meta,upload}') || %s::jsonb)"
-                " from legal.documents d where v.document_id = d.id"
-                " and v.id = %s and d.scope = 'tenant' and d.source = %s"
-                " and d.tenant_id = %s and d.external_id = %s",
-                (Jsonb({
-                    "analysis": analysis,
-                    "warnings": warnings,
-                    "page_stats": page_stats_json,
-                    "chars": len(canonical),
-                    "analysis_updated_at": datetime.now(timezone.utc).isoformat(),
-                }), doc_outcome.version_id, UPLOAD_SOURCE, tenant_id, file_id),
+            # R2-34: identical text does not mean identical page statuses —
+            # the stored page map is re-judged together with the metadata.
+            resynced = refresh_derived_fields(
+                conn,
+                version_id=doc_outcome.version_id,
+                tenant_id=tenant_id,
+                file_id=file_id,
+                canonical=canonical,
+                segments=segments,
+                analysis=analysis,
+                warnings=warnings,
+                page_stats_json=page_stats_json,
             )
             row = conn.execute(
                 "select count(*) from legal.chunks"
@@ -439,6 +460,15 @@ def process_file(
             "aynı içerik daha önce yüklenmiş — mevcut belge döndürüldü,"
             " yeni sürüm oluşturulmadı"
         )
+        if resynced is not None and resynced.updated:
+            # Told once in the response, not stored: the stored statuses and
+            # page_stats now say it themselves.
+            note = f"{resynced.updated} sayfanın okunma durumu bu okumaya göre güncellendi"
+            if resynced.downgraded:
+                note += (
+                    f"; {resynced.downgraded} sayfa artık tamamı okunmuş sayılmıyor"
+                )
+            warnings.append(note)
 
     return IntakeResult(
         file_id=file_id,
@@ -455,6 +485,55 @@ def process_file(
         action=doc_outcome.action,
         page_stats=outcome.page_stats,
     )
+
+
+def refresh_derived_fields(
+    conn: psycopg.Connection,
+    *,
+    version_id: str,
+    tenant_id: str,
+    file_id: str,
+    canonical: str,
+    segments: Iterable,
+    analysis: dict,
+    warnings: list[str],
+    page_stats_json: dict | None,
+) -> segments_mod.SegmentResync:
+    """Re-derive what a re-read of an EXISTING version's identical text
+    changes, in the caller's transaction (R2-34).
+
+    Identical text does not mean identical page statuses: a newer extractor
+    can re-judge a page without changing a character (W21 #25: a scan carrying
+    only an e-signature footer is SPARSE, no longer EXTRACTED). The file page
+    reads ``page_stats`` / ``warnings`` from the version metadata and the
+    exhaustive review reads the stored segment rows, so both move to the new
+    verdict together — never "sparse" on the file page and "fully read" in the
+    review. When the stored page map cannot be re-judged the refusal sentence
+    is appended to ``warnings`` (and stored with them).
+
+    Re-analysis is derived metadata, not a new source version: only calculated
+    fields are merged; original identity, timestamps, reviewer metadata,
+    canonical text and all chunks are preserved.
+    """
+    resynced = segments_mod.resync_segments(conn, version_id, tuple(segments))
+    if resynced.refused:
+        warnings.append(PAGE_STATUS_RESYNC_REFUSED_TR)
+    conn.execute(
+        "update legal.document_versions v set metadata = jsonb_set("
+        " v.metadata, '{fixture_meta,upload}',"
+        " (v.metadata #> '{fixture_meta,upload}') || %s::jsonb)"
+        " from legal.documents d where v.document_id = d.id"
+        " and v.id = %s and d.scope = 'tenant' and d.source = %s"
+        " and d.tenant_id = %s and d.external_id = %s",
+        (Jsonb({
+            "analysis": analysis,
+            "warnings": warnings,
+            "page_stats": page_stats_json,
+            "chars": len(canonical),
+            "analysis_updated_at": datetime.now(timezone.utc).isoformat(),
+        }), version_id, UPLOAD_SOURCE, tenant_id, file_id),
+    )
+    return resynced
 
 
 # ---------------------------------------------------------------------------
@@ -706,5 +785,7 @@ __all__ = [
     "delete_file",
     "list_files",
     "process_file",
+    "reanalyze_file",
+    "refresh_derived_fields",
     "show_file",
 ]

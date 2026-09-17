@@ -24,6 +24,12 @@
  *
  * The product may then say what it did, and must not say more. "Dosyanın
  * tamamını inceledim" is only permitted when `complete` is true.
+ *
+ * W21: this is SOURCE coverage only — pages and units read. That every
+ * page was read says nothing about whether every claim was weighed or every
+ * synthesis group finished; those are `ExtractionCoverage` and
+ * `IntelligenceCoverage` (analysisCoverage.ts), and only
+ * `deriveAnalysisCompleteness` may combine the three.
  */
 
 /** A page (or block) that could not be read, and why. */

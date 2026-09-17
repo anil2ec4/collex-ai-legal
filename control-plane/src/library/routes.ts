@@ -45,6 +45,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { fieldIssues } from "../api/zodIssues.js";
 import type { IntakeExec, IntakeExecResult } from "../files/routes.js";
+import { databaseDownHintTr } from "../platform/operatorHints.js";
 
 /**
  * Sub-directory the Python publisher MOVES a landed envelope into. Mirrors
@@ -71,7 +72,7 @@ export const LIBRARY_FAILED_MESSAGE_TR =
   "Kütüphane yayım aracı beklenmedik biçimde sonlandı.";
 /** Same remedy sentence as the files router: the fix is the launcher. */
 export const LIBRARY_STORE_UNAVAILABLE_MESSAGE_TR =
-  "Yerel veritabanına ulaşılamadı; ColleX-Baslat.cmd ile veritabanını başlatın.";
+  databaseDownHintTr(); // W21: names the launcher of the platform the server runs on
 
 export function libraryFailureDetail(correlationId: string): string {
   return `Ayrıntı sunucu günlüğüne yazıldı (kayıt no: ${correlationId}).`;

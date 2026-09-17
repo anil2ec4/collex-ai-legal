@@ -1,0 +1,4 @@
+# UNVALIDATED ON PHYSICAL MAC
+# macOS scripts and launchd property lists must keep LF line endings: bash
+# and launchd reject CRLF. A Windows checkout must never convert them.
+* text eol=lf

@@ -9,6 +9,21 @@
  * paragraph is KAYNAKSIZ — kept, visibly marked, counted — never silently
  * promoted to a sourced paragraph.
  *
+ * W21 R2-29: an id whose judgement is unreadable or self-contradicting is
+ * NOT CHECKED (uncheckedRow): stripped like a shortfall, but its row says it
+ * was not checked instead of carrying a measured score, and the rest of the
+ * paragraph survives. A paragraph left with no citation because of it carries
+ * NOTE_AI_KAYNAKSIZ_DENETLENEMEDI (not the measured-shortfall note) and the
+ * draft gets WARNING_AI_PARAGRAPH_UNCHECKED (aiParagraphNote /
+ * aiParagraphDraftWarnings).
+ *
+ * The reviser's verdict is authoritative: when it rejects a binding the judge
+ * kept, the paragraph is KAYNAKSIZ with NOTE_AI_KAYNAKSIZ_DUZENLEYICI (not the
+ * "no evidence passed" note) and the response's `kaynakli` is false. W21: the
+ * verdict is read off the paragraph as SAVED, which the product reviser may
+ * have renamed on append / insertAfter (locateRevisedParagraph); a paragraph
+ * that cannot be found there is never reported as sourced.
+ *
  * The threshold is the same number verification/finalize.ts uses
  * (ENTAILMENT_THRESHOLD = 0.85); it is re-declared here per the wave rule
  * (no cross-lane imports) and pinned by a test against the original.
@@ -39,10 +54,41 @@ export const NOTE_AI_KAYNAKLI = "AI taslak — kaynak bağı entailment ile doğ
 export const NOTE_AI_KAYNAKSIZ =
   "KAYNAKSIZ — AI taslak; hiçbir kanıt entailment eşiğini (≥%85) geçmedi; avukat eklemeli";
 
+/**
+ * W21: note on an AI paragraph whose binding the judge KEPT but the stricter
+ * reviser (drafting/revise.ts, e.g. karşıt or uploaded evidence under a legal
+ * role) rejected. The reviser's verdict stands and the paragraph is
+ * KAYNAKSIZ, but NOTE_AI_KAYNAKSIZ would say that no evidence passed the
+ * threshold, which is not what happened.
+ */
+export const NOTE_AI_KAYNAKSIZ_DUZENLEYICI =
+  "KAYNAKSIZ — AI taslak; entailment eşiğini (≥%85) geçen kanıt bağı taslağın dayanak " +
+  "kurallarınca kabul edilmedi; avukat eklemeli";
+
 /** Draft-level warning appended by every AI revision. */
 export const WARNING_AI_PARAGRAPH =
   "Bu taslakta bulut yapay zekâ (Anthropic) tarafından yazılmış paragraf var; " +
   "kaynak bağları entailment ile doğrulandı, metin avukat incelemesi olmadan kullanılamaz.";
+
+/**
+ * W21 R2-29: note on an AI paragraph that kept no citation while at least one
+ * binding could NOT be checked. NOTE_AI_KAYNAKSIZ says the evidence was
+ * measured and fell short of the threshold; for a binding the judge gave no
+ * usable answer on, that would record a measurement that never happened.
+ */
+export const NOTE_AI_KAYNAKSIZ_DENETLENEMEDI =
+  "KAYNAKSIZ — AI taslak; kanıt bağlarından en az biri denetlenemedi (hakemin yanıtı okunamadı), " +
+  "hiçbir kanıt bağı paragrafa yazılmadı; avukat eklemeli";
+
+/**
+ * W21 R2-29: draft-level warning for an AI paragraph with a binding the judge
+ * could not check. It stands beside WARNING_AI_PARAGRAPH (which says the
+ * bindings were checked by entailment) and replaces it when nothing was kept.
+ */
+export const WARNING_AI_PARAGRAPH_UNCHECKED =
+  "Bu taslakta bulut yapay zekâ (Anthropic) tarafından yazılmış ve kanıt bağlarından en az biri " +
+  "denetlenemeyen paragraf var; denetlenemeyen bağlar paragrafa yazılmadı ve doğrulanmış sayılmaz, " +
+  "metin avukat incelemesi olmadan kullanılamaz.";
 
 export interface EntailmentRow {
   evidenceId: string;
@@ -51,6 +97,59 @@ export interface EntailmentRow {
   rationale: string;
   /** true iff score is a usable probability ≥ threshold AND entails. */
   kept: boolean;
+  /**
+   * W21 R2-29: false when the judge gave NO usable answer for this evidence
+   * id (a malformed or self-contradicting reply). Its `score` is then a
+   * placeholder 0, not a measurement, and the binding is never kept. Absent
+   * on a row the judge actually scored.
+   */
+  checked?: false;
+}
+
+/** Rationale of a binding the judge could not check (R2-29). */
+export const RATIONALE_JUDGE_UNREADABLE_TR =
+  "denetlenemedi — hakemin yanıtı okunamadı ya da kendi içinde çelişkiliydi; " +
+  "bu kanıt bağı paragrafa yazılmadı";
+
+/**
+ * The row for an evidence id whose judgement could not be read. Fail closed:
+ * the binding is not kept, and the row says it was NOT checked rather than
+ * posing as a measured shortfall.
+ */
+export function uncheckedRow(evidenceId: string): EntailmentRow {
+  return {
+    evidenceId,
+    score: 0,
+    entails: false,
+    rationale: RATIONALE_JUDGE_UNREADABLE_TR,
+    kept: false,
+    checked: false,
+  };
+}
+
+/**
+ * The note an AI paragraph carries, from its judge rows. A kept binding makes
+ * it sourced; with nothing kept, an unchecked binding (R2-29) gets the
+ * "denetlenemedi" note, never the measured-shortfall NOTE_AI_KAYNAKSIZ.
+ */
+export function aiParagraphNote(rows: readonly EntailmentRow[]): string {
+  if (rows.some((row) => row.kept)) return NOTE_AI_KAYNAKLI;
+  return rows.some((row) => row.checked === false) ? NOTE_AI_KAYNAKSIZ_DENETLENEMEDI : NOTE_AI_KAYNAKSIZ;
+}
+
+/**
+ * Draft-level warnings an AI revision adds, from its judge rows (R2-29).
+ * WARNING_AI_PARAGRAPH ("kaynak bağları entailment ile doğrulandı") is left
+ * out when nothing was kept and a binding went unchecked: no check happened
+ * that it could describe. Any unchecked binding adds the unchecked warning.
+ */
+export function aiParagraphDraftWarnings(rows: readonly EntailmentRow[]): string[] {
+  const anyKept = rows.some((row) => row.kept);
+  const anyUnchecked = rows.some((row) => row.checked === false);
+  const out: string[] = [];
+  if (anyKept || !anyUnchecked) out.push(WARNING_AI_PARAGRAPH);
+  if (anyUnchecked) out.push(WARNING_AI_PARAGRAPH_UNCHECKED);
+  return out;
 }
 
 /** Fail closed: NaN/Infinity/out-of-range never pass (finalize.ts rule). */
@@ -208,6 +307,43 @@ export function findParagraph(
     if (paragraph !== undefined) return { section, paragraph };
   }
   return undefined;
+}
+
+/** Every paragraph id a draft holds (taken BEFORE revising, for locateRevisedParagraph). */
+export function paragraphIds(draft: AiDraftLike): Set<string> {
+  return new Set(draft.sections.flatMap((section) => section.paragraphs.map((p) => p.id)));
+}
+
+/**
+ * W21: find the AI paragraph in the REVISED draft. A replace keeps its id. A
+ * new paragraph (append / insertAfter) can come back under another id: the
+ * product reviser (drafting/revise.ts) gives every id the stored draft does
+ * not know a fresh one. It is then the one paragraph of the target section
+ * whose id the pre-revise draft did not have and whose text is the text that
+ * was sent (the reviser's own additions, such as a sebepler placeholder,
+ * carry other text). None, or more than one: undefined — the caller must not
+ * call the paragraph sourced.
+ */
+export function locateRevisedParagraph(
+  revised: AiDraftLike,
+  idsBefore: ReadonlySet<string>,
+  target: { sectionId: string; paragraphId: string; text: string },
+): { section: AiDraftSection; paragraph: AiDraftParagraph } | undefined {
+  const byId = findParagraph(revised, target.paragraphId);
+  if (byId !== undefined) return byId;
+  const section = revised.sections.find((s) => s.id === target.sectionId);
+  if (section === undefined) return undefined;
+  const added = section.paragraphs.filter((p) => !idsBefore.has(p.id) && p.text === target.text);
+  return added.length === 1 ? { section, paragraph: added[0] as AiDraftParagraph } : undefined;
+}
+
+/**
+ * The revision note the AI writer hands the reviser; the reviser copies it
+ * into the draft's warnings as "Düzenleme notu: …". W21: it is rewritten to
+ * the KAYNAKSIZ form when the saved paragraph did not end up sourced.
+ */
+export function aiRevisionNote(model: string, sourced: boolean): string {
+  return `AI paragraf (${model}) — ${sourced ? "kaynaklı" : "KAYNAKSIZ"}`;
 }
 
 /** Recount KAYNAKSIZ paragraphs after a note/supported adjustment. */

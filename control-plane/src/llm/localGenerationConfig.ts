@@ -137,17 +137,42 @@ export function readTrustedLocalHosts(env: EnvLike = process.env): readonly stri
     .filter((entry) => entry !== "");
 }
 
+export interface ParsedDataBoundary {
+  readonly boundary: DataBoundary;
+  /** False for a non-blank value that is neither LOCAL_ONLY nor ALLOW_CLOUD. */
+  readonly recognized: boolean;
+  /** False when the setting is absent or blank (the default applies). */
+  readonly given: boolean;
+}
+
 /**
- * The data boundary in force.
+ * Read one raw COLLEX_DATA_BOUNDARY value, the way parseAiPolicy reads the
+ * policy: case, surrounding space and `-`/space vs `_` are forgiven
+ * ("LOCAL-ONLY", "local only" mean LOCAL_ONLY).
  *
- * Defaults to ALLOW_CLOUD so existing installs behave exactly as before:
- * cloud AI is already off unless a key is present, and this setting does not
- * silently change that. LOCAL_ONLY is an explicit, deliberate choice.
+ * Blank defaults to ALLOW_CLOUD so existing installs behave exactly as
+ * before: cloud AI is already off unless a key is present, and this setting
+ * does not silently change that. LOCAL_ONLY is an explicit, deliberate
+ * choice.
+ *
+ * W21 R2-30: any OTHER non-blank value ("LOCALONLY", "yes", a typo) used to
+ * become ALLOW_CLOUD with no warning, although the operator had written a
+ * boundary. It now fails closed: LOCAL_ONLY, recognized:false, and the
+ * effective policy carries a warning health shows. A typo must not widen
+ * where a client file may go.
  */
+export function parseDataBoundary(raw: string | undefined): ParsedDataBoundary {
+  const value = (raw ?? "").trim().toUpperCase().replace(/[\s-]+/gu, "_");
+  if (value === "") return { boundary: "ALLOW_CLOUD", recognized: true, given: false };
+  if (value === "LOCAL_ONLY" || value === "ALLOW_CLOUD") {
+    return { boundary: value, recognized: true, given: true };
+  }
+  return { boundary: "LOCAL_ONLY", recognized: false, given: true };
+}
+
+/** The data boundary in force (see parseDataBoundary). */
 export function resolveDataBoundary(env: EnvLike = process.env): DataBoundary {
-  return readTrimmed(env, DATA_BOUNDARY_ENV)?.toUpperCase() === "LOCAL_ONLY"
-    ? "LOCAL_ONLY"
-    : "ALLOW_CLOUD";
+  return parseDataBoundary(readTrimmed(env, DATA_BOUNDARY_ENV)).boundary;
 }
 
 export function resolveLocalGenerationConfig(

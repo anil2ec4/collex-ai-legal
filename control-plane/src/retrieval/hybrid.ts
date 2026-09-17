@@ -657,6 +657,40 @@ export interface DivergenceReport {
 // Pipeline
 // --------------------------------------------------------------------------
 
+/**
+ * Steps 1-2b of the pipeline as one function: Turkish search-side
+ * normalization, the exact reference parse, and the citation
+ * canonicalization every RANKED lane (lexical, trigram, dense) searches with.
+ * Exported so the embedding evaluation embeds exactly the query form the
+ * dense lane embeds (denseLaneQueryText): one definition, not two copies.
+ */
+export function rankedLaneQuery(query: string): {
+  readonly normalizedQuery: string;
+  readonly references: ParsedReference[];
+  readonly laneQuery: string;
+} {
+  // 1. Turkish search-side normalization (canonical text is never touched).
+  const normalizedQuery = normalizeTurkishSearch(query);
+
+  // 2. Exact reference parse (deterministic, never throws).
+  const references = parseReferences(normalizedQuery);
+
+  // 2b. Citation canonicalization for the RANKED lanes. See
+  //     canonicalizeReferences below for why the ranked lanes must not see the
+  //     citation the way the reader happened to spell it.
+  const laneQuery = canonicalizeReferences(normalizedQuery, references);
+  return { normalizedQuery, references, laneQuery };
+}
+
+/**
+ * The text the dense lane embeds for `query` (before the model's prompt-style
+ * prefix): lower-cased, punctuation-unified, citations reduced to the
+ * legislation number. searchPipeline hands exactly this to denseLane.search.
+ */
+export function denseLaneQueryText(query: string): string {
+  return rankedLaneQuery(query).laneQuery;
+}
+
 export async function searchPipeline(
   sql: Sql,
   query: string,
@@ -679,16 +713,10 @@ export async function searchPipeline(
   const filters = options.filters;
   const denseLane = options.denseLane ?? new NoopDenseLane();
 
-  // 1. Turkish search-side normalization (canonical text is never touched).
-  const normalizedQuery = normalizeTurkishSearch(query);
-
-  // 2. Exact reference parse (deterministic, never throws).
-  const references = parseReferences(normalizedQuery);
-
-  // 2b. Citation canonicalization for the RANKED lanes. See
-  //     canonicalizeReferences below for why the ranked lanes must not see the
-  //     citation the way the reader happened to spell it.
-  const laneQuery = canonicalizeReferences(normalizedQuery, references);
+  // 1-2b. Normalization, exact reference parse and citation canonicalization
+  //       (rankedLaneQuery). The dense lane embeds `laneQuery`; the embedding
+  //       evaluation embeds the same string through denseLaneQueryText.
+  const { normalizedQuery, references, laneQuery } = rankedLaneQuery(query);
 
   // 2c. Query expansion for the corpus lane (queryExpansion.ts): synonym
   //     terms from the planner's concept table, searched as discounted

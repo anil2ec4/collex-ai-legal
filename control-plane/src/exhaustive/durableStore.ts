@@ -19,6 +19,15 @@
  *   recoverStale     running units whose lease expired go back to pending
  *                    (or to failed when their attempts are spent).
  *   claimReduce      only a run with NO pending/running unit is reducible.
+ *   deferUnit /      W21 round two (R2-19): a model TRANSPORT failure hands
+ *   deferStageTask   the work back WITHOUT spending an attempt, after a
+ *                    backoff. The worker decides when (transportDecision):
+ *                    bounded by elapsed time, and never once other model
+ *                    calls succeed while this work's requests keep failing.
+ *   activeRunVersions / claimRunForFailure
+ *                    W21 round two (R2-17): the worker fails a run of another
+ *                    analysis version at the START of a tick, before any of
+ *                    its units or tasks is claimed.
  *   saveReduceResult relations + intelligence + final coverage, replacing
  *                    any earlier attempt's rows, in ONE transaction.
  *
@@ -33,6 +42,22 @@ import type { ProcessingCoverage } from "./processingCoverage.js";
 import type { ScopedDocument, ScopedSegment, UnitLedgerRow } from "./runner.js";
 import { LOCAL_TENANT_ID } from "./store.js";
 import type { AnalysisTask } from "./tasks.js";
+import type {
+  ExtractionCoverage,
+  IntelligenceCoverage,
+  UnitExtractionRow,
+  UnitExtractionState,
+} from "./analysisCoverage.js";
+import {
+  STAGE_SCHEMA_VERSION,
+  type PlanMarker,
+  type SemanticRelationRow,
+  type StageKind,
+  type StageTaskClaim,
+  type StageTaskRow,
+  type StageTaskSpec,
+  type StageTaskState,
+} from "./stageTypes.js";
 import { EXTRACTOR_VERSION, UNIT_BUILDER_VERSION } from "./runner.js";
 import type { AnalysisUnit } from "./units.js";
 
@@ -59,6 +84,13 @@ export class LeaseLostError extends Error {
 export interface RunSnapshot {
   readonly versions: ReadonlyArray<readonly [string, string | null]>;
   readonly fileIds: readonly string[];
+  /**
+   * W21 round-two review: the run covered every document of the matter (no
+   * explicit subset was asked). A document added to the matter later makes
+   * such a run stale. Absent on older runs (treated as whole-matter: the
+   * safe reading).
+   */
+  readonly wholeMatter?: boolean | undefined;
   readonly clientRole: string | null;
   /** Model the synthesis stage was created with (may differ from extraction). */
   readonly synthesisModel: string | null;
@@ -126,6 +158,43 @@ export interface UnitCompletion {
   readonly extractorVersion: string;
   readonly modelId?: string | undefined;
   readonly modelSchemaVersion?: string | undefined;
+  /** W21: what the unit's structured extraction achieved. */
+  readonly extraction?: UnitExtractionStats | undefined;
+}
+
+/** Per-unit extraction accounting (W21). */
+export interface UnitExtractionStats {
+  readonly state: UnitExtractionState;
+  readonly generatedItems: number;
+  readonly acceptedItems: number;
+  readonly ambiguousQuotes: number;
+  readonly truncatedResponses: number;
+  readonly continuationPasses: number;
+  readonly repairPasses: number;
+}
+
+/**
+ * What a claim may take (W21 round two). Absent fields mean "no filter".
+ *
+ *   excludeRunIds  runs whose work must not be claimed now: a run of another
+ *                  analysis version that the version sweep could not lease
+ *                  yet (R2-17);
+ *   tasks          only units of these analysis tasks: while the local model
+ *                  is backing off after a transport failure, only work that
+ *                  needs no model is claimed (R2-19).
+ */
+export interface ClaimFilter {
+  readonly excludeRunIds?: readonly string[] | undefined;
+  readonly tasks?: readonly AnalysisTask[] | undefined;
+}
+
+/** An active run's pinned identity, for the version sweep (R2-17). */
+export interface ActiveRunVersion {
+  readonly runId: string;
+  /** The canonical identity JSON stored in the snapshot ("" when absent). */
+  readonly identity: string;
+  /** A task schema version held by this run other than this code's, or null. */
+  readonly foreignSchemaVersion: string | null;
 }
 
 export interface ReduceClaim {
@@ -144,6 +213,10 @@ export interface ReduceResult {
   readonly links: readonly IntelLinkDraft[];
   readonly coverage: ProcessingCoverage;
   readonly summary: Record<string, unknown>;
+  /** W21: relations found by the semantic lane (detector semantic-v1). */
+  readonly semanticRelations?: readonly SemanticRelationRow[] | undefined;
+  readonly extractionCoverage?: ExtractionCoverage | undefined;
+  readonly intelligenceCoverage?: IntelligenceCoverage | undefined;
   readonly status: "done" | "failed";
   readonly error?: string | undefined;
 }
@@ -155,6 +228,13 @@ export interface RunProgress {
   readonly done: number;
   readonly failed: number;
   readonly skipped: number;
+}
+
+/** Analytical task counts of a run, by stage and state (W21). */
+export interface StageProgressRow {
+  readonly stage: StageKind;
+  readonly state: StageTaskState;
+  readonly count: number;
 }
 
 export interface DurableRunRow {
@@ -171,6 +251,9 @@ export interface DurableRunRow {
   readonly cancelRequested: boolean;
   readonly modelId: string | null;
   readonly identityKey: string | null;
+  /** W21: stored analytical coverage layers (finished runs). */
+  readonly extractionCoverage: ExtractionCoverage | undefined;
+  readonly intelligenceCoverage: IntelligenceCoverage | undefined;
 }
 
 export interface FindingSource {
@@ -220,6 +303,9 @@ export interface FindingRelation {
   readonly relation: string;
   readonly rationale: string;
   readonly subjectOverlap: number | null;
+  /** Which detector produced it; the two contradiction lanes stay distinguishable. */
+  readonly detector: string;
+  readonly lane: "deterministic" | "semantic";
   readonly left: { observationId: string; fileId: string; statement: string; locator: string | null };
   readonly right: { observationId: string; fileId: string; statement: string; locator: string | null };
 }
@@ -242,7 +328,7 @@ export interface DurableAnalysisStore {
   createRun(input: CreateRunInput): Promise<{ runId: string; resumed: boolean }>;
   recoverStale(): Promise<number>;
   claimCancellations(): Promise<string[]>;
-  claimUnits(workerId: string, batch: number, leaseMs: number): Promise<UnitClaim[]>;
+  claimUnits(workerId: string, batch: number, leaseMs: number, filter?: ClaimFilter): Promise<UnitClaim[]>;
   releaseUnits(claims: readonly UnitClaim[], workerId: string): Promise<void>;
   isCancelRequested(runId: string): Promise<boolean>;
   completeUnit(
@@ -252,7 +338,17 @@ export interface DurableAnalysisStore {
     completion: UnitCompletion,
   ): Promise<void>;
   failUnit(claim: UnitClaim, workerId: string, message: string, backoffMs: number): Promise<void>;
+  /** Hand a unit back WITHOUT spending an attempt, retryable after `backoffMs` (R2-19). */
+  deferUnit(claim: UnitClaim, workerId: string, message: string, backoffMs: number): Promise<void>;
   claimReduce(workerId: string, leaseMs: number): Promise<ReduceClaim | undefined>;
+  /** Active, uncancelled runs with their pinned identity (R2-17 version sweep). */
+  activeRunVersions(): Promise<ActiveRunVersion[]>;
+  /**
+   * Lease one active run so it can be closed as failed, whatever stage it is
+   * in (no stage attempt is spent). Undefined when another worker holds its
+   * stage lease or it is no longer active.
+   */
+  claimRunForFailure(runId: string, workerId: string, leaseMs: number): Promise<ReduceClaim | undefined>;
   loadObservations(runId: string): Promise<StoredObservation[]>;
   loadLedger(runId: string): Promise<UnitLedgerRow[]>;
   saveReduceResult(runId: string, workerId: string, result: ReduceResult): Promise<void>;
@@ -264,14 +360,57 @@ export interface DurableAnalysisStore {
   progress(runId: string): Promise<RunProgress>;
   loadFindings(runId: string): Promise<RunFindings>;
   latestFinishedRuns(matterId: string): Promise<DurableRunRow[]>;
+  // W21: durable analytical stages
+  loadExtractionLedger(runId: string): Promise<UnitExtractionRow[]>;
+  loadTasks(runId: string): Promise<StageTaskRow[]>;
+  insertStageTasks(
+    runId: string,
+    workerId: string,
+    specs: readonly StageTaskSpec[],
+    marker: { readonly step: string; readonly result: PlanMarker },
+    modelId: string | null,
+  ): Promise<number>;
+  releaseAfterPlanning(runId: string, workerId: string): Promise<void>;
+  claimStageTasks(workerId: string, batch: number, leaseMs: number, filter?: ClaimFilter): Promise<StageTaskClaim[]>;
+  /** Hand claimed tasks back untouched (a cancel arrived mid-batch). */
+  releaseStageTasks(claims: readonly StageTaskClaim[], workerId: string): Promise<void>;
+  completeStageTask(
+    claim: StageTaskClaim,
+    workerId: string,
+    result: Record<string, unknown>,
+    modelId: string | null,
+  ): Promise<void>;
+  failStageTask(claim: StageTaskClaim, workerId: string, message: string, backoffMs: number): Promise<void>;
+  /** Hand a task back WITHOUT spending an attempt, retryable after `backoffMs` (R2-19). */
+  deferStageTask(claim: StageTaskClaim, workerId: string, message: string, backoffMs: number): Promise<void>;
+  recoverStaleStageTasks(): Promise<number>;
+  taskProgress(runId: string): Promise<StageProgressRow[]>;
 }
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "23505";
 }
 
+/** A lone UTF-16 surrogate (high without low, or low without high). */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/**
+ * `value` as plain JSON whose strings are all well-formed UTF-16. A lone
+ * surrogate (a clipped emoji) is serialized by JSON.stringify as `\ud83d`,
+ * which PostgreSQL rejects as jsonb (22P02) — and a planning insert that
+ * carried one failed on every retry (W21 review #14). Every jsonb write
+ * goes through here, so no string can poison a transaction.
+ */
+export function wellFormedJson(value: unknown): unknown {
+  return JSON.parse(
+    JSON.stringify(value, (_key, entry: unknown) =>
+      typeof entry === "string" ? entry.replace(LONE_SURROGATE, "\uFFFD") : entry,
+    ),
+  );
+}
+
 function jsonValue(sql: Sql, value: unknown): ReturnType<Sql["json"]> {
-  return sql.json(JSON.parse(JSON.stringify(value)) as never);
+  return sql.json(wellFormedJson(value) as never);
 }
 
 function text(row: SqlRow, column: string): string {
@@ -305,6 +444,7 @@ function asSnapshot(value: unknown): RunSnapshot | undefined {
   return {
     versions,
     fileIds: Array.isArray(raw["fileIds"]) ? (raw["fileIds"] as unknown[]).map(String) : versions.map((v) => v[0]),
+    ...(typeof raw["wholeMatter"] === "boolean" ? { wholeMatter: raw["wholeMatter"] } : {}),
     clientRole: typeof raw["clientRole"] === "string" ? raw["clientRole"] : null,
     synthesisModel: typeof raw["synthesisModel"] === "string" ? raw["synthesisModel"] : null,
     identity: typeof raw["identity"] === "string" ? raw["identity"] : "",
@@ -317,8 +457,45 @@ function asCoverage(value: unknown): ProcessingCoverage | undefined {
     : undefined;
 }
 
+function asLayer<T>(value: unknown): T | undefined {
+  return value !== null && typeof value === "object" && "complete" in (value as object) ? (value as T) : undefined;
+}
+
+function mapReduceClaim(row: SqlRow): ReduceClaim {
+  const snapshot = asSnapshot(row["snapshot"]) ?? {
+    versions: [],
+    fileIds: [],
+    clientRole: null,
+    synthesisModel: null,
+    identity: "",
+  };
+  return {
+    runId: text(row, "run_id"),
+    matterId: text(row, "matter_id"),
+    task: text(row, "task") as AnalysisTask,
+    snapshot,
+    stageAttempts: Number(row["stage_attempts"]),
+    maxStageAttempts: Number(row["max_stage_attempts"]),
+    modelId: textOrNull(row, "model_id"),
+  };
+}
+
+/** The claim filter as SQL parameters (an empty exclusion list excludes nothing). */
+function filterParams(filter: ClaimFilter | undefined): {
+  excluded: string[];
+  allTasks: boolean;
+  tasks: string[];
+} {
+  return {
+    excluded: [...(filter?.excludeRunIds ?? [])],
+    allTasks: filter?.tasks === undefined,
+    tasks: [...(filter?.tasks ?? [])],
+  };
+}
+
 const RUN_COLUMNS = `run_id::text as run_id, matter_id::text as matter_id, task, status, coverage,
-  created_at, finished_at, error, snapshot, result_summary, cancel_requested_at, model_id, identity_key`;
+  created_at, finished_at, error, snapshot, result_summary, cancel_requested_at, model_id, identity_key,
+  extraction_coverage, intelligence_coverage`;
 
 function mapRun(row: SqlRow): DurableRunRow {
   const summary = row["result_summary"];
@@ -336,6 +513,29 @@ function mapRun(row: SqlRow): DurableRunRow {
     cancelRequested: row["cancel_requested_at"] !== null && row["cancel_requested_at"] !== undefined,
     modelId: textOrNull(row, "model_id"),
     identityKey: textOrNull(row, "identity_key"),
+    extractionCoverage: asLayer<ExtractionCoverage>(row["extraction_coverage"]),
+    intelligenceCoverage: asLayer<IntelligenceCoverage>(row["intelligence_coverage"]),
+  };
+}
+
+function mapTask(row: SqlRow): StageTaskRow {
+  const result = row["result"];
+  return {
+    taskId: text(row, "task_id"),
+    runId: text(row, "run_id"),
+    stage: text(row, "stage") as StageKind,
+    taskKey: text(row, "task_key"),
+    level: Number(row["level"]),
+    seq: Number(row["seq"]),
+    state: text(row, "state") as StageTaskState,
+    attempts: Number(row["attempts"]),
+    maxAttempts: Number(row["max_attempts"]),
+    input: (row["input"] ?? {}) as Record<string, unknown>,
+    result: result === null || result === undefined ? null : (result as Record<string, unknown>),
+    error: textOrNull(row, "error"),
+    exclusionReason: textOrNull(row, "exclusion_reason"),
+    modelId: textOrNull(row, "model_id"),
+    schemaVersion: textOrNull(row, "schema_version"),
   };
 }
 
@@ -527,7 +727,8 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
     return rows.map((row) => text(row, "run_id"));
   }
 
-  async claimUnits(workerId: string, batch: number, leaseMs: number): Promise<UnitClaim[]> {
+  async claimUnits(workerId: string, batch: number, leaseMs: number, filter?: ClaimFilter): Promise<UnitClaim[]> {
+    const { excluded, allTasks, tasks } = filterParams(filter);
     const rows = await this.sql`
       with candidate as (
         select u.run_id, u.unit_no
@@ -539,6 +740,8 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
           and u.available_at <= now()
           and r.status in ('queued', 'mapping')
           and r.cancel_requested_at is null
+          and not (r.run_id = any(${excluded}::uuid[]))
+          and (${allTasks}::boolean or r.task = any(${tasks}::text[]))
         order by r.created_at, u.run_id, u.unit_no
         for update of u skip locked
         limit ${Math.max(1, Math.floor(batch))}
@@ -658,7 +861,14 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
             model_schema_version = ${completion.modelSchemaVersion ?? null},
             rejected_quotes = ${completion.rejectedQuotes},
             invalid_items = ${completion.invalidItems},
-            observation_count = ${observations.length}
+            observation_count = ${observations.length},
+            extraction_state = ${completion.extraction?.state ?? "not_required"},
+            generated_items = ${completion.extraction?.generatedItems ?? 0},
+            accepted_items = ${completion.extraction?.acceptedItems ?? 0},
+            ambiguous_quotes = ${completion.extraction?.ambiguousQuotes ?? 0},
+            truncated_responses = ${completion.extraction?.truncatedResponses ?? 0},
+            continuation_passes = ${completion.extraction?.continuationPasses ?? 0},
+            repair_passes = ${completion.extraction?.repairPasses ?? 0}
         where run_id = ${claim.runId}::uuid and unit_no = ${claim.unitNo}
           and tenant_id = ${this.tenantId}::uuid`;
     });
@@ -679,6 +889,60 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
         and state = 'running' and lease_owner = ${workerId}`;
   }
 
+  async deferUnit(claim: UnitClaim, workerId: string, message: string, backoffMs: number): Promise<void> {
+    // The claim's attempt is given back: a model that could not be reached
+    // did not look at this unit, so its retry budget is not spent (R2-19).
+    await this.sql`
+      update app_private.matter_analysis_units
+      set state = 'pending',
+          attempts = greatest(attempts - 1, 0),
+          available_at = now() + (${Math.max(0, Math.floor(backoffMs))}::int * interval '1 millisecond'),
+          error = ${message.slice(0, 500)},
+          lease_owner = null,
+          lease_expires_at = null
+      where run_id = ${claim.runId}::uuid and unit_no = ${claim.unitNo}
+        and tenant_id = ${this.tenantId}::uuid
+        and state = 'running' and lease_owner = ${workerId}`;
+  }
+
+  async activeRunVersions(): Promise<ActiveRunVersion[]> {
+    const rows = await this.sql`
+      select r.run_id::text as run_id,
+             coalesce(r.snapshot->>'identity', '') as identity,
+             (select t.schema_version from app_private.matter_analysis_tasks t
+              where t.run_id = r.run_id
+                and t.schema_version is not null
+                and t.schema_version <> ${STAGE_SCHEMA_VERSION}
+              limit 1) as foreign_schema_version
+      from app_private.matter_analysis_runs r
+      where r.tenant_id = ${this.tenantId}::uuid
+        and r.status in ('queued', 'mapping', 'aggregating', 'reducing')
+        and r.cancel_requested_at is null
+      order by r.created_at`;
+    return rows.map((row) => ({
+      runId: text(row, "run_id"),
+      identity: text(row, "identity"),
+      foreignSchemaVersion: textOrNull(row, "foreign_schema_version"),
+    }));
+  }
+
+  async claimRunForFailure(runId: string, workerId: string, leaseMs: number): Promise<ReduceClaim | undefined> {
+    const rows = await this.sql`
+      update app_private.matter_analysis_runs r
+      set status = 'reducing',
+          lease_owner = ${workerId},
+          lease_expires_at = now() + (${Math.max(1, Math.floor(leaseMs))}::int * interval '1 millisecond'),
+          updated_at = now()
+      where r.run_id = ${runId}::uuid
+        and r.tenant_id = ${this.tenantId}::uuid
+        and r.status in ('queued', 'mapping', 'aggregating', 'reducing')
+        and r.cancel_requested_at is null
+        and (r.lease_expires_at is null or r.lease_expires_at < now())
+      returning r.run_id::text as run_id, r.matter_id::text as matter_id, r.task,
+                r.snapshot, r.stage_attempts, r.max_stage_attempts, r.model_id`;
+    return rows[0] === undefined ? undefined : mapReduceClaim(rows[0]);
+  }
+
   async claimReduce(workerId: string, leaseMs: number): Promise<ReduceClaim | undefined> {
     const rows = await this.sql`
       with candidate as (
@@ -691,6 +955,16 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
           and not exists (
             select 1 from app_private.matter_analysis_units u
             where u.run_id = r.run_id and u.state in ('pending', 'running'))
+          -- W21: nor any analytical task still to do. The reduce stage is the
+          -- orchestrator: it plans the next tasks or finalizes, never while
+          -- planned work is outstanding. A task planned under ANOTHER stage
+          -- schema is never run by this code (claimStageTasks skips it), so
+          -- it does not hold the run back: the orchestrator is claimed and
+          -- fails the run with the reason (worker.ts versionMismatch).
+          and not exists (
+            select 1 from app_private.matter_analysis_tasks t
+            where t.run_id = r.run_id and t.state in ('pending', 'running')
+              and t.schema_version = ${STAGE_SCHEMA_VERSION})
         order by r.created_at
         for update of r skip locked
         limit 1
@@ -706,23 +980,7 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
       returning r.run_id::text as run_id, r.matter_id::text as matter_id, r.task,
                 r.snapshot, r.stage_attempts, r.max_stage_attempts, r.model_id`;
     const row = rows[0];
-    if (row === undefined) return undefined;
-    const snapshot = asSnapshot(row["snapshot"]) ?? {
-      versions: [],
-      fileIds: [],
-      clientRole: null,
-      synthesisModel: null,
-      identity: "",
-    };
-    return {
-      runId: text(row, "run_id"),
-      matterId: text(row, "matter_id"),
-      task: text(row, "task") as AnalysisTask,
-      snapshot,
-      stageAttempts: Number(row["stage_attempts"]),
-      maxStageAttempts: Number(row["max_stage_attempts"]),
-      modelId: textOrNull(row, "model_id"),
-    };
+    return row === undefined ? undefined : mapReduceClaim(row);
   }
 
   async loadObservations(runId: string): Promise<StoredObservation[]> {
@@ -826,6 +1084,17 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
                   ${relation.detector}, ${relation.subjectOverlap})
           on conflict (run_id, left_observation_id, right_observation_id) do nothing`;
       }
+      for (const relation of result.semanticRelations ?? []) {
+        await t`
+          insert into app_private.matter_observation_relations
+            (run_id, tenant_id, left_observation_id, right_observation_id,
+             relation, rationale, detector, confidence)
+          values (${runId}::uuid, ${this.tenantId}::uuid,
+                  ${relation.leftObservationId}::uuid, ${relation.rightObservationId}::uuid,
+                  ${relation.relation}, ${relation.rationale.slice(0, 2000)}, ${relation.detector},
+                  ${relation.confidence === null ? null : Math.min(1, Math.max(0, relation.confidence))})
+          on conflict (run_id, left_observation_id, right_observation_id) do nothing`;
+      }
 
       const ids = new Map<string, string>();
       for (const item of result.items) {
@@ -880,12 +1149,14 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
         set status = ${result.status},
             coverage = ${jsonValue(t, result.coverage)},
             result_summary = ${jsonValue(t, result.summary)},
+            extraction_coverage = ${jsonValue(t, result.extractionCoverage ?? {})},
+            intelligence_coverage = ${jsonValue(t, result.intelligenceCoverage ?? {})},
             error = ${result.error ?? null},
             finished_at = now(),
             updated_at = now(),
             lease_owner = null,
             lease_expires_at = null
-        where run_id = ${runId}::uuid`;
+        where run_id = ${runId}::uuid and tenant_id = ${this.tenantId}::uuid`;
     });
   }
 
@@ -950,6 +1221,282 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
       [matterId, this.tenantId],
     );
     return (rows as unknown as SqlRow[]).map(mapRun);
+  }
+
+  // -------------------------------------------------------------------------
+  // W21: durable analytical stages
+  // -------------------------------------------------------------------------
+
+  async loadExtractionLedger(runId: string): Promise<UnitExtractionRow[]> {
+    const rows = await this.sql`
+      select unit_no, file_id, state, extraction_state, generated_items, accepted_items,
+             invalid_items, rejected_quotes, ambiguous_quotes, truncated_responses,
+             continuation_passes, repair_passes
+      from app_private.matter_analysis_units
+      where run_id = ${runId}::uuid and tenant_id = ${this.tenantId}::uuid
+      order by unit_no`;
+    return rows.map(
+      (row): UnitExtractionRow => ({
+        unitNo: Number(row["unit_no"]),
+        fileId: text(row, "file_id"),
+        state: text(row, "state") as UnitExtractionRow["state"],
+        extractionState: textOrNull(row, "extraction_state") as UnitExtractionState | null,
+        generatedItems: Number(row["generated_items"] ?? 0),
+        acceptedItems: Number(row["accepted_items"] ?? 0),
+        invalidItems: Number(row["invalid_items"] ?? 0),
+        rejectedQuotes: Number(row["rejected_quotes"] ?? 0),
+        ambiguousQuotes: Number(row["ambiguous_quotes"] ?? 0),
+        truncatedResponses: Number(row["truncated_responses"] ?? 0),
+        continuationPasses: Number(row["continuation_passes"] ?? 0),
+        repairPasses: Number(row["repair_passes"] ?? 0),
+      }),
+    );
+  }
+
+  async loadTasks(runId: string): Promise<StageTaskRow[]> {
+    const rows = await this.sql`
+      select task_id::text as task_id, run_id::text as run_id, stage, task_key, level, seq,
+             state, attempts, max_attempts, input, result, error, exclusion_reason, model_id,
+             schema_version
+      from app_private.matter_analysis_tasks
+      where run_id = ${runId}::uuid and tenant_id = ${this.tenantId}::uuid
+      order by level, seq, task_key`;
+    return rows.map(mapTask);
+  }
+
+  /**
+   * Insert planned tasks and the plan marker in ONE transaction, under the
+   * run's stage lease. A crash keeps both or neither, and a re-plan after a
+   * crash inserts nothing twice (unique run/stage/key).
+   */
+  async insertStageTasks(
+    runId: string,
+    workerId: string,
+    specs: readonly StageTaskSpec[],
+    marker: { readonly step: string; readonly result: PlanMarker },
+    modelId: string | null,
+  ): Promise<number> {
+    return (await this.sql.begin(async (tx) => {
+      const t = tx as unknown as Sql;
+      const own = await t`
+        select 1 from app_private.matter_analysis_runs
+        where run_id = ${runId}::uuid and tenant_id = ${this.tenantId}::uuid
+          and status = 'reducing' and lease_owner = ${workerId}
+        for update`;
+      if (own.length === 0) throw new LeaseLostError();
+      let inserted = 0;
+      for (const spec of specs) {
+        const state =
+          spec.exclusionReason !== undefined ? "excluded" : spec.doneResult !== undefined ? "done" : "pending";
+        const rows = await t`
+          insert into app_private.matter_analysis_tasks
+            (run_id, tenant_id, stage, task_key, level, seq, state, input, result,
+             exclusion_reason, schema_version, model_id, finished_at)
+          values (${runId}::uuid, ${this.tenantId}::uuid, ${spec.stage}, ${spec.taskKey.slice(0, 300)},
+                  ${spec.level}, ${spec.seq}, ${state}, ${jsonValue(t, spec.input)},
+                  ${spec.doneResult === undefined ? null : jsonValue(t, spec.doneResult)},
+                  ${spec.exclusionReason === undefined ? null : spec.exclusionReason.slice(0, 500)},
+                  ${STAGE_SCHEMA_VERSION}, ${modelId},
+                  case when ${state} = 'pending' then null else now() end)
+          on conflict (run_id, stage, task_key) do nothing
+          returning task_id`;
+        inserted += rows.length;
+      }
+      await t`
+        insert into app_private.matter_analysis_tasks
+          (run_id, tenant_id, stage, task_key, level, seq, state, input, result,
+           schema_version, model_id, finished_at)
+        values (${runId}::uuid, ${this.tenantId}::uuid, 'plan', ${marker.step.slice(0, 300)}, 0, 0, 'done',
+                '{}'::jsonb, ${jsonValue(t, marker.result)}, ${STAGE_SCHEMA_VERSION}, ${modelId}, now())
+        on conflict (run_id, stage, task_key) do nothing`;
+      return inserted;
+    })) as unknown as number;
+  }
+
+  /**
+   * Hand the run back after a planning pass. Planning is not an attempt: a
+   * run that needs several planning passes (weighing, each synthesis level,
+   * then finalize) must not exhaust its stage retry budget doing so.
+   */
+  async releaseAfterPlanning(runId: string, workerId: string): Promise<void> {
+    await this.sql`
+      update app_private.matter_analysis_runs
+      set lease_owner = null,
+          lease_expires_at = null,
+          stage_attempts = greatest(stage_attempts - 1, 0),
+          updated_at = now()
+      where run_id = ${runId}::uuid and tenant_id = ${this.tenantId}::uuid
+        and lease_owner = ${workerId}`;
+  }
+
+  async claimStageTasks(
+    workerId: string,
+    batch: number,
+    leaseMs: number,
+    filter?: ClaimFilter,
+  ): Promise<StageTaskClaim[]> {
+    const { excluded } = filterParams(filter);
+    const rows = await this.sql`
+      with candidate as (
+        select t.task_id
+        from app_private.matter_analysis_tasks t
+        join app_private.matter_analysis_runs r on r.run_id = t.run_id
+        where t.tenant_id = ${this.tenantId}::uuid
+          and r.tenant_id = ${this.tenantId}::uuid
+          and t.state = 'pending'
+          and t.available_at <= now()
+          -- Only tasks planned under THIS stage schema: their input is read
+          -- by this version's processors, and their result by its finalizer.
+          and t.schema_version = ${STAGE_SCHEMA_VERSION}
+          and r.status in ('queued', 'mapping', 'aggregating', 'reducing')
+          and r.cancel_requested_at is null
+          and not (r.run_id = any(${excluded}::uuid[]))
+        order by r.created_at, t.run_id, t.level, t.seq, t.task_key
+        for update of t skip locked
+        limit ${Math.max(1, Math.floor(batch))}
+      )
+      update app_private.matter_analysis_tasks t
+      set state = 'running',
+          attempts = t.attempts + 1,
+          lease_owner = ${workerId},
+          lease_expires_at = now() + (${Math.max(1, Math.floor(leaseMs))}::int * interval '1 millisecond'),
+          error = null,
+          updated_at = now()
+      from candidate c, app_private.matter_analysis_runs r
+      where t.task_id = c.task_id and r.run_id = t.run_id
+      returning t.task_id::text as task_id, t.run_id::text as run_id, t.stage, t.task_key,
+                t.level, t.seq, t.input, t.attempts, t.max_attempts,
+                r.task, r.matter_id::text as matter_id, r.model_id, r.snapshot`;
+    return rows
+      .map(
+        (row): StageTaskClaim & { seq: number } => ({
+          taskId: text(row, "task_id"),
+          runId: text(row, "run_id"),
+          matterId: text(row, "matter_id"),
+          task: text(row, "task") as AnalysisTask,
+          stage: text(row, "stage") as StageKind,
+          taskKey: text(row, "task_key"),
+          level: Number(row["level"]),
+          seq: Number(row["seq"]),
+          input: (row["input"] ?? {}) as Record<string, unknown>,
+          attempts: Number(row["attempts"]),
+          maxAttempts: Number(row["max_attempts"]),
+          runModelId: textOrNull(row, "model_id"),
+          synthesisModel: asSnapshot(row["snapshot"])?.synthesisModel ?? null,
+        }),
+      )
+      .sort((a, b) => (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : a.level - b.level || a.seq - b.seq));
+  }
+
+  async releaseStageTasks(claims: readonly StageTaskClaim[], workerId: string): Promise<void> {
+    for (const claim of claims) {
+      await this.sql`
+        update app_private.matter_analysis_tasks
+        set state = 'pending', attempts = greatest(attempts - 1, 0),
+            lease_owner = null, lease_expires_at = null, updated_at = now()
+        where task_id = ${claim.taskId}::uuid and tenant_id = ${this.tenantId}::uuid
+          and state = 'running' and lease_owner = ${workerId}`;
+    }
+  }
+
+  async completeStageTask(
+    claim: StageTaskClaim,
+    workerId: string,
+    result: Record<string, unknown>,
+    modelId: string | null,
+  ): Promise<void> {
+    // One statement, guarded by the lease AND by the run: a worker whose
+    // lease was taken over cannot mark the task done, and a result that
+    // finishes after the run was cancelled (or otherwise closed) is not
+    // stored on it. The result is written in the same statement that marks
+    // the task done.
+    const rows = await this.sql`
+      update app_private.matter_analysis_tasks t
+      set state = 'done',
+          result = ${jsonValue(this.sql, result)},
+          error = null,
+          model_id = ${modelId},
+          lease_owner = null,
+          lease_expires_at = null,
+          finished_at = now(),
+          updated_at = now()
+      where t.task_id = ${claim.taskId}::uuid and t.tenant_id = ${this.tenantId}::uuid
+        and t.state = 'running' and t.lease_owner = ${workerId}
+        and exists (
+          select 1 from app_private.matter_analysis_runs r
+          where r.run_id = t.run_id
+            and r.cancel_requested_at is null
+            and r.status in ('queued', 'mapping', 'aggregating', 'reducing'))
+      returning t.task_id`;
+    if (rows.length === 0) {
+      // The run guard, not the lease, may have refused the write: hand the
+      // task back so it is not left running under a lease nobody will use.
+      await this.releaseStageTasks([claim], workerId);
+      throw new LeaseLostError();
+    }
+  }
+
+  async failStageTask(claim: StageTaskClaim, workerId: string, message: string, backoffMs: number): Promise<void> {
+    await this.sql`
+      update app_private.matter_analysis_tasks
+      set state = case when attempts >= max_attempts then 'failed' else 'pending' end,
+          available_at = case when attempts >= max_attempts then available_at
+                              else now() + (${Math.max(0, Math.floor(backoffMs))}::int * interval '1 millisecond') end,
+          finished_at = case when attempts >= max_attempts then now() else finished_at end,
+          error = ${message.slice(0, 500)},
+          lease_owner = null,
+          lease_expires_at = null,
+          updated_at = now()
+      where task_id = ${claim.taskId}::uuid and tenant_id = ${this.tenantId}::uuid
+        and state = 'running' and lease_owner = ${workerId}`;
+  }
+
+  async deferStageTask(claim: StageTaskClaim, workerId: string, message: string, backoffMs: number): Promise<void> {
+    // As deferUnit: an unreachable model spends no attempt of the task.
+    await this.sql`
+      update app_private.matter_analysis_tasks
+      set state = 'pending',
+          attempts = greatest(attempts - 1, 0),
+          available_at = now() + (${Math.max(0, Math.floor(backoffMs))}::int * interval '1 millisecond'),
+          error = ${message.slice(0, 500)},
+          lease_owner = null,
+          lease_expires_at = null,
+          updated_at = now()
+      where task_id = ${claim.taskId}::uuid and tenant_id = ${this.tenantId}::uuid
+        and state = 'running' and lease_owner = ${workerId}`;
+  }
+
+  async recoverStaleStageTasks(): Promise<number> {
+    const rows = await this.sql`
+      update app_private.matter_analysis_tasks
+      set state = case when attempts >= max_attempts then 'failed' else 'pending' end,
+          error = case when attempts >= max_attempts
+                       then 'Bu görevi işleyen süreç yanıt vermeden durdu ve deneme hakkı bitti.'
+                       else 'Önceki deneme yarıda kaldı; yeniden denenecek.' end,
+          lease_owner = null,
+          lease_expires_at = null,
+          available_at = now(),
+          finished_at = case when attempts >= max_attempts then now() else finished_at end,
+          updated_at = now()
+      where tenant_id = ${this.tenantId}::uuid
+        and state = 'running'
+        and lease_expires_at < now()
+      returning task_id`;
+    return rows.length;
+  }
+
+  async taskProgress(runId: string): Promise<StageProgressRow[]> {
+    const rows = await this.sql`
+      select stage, state, count(*)::int as n
+      from app_private.matter_analysis_tasks
+      where run_id = ${runId}::uuid and tenant_id = ${this.tenantId}::uuid and stage <> 'plan'
+      group by stage, state
+      order by stage, state`;
+    return rows.map((row) => ({
+      stage: text(row, "stage") as StageKind,
+      state: text(row, "state") as StageTaskState,
+      count: Number(row["n"]),
+    }));
   }
 
   async progress(runId: string): Promise<RunProgress> {
@@ -1044,7 +1591,7 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
       where i.run_id = ${runId}::uuid and i.tenant_id = ${this.tenantId}::uuid
         and l.tenant_id = ${this.tenantId}::uuid`;
     const relationRows = await this.sql`
-      select r.relation, r.rationale, r.confidence,
+      select r.relation, r.rationale, r.confidence, r.detector,
              lo.observation_id::text as left_id, lo.file_id as left_file,
              lo.statement as left_statement, lo.locator as left_locator,
              ro.observation_id::text as right_id, ro.file_id as right_file,
@@ -1080,6 +1627,8 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
       relations: relationRows.map((row) => ({
         relation: text(row, "relation"),
         rationale: text(row, "rationale"),
+        detector: text(row, "detector"),
+        lane: text(row, "detector").startsWith("semantic") ? ("semantic" as const) : ("deterministic" as const),
         subjectOverlap: numberOrNull(row, "confidence"),
         left: {
           observationId: text(row, "left_id"),

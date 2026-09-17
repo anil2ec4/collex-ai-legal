@@ -406,7 +406,9 @@ paths:
         `missing` when it answers but the schema is absent, `ok` otherwise.
         `mcp` is the launcher's view of the MCP gateway child; `ai` says
         whether cloud AI is configured (never the key) and that it has not
-        been live-tested; `corpus` is null unless `db` is `ok`.
+        been live-tested; `corpus` is null unless `db` is `ok`. W21:
+        `dataBoundary` is the EFFECTIVE boundary (the AI policy can force
+        LOCAL_ONLY); `aiPolicy` and `ocr` are additive.
       responses:
         "200":
           description: Service healthy
@@ -499,6 +501,40 @@ paths:
                       liveTested:
                         type: boolean
                         const: false
+                  localAi:
+                    type: object
+                    additionalProperties: true
+                    description: >
+                      W19: the local generation lane as configured (state,
+                      model, trust, reason, roles). Configured is not
+                      reachable; it is never probed from health.
+                  dense:
+                    type: object
+                    additionalProperties: true
+                    description: >
+                      W20: the dense lane (ACTIVE / DEGRADED / DISABLED /
+                      FAILED) with a Turkish reason; ACTIVE only when a query
+                      can be embedded right now.
+                  dataBoundary:
+                    type: string
+                    enum: [LOCAL_ONLY, ALLOW_CLOUD]
+                    description: >
+                      The data boundary IN FORCE. W21 changed its meaning from
+                      the configured COLLEX_DATA_BOUNDARY to the EFFECTIVE
+                      boundary: an AI policy of LOCAL_ONLY or
+                      DETERMINISTIC_ONLY reports LOCAL_ONLY here even when the
+                      variable says ALLOW_CLOUD.
+                  aiPolicy:
+                    $ref: "#/components/schemas/AiPolicyHealth"
+                  ocr:
+                    description: >
+                      W21: can this computer read scanned pages? Probed once
+                      per process (python -m intake.ocr --status); null until
+                      the first probe answers or when no probe is wired. Only
+                      OCR_READY means scanned pages can be read.
+                    oneOf:
+                      - $ref: "#/components/schemas/OcrStatus"
+                      - type: "null"
                   demoCorpus:
                     type: boolean
                     description: True when the database is the demo fixture load (collex_demo).
@@ -544,6 +580,15 @@ paths:
                       a test pins equal to `pyproject.toml [project].version`.
                       The hand-edited `1.0.0-w12` constant is gone; the value
                       is now `1.0.0`.
+                  platform:
+                    type: string
+                    description: >
+                      Additive (W21 round two, R2-36). `process.platform` of
+                      the server (`win32`, `darwin`, `linux`, ...). The console
+                      chooses platform-specific sentences from it (File
+                      Explorer on Windows, Finder on macOS).
+                  operatorHints:
+                    $ref: "#/components/schemas/OperatorHints"
   /v1/search:
     post:
       operationId: search
@@ -3143,6 +3188,13 @@ paths:
                     oneOf:
                       - $ref: "#/components/schemas/BackupSummary"
                       - type: "null"
+                  platform:
+                    type: string
+                    description: >
+                      Additive (W21 round two, R2-36): the server's
+                      `process.platform`, as in `/v1/health`.
+                  operatorHints:
+                    $ref: "#/components/schemas/OperatorHints"
         "503":
           description: Backup is not configured on this instance
           content:
@@ -3805,7 +3857,10 @@ paths:
         never produced by a model. One failed unit, or one unreadable page,
         and it is false with the gap itemized. `exhaustiveClaimRefusedBecause`
         is non-null exactly when a caller must NOT render a sentence like
-        "tüm çelişkiler" or "dosyanın tamamı".
+        "tüm çelişkiler" or "dosyanın tamamı". W21: it is also non-null
+        while extraction or an analytical stage is incomplete or still
+        running (a source reason, when there is one, keeps priority);
+        `analysisCompleteness` states all three layers separately.
 
 
         W20 (changed on purpose): the route no longer runs the analysis. It
@@ -4092,9 +4147,16 @@ paths:
                         runId: { type: string, format: uuid }
                         finishedAt: { type: string, format: date-time, nullable: true }
                         complete: { type: boolean }
+                        analysisComplete: { type: boolean }
                         coverageSummary: { type: string, nullable: true }
                         stale: { type: boolean }
                         sourceChanged:
+                          type: array
+                          items: { type: string }
+                        sourceAdded:
+                          type: array
+                          items: { type: string }
+                        sourceRemoved:
                           type: array
                           items: { type: string }
                         items:
@@ -4229,7 +4291,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "409":
-          description: CELL_BUSY (the cell is being computed right now)
+          description: >-
+            CELL_BUSY (the cell is being computed right now), or W21
+            ROW_VERSION_STALE (the pinned document version can no longer be read
+            exactly, so the cell is refused instead of being answered from
+            another version; the message says so separately when the file
+            itself was deleted)
           content:
             application/json:
               schema:
@@ -4268,7 +4335,20 @@ paths:
         UTF-8 with a byte-order mark, semicolon-separated. Every cell keeps
         its provenance (locations and quote fingerprints) and its coverage
         verdict. A field starting with = + - @ is prefixed with an apostrophe
-        so it can never execute as a spreadsheet formula.
+        so it can never execute as a spreadsheet formula. W21: only a
+        FINISHED cell exports an answer; a failed or re-queued cell exports
+        why it has none ("Durum" hesaplanamadı / sırada, "Cevap" = the
+        error), never a previous run's text. "Belge durumu" says per row why
+        it is stale (rows[].staleReason in words — a deleted file is "belge
+        silindi", never "a newer version was uploaded"). The "Destek" label
+        of an abstention names the passages retrieved for the question, not
+        the whole document. "Belge durumu" is the last column (13th), so the
+        12 columns of a W20 export keep their positions. Cells stored before
+        grid-v3 are exported as GET reports them (see cells[].generatorVersion).
+        W21 round two: the "Destek" of a census cell that read every page but
+        is not COMPLETE (it met date/amount-like text it could not read, or it
+        was counted before grid-v4) is "belgenin tamamı okundu; sayım eksik
+        olabilir", never "belgenin tamamı okundu" alone.
       parameters:
         - name: tableId
           in: path
@@ -5529,11 +5609,19 @@ components:
             line). A mixed answer is never marked with it. W12-FIX2:
             TIME_BUDGET_EXCEEDED — the answer time budget
             (`DEFAULT_ANSWER_TIME_BUDGET_MS` = 60 000 ms, checked between
-            pipeline stages, not inside a single port call) ran out before
-            the drafter: the drafter is skipped, a cloud judge gives way to
-            the local one, status PARTIAL, `finalizable:false`, the found
-            passages are still shown ("Cevap süre bütçesini aştı … cevap
-            KISMİ"). W14 codes: TEMPORAL_COMPARISON_MISSING (B-09 — a
+            pipeline stages, not inside a single port call) ran out. The same
+            code covers two runs. Before the drafter: the drafter is skipped,
+            a cloud judge gives way to the local one, there are no `claims`,
+            and `markdown` says "Cevap süre bütçesini aştı; tespit yazımı ve
+            doğrulama eksik bırakıldı". After the drafter (W21): the claims
+            were already written and the verification step still ran on
+            them, each with its own verdict; `markdown` then says "Cevap süre
+            bütçesini tespitler yazıldıktan sonra aştı; doğrulama adımı yine
+            de çalıştı ve her tespitin sonucu kendi satırında yazıyor, ancak
+            cevap KISMİ sayıldı ve kesinleştirilmedi", never "tespit yazımı …
+            eksik bırakıldı". Either way status PARTIAL, `finalizable:false`,
+            the found passages are still shown, and the code itself is
+            unchanged (the review-table worker reads it). W14 codes: TEMPORAL_COMPARISON_MISSING (B-09 — a
             temporal question whose evidence carries only ONE version of the
             provision; the status can then never be COMPLETE),
             `ENTAILMENT_UNSEGMENTED_CLOUD_CLAIM:<claimId>` and
@@ -6270,6 +6358,12 @@ components:
             Optional 1-based pages whose text layer exists but contains too
             little text to establish that the page was fully read. These
             pages remain preserved in the extracted text; OCR is not implied.
+            W21 round two: it also holds pages local OCR READ but not fully —
+            read with low confidence, adding only a few characters beyond a
+            short text layer, or with near-copy lines withheld (those pages
+            are in `ocrPages` too). The file's warnings then carry
+            `OCR_LOW_CONFIDENCE_PAGES:<n>` or `OCR_WITHHELD_LINES_PAGES:<n>`
+            beside `IMAGE_TEXT_PAGES:<n>`, each with its Turkish sentence.
           items:
             type: integer
     FileUploadResult:
@@ -7889,6 +7983,12 @@ components:
           $ref: "#/components/schemas/DraftParagraph"
         entailment:
           type: array
+          description: >
+            One row per evidence id the model cited, in citation order. A row
+            is one of three things: a binding the judge measured and kept
+            (`kept: true`), one it measured and stripped (`kept: false`, a
+            real `score`), or (W21 R2-29) one it could NOT check
+            (`checked: false`). Only the first two are measurements.
           items:
             type: object
             required: [evidenceId, score, entails, kept, rationale]
@@ -7897,17 +7997,67 @@ components:
                 type: string
               score:
                 type: number
+                description: >
+                  The judge's 0-1 probability that the passage supports the
+                  paragraph. On a row with `checked: false` it is a
+                  placeholder 0, NOT a measurement: a client must not show it
+                  as a weak link or as a shortfall below the threshold.
               entails:
                 type: boolean
               kept:
                 type: boolean
+                description: >
+                  The JUDGE's verdict (score ≥ threshold and entails). It is
+                  not the saved binding: the reviser can still refuse a kept
+                  binding (for example a karşıt decision under a legal role).
+                  The bindings actually written are `paragraph.evidenceIds`; a
+                  kept row whose id is missing there was refused by the reviser
+                  and, on a paragraph that stayed sourced, is named in
+                  `warnings` ("N kanıt bağı entailment denetimini geçti, ancak
+                  taslağın dayanak kurallarınca kabul edilmedi …").
               rationale:
                 type: string
+                description: >
+                  The judge's reason. On a row with `checked: false` it is the
+                  fixed Turkish sentence "denetlenemedi — hakemin yanıtı
+                  okunamadı ya da kendi içinde çelişkiliydi; bu kanıt bağı
+                  paragrafa yazılmadı".
+              checked:
+                type: boolean
+                const: false
+                description: >
+                  W21 R2-29. Present, and false, only on a binding the judge
+                  could not check (its reply was unreadable, out of range, or
+                  contradicted itself). Such a binding is never kept and is
+                  listed in `warnings` as "N kanıt bağı denetlenemedi …", apart
+                  from bindings below the threshold. Absent on every row the
+                  judge actually scored. A transport failure of the judge
+                  (timeout, network, HTTP, refusal, truncation) is not a row:
+                  it fails the whole request and the draft is unchanged.
         threshold:
           type: number
           const: 0.85
         kaynakli:
           type: boolean
+          description: >
+            The SAVED paragraph's state, equal to `paragraph.supported`. True
+            only when at least one binding passed the judge AND the reviser
+            attached it to the paragraph it saved. `paragraph` is that saved
+            paragraph, found by id or, on append / insertAfter, as the new
+            paragraph the reviser saved under an id of its own (so
+            `paragraph.id` can differ from any id the server generated). W21:
+            when the judge kept a binding but the stricter reviser rejected
+            it, `kaynakli` is false, `paragraph.note` is "KAYNAKSIZ — AI
+            taslak; entailment eşiğini (≥%85) geçen kanıt bağı taslağın
+            dayanak kurallarınca kabul edilmedi; avukat eklemeli" (never the
+            "hiçbir kanıt … geçmedi" note), the draft's "Düzenleme notu: AI
+            paragraf (…)" warning ends in "KAYNAKSIZ", and `entailment[].kept`
+            still shows the judge's own verdict. With nothing kept and at
+            least one `checked: false` row, the note is the "denetlenemedi"
+            variant. If the paragraph cannot be found in the saved draft,
+            `kaynakli` is false, `paragraph` is the paragraph as sent to the
+            reviser with `supported: false`, and `warnings` says it was not
+            counted as sourced.
         warnings:
           type: array
           items:
@@ -9534,6 +9684,31 @@ components:
         complete:
           type: boolean
           description: Additive — `failed === 0`. A partial run is still 200; this says which.
+    OperatorHints:
+      type: object
+      description: >
+        Additive (W21 round two, R2-36). The operator scripts of the platform
+        the server RUNS on, relative to the repository root — never
+        hard-coded to Windows. The console builds its launcher, stop, backup
+        and restore lines from these; on the Mac mini they name
+        `deploy/macos/collex-*.sh`, on Windows the `ColleX-*.cmd` launchers.
+      required: [start, stop, backup, restore, python]
+      properties:
+        start:
+          type: string
+          description: "Windows: ColleX-Baslat.cmd; macOS and other POSIX hosts: deploy/macos/collex-start.sh."
+        stop:
+          type: string
+          description: "Windows: ColleX-Durdur.cmd; macOS and other POSIX hosts: deploy/macos/collex-stop.sh."
+        backup:
+          type: string
+          description: "Windows: ColleX-Yedekle.cmd; macOS and other POSIX hosts: deploy/macos/collex-backup.sh."
+        restore:
+          type: string
+          description: "Windows: ColleX-Geri-Yukle.cmd; macOS and other POSIX hosts: deploy/macos/collex-restore.sh."
+        python:
+          type: string
+          description: "Windows: .venv/Scripts/python.exe; macOS and other POSIX hosts: .venv/bin/python."
     BackupSummary:
       type: object
       required: [path, lastAt, sizeBytes, files, stale]
@@ -10235,6 +10410,16 @@ components:
         rationale:
           type: string
           description: Turkish, in terms of the two values.
+        detector:
+          type: string
+          description: The detector that produced the relation (for example contradiction-v2 or semantic-v1).
+        lane:
+          type: string
+          enum: [deterministic, semantic]
+          description: >-
+            W21 — the high-precision value lane (dates, amounts, ratios) or the
+            semantic free-text lane (a model classifies a pair of verified
+            propositions). The two stay distinguishable.
         subjectOverlap:
           type: number
           nullable: true
@@ -10269,6 +10454,63 @@ components:
         done: { type: integer, minimum: 0 }
         failed: { type: integer, minimum: 0 }
         skipped: { type: integer, minimum: 0 }
+    AiPolicyHealth:
+      type: object
+      description: >
+        W21 application AI policy as health reports it. Configured is not
+        usable and neither is reachable: nothing here was live-tested.
+      required: [policy, configuredPolicy, effectiveBoundary, localModel, cloud, modelTasks, reasonTr, warnings]
+      properties:
+        policy: { type: string, enum: [LOCAL_ONLY, LOCAL_PREFERRED, CLOUD_ALLOWED, DETERMINISTIC_ONLY] }
+        configuredPolicy: { type: string, enum: [LOCAL_ONLY, LOCAL_PREFERRED, CLOUD_ALLOWED, DETERMINISTIC_ONLY] }
+        effectiveBoundary: { type: string, enum: [LOCAL_ONLY, ALLOW_CLOUD] }
+        localModel:
+          type: object
+          required: [state, model, trust, where, usableForAnswers, usableForMatterAnalysis, reasonTr, liveTested]
+          properties:
+            state: { type: string, enum: [not_configured, refused, configured] }
+            model: { type: string, nullable: true }
+            trust: { type: string, nullable: true }
+            where: { type: string, nullable: true }
+            usableForAnswers: { type: boolean }
+            usableForMatterAnalysis: { type: boolean }
+            reasonTr: { type: string, nullable: true }
+            liveTested: { type: boolean, const: false }
+        cloud:
+          type: object
+          required: [configured, allowed, consent]
+          properties:
+            configured: { type: boolean }
+            allowed: { type: boolean }
+            consent: { type: string, const: per-request }
+        modelTasks:
+          type: object
+          required: [allowed, code, reasonTr]
+          properties:
+            allowed: { type: boolean }
+            code: { type: string, enum: [OK, AI_POLICY_DETERMINISTIC, MODEL_UNAVAILABLE, MODEL_OFF_MACHINE] }
+            reasonTr: { type: string }
+        reasonTr: { type: string }
+        warnings:
+          type: array
+          items: { type: string }
+    OcrStatus:
+      type: object
+      description: >
+        W21 local OCR capability (intake/ocr.py OCR_STATES). A failed or
+        unparseable probe is OCR_FAILED with source probe_failed, never READY.
+      required: [state, provider, languages, rasterizer, messageTr, source]
+      properties:
+        state:
+          type: string
+          enum: [OCR_READY, OCR_DISABLED, OCR_EXECUTABLE_MISSING, OCR_TURKISH_DATA_MISSING, OCR_RASTERIZER_MISSING, OCR_FAILED]
+        provider: { type: string, nullable: true }
+        languages:
+          type: array
+          items: { type: string }
+        rasterizer: { type: string, nullable: true }
+        messageTr: { type: string }
+        source: { type: string, enum: [probe, probe_failed] }
     MatterAnalysisCapabilities:
       type: object
       required: [model, tasks]
@@ -10280,6 +10522,11 @@ components:
             configured: { type: boolean }
             model: { type: string }
             where: { type: string }
+            usable:
+              type: boolean
+              description: W21 — the AI policy and the on-machine rule permit the model tasks (configured is not usable).
+            code: { type: string, enum: [OK, AI_POLICY_DETERMINISTIC, MODEL_UNAVAILABLE, MODEL_OFF_MACHINE] }
+            reasonTr: { type: string }
         tasks:
           type: array
           items:
@@ -10323,7 +10570,14 @@ components:
         datePrecision: { type: string, nullable: true }
         partyRole: { type: string, nullable: true }
         stance: { type: string, nullable: true }
-        supportStatus: { type: string, nullable: true }
+        supportStatus:
+          type: string
+          nullable: true
+          description: >-
+            supported, opposed, disputed, ambiguous, unsupported (nothing
+            supports it after EVERY evidence item was compared),
+            no_support_in_candidates (only the compared candidates were
+            searched), search_incomplete, not_weighed (W21).
         hypothetical:
           type: boolean
           description: True exactly for kind hypothetical_argument, which is never a finding.
@@ -10399,6 +10653,9 @@ components:
         useLocalAi: { type: boolean }
     ReviewTableProgress:
       type: object
+      description: >-
+        Cells per state, counted as cells[].state reports them (W21 #17: a W20
+        "abstention" whose run did not end in ABSTAIN counts as failed).
       required: [total, pending, running, done, failed, cancelled]
       properties:
         total: { type: integer, minimum: 0 }
@@ -10443,7 +10700,34 @@ components:
               rowNo: { type: integer, minimum: 1 }
               fileId: { type: string }
               fileName: { type: string, nullable: true }
-              documentVersionId: { type: string, format: uuid, nullable: true }
+              documentVersionId:
+                type: string
+                format: uuid
+                nullable: true
+                description: The version this row is pinned to. Every cell reads exactly this version (W21).
+              currentDocumentVersionId:
+                type: string
+                format: uuid
+                nullable: true
+                description: W21 — the file current version now; null when the file is gone.
+              stale:
+                type: boolean
+                description: >-
+                  W21 — the pin is missing or differs from the current version. Cells
+                  still read the pinned version. WHY the row is stale is in staleReason;
+                  stale does not mean a newer upload exists.
+              staleReason:
+                type: string
+                nullable: true
+                enum: [newer_version, file_deleted, pin_gone, no_readable_current]
+                description: >-
+                  W21 — why the row is stale; null exactly when stale is false.
+                  newer_version: a newer published version of the file exists.
+                  file_deleted: the file itself was deleted (a new table cannot
+                  include it). pin_gone: the file exists but the pinned version
+                  was deleted or can no longer be read exactly. no_readable_current:
+                  the pin is readable but the file has no readable current version
+                  (a newer upload failed or is still being processed).
         cells:
           type: array
           items:
@@ -10452,14 +10736,51 @@ components:
             properties:
               rowNo: { type: integer, minimum: 1 }
               columnNo: { type: integer, minimum: 1 }
-              state: { type: string, enum: [pending, running, done, failed, cancelled] }
+              state:
+                type: string
+                enum: [pending, running, done, failed, cancelled]
+                description: >-
+                  W21 (#17) — a cell stored as done by the W20 worker as an
+                  abstention although its answer run did not end in ABSTAIN (the
+                  run could not finish) is reported as failed, with the
+                  ANSWER_INCOMPLETE error and no answer fields; it can be retried.
+                  progress counts it as failed too. The stored row is unchanged.
               attempts: { type: integer, minimum: 0 }
               answerStatus: { type: string, nullable: true }
-              answerText: { type: string, nullable: true }
+              answerText:
+                type: string
+                nullable: true
+                description: >-
+                  W21 (#18, CB3) — an abstention speaks about the passages retrieved
+                  for the question ("Bu soru için getirilen pasajlarda ...; belgenin
+                  tamamı taranmadı."). "Bu belgede karşılığı bulunamadı — şu
+                  sözcüklerin geçtiği bir yer yok: ..." appears only for words
+                  verified absent from the whole pinned text, i.e. only in a cell
+                  whose generatorVersion is grid-v3 or later; an older cell's
+                  abstention is re-stated passage-scoped, keeping the words it named.
+                  W21 round two (R2-22) — an extract_* census never says a value is
+                  absent from the document: it lists (or finds no) values IN THE
+                  RECOGNISED FORMATS and names them ("Belgenin tamamı okundu;
+                  tanınan biçimlerde yazılmış bir tarih bulunmadı (tanınan
+                  biçimler: ...)"), and names by example date/amount-like text it
+                  could not read (then answerStatus is PARTIAL). A census stored
+                  before grid-v4, or counted with an extractor older than the
+                  current one (grid-v4 and grid-v5 cells), is reported with
+                  answerStatus PARTIAL and a text that starts "Bu hücre, bazı
+                  yazımları tanımayan eski bir sayımla hesaplandı"; its old
+                  whole-document sentence is not repeated.
               supportState:
                 type: string
                 nullable: true
                 enum: [verified, partially_verified, unverified, abstained, no_evidence, exhaustive_complete, exhaustive_incomplete]
+                description: >-
+                  exhaustive_complete / exhaustive_incomplete are the READING
+                  coverage of a census (every page of the pinned version read or
+                  not). Whether the census itself is complete is answerStatus:
+                  COMPLETE only when it also met no value-like text it could not
+                  read (W21 R2-22). partially_verified is a verifier verdict on a
+                  claim whose passage support WAS judged — a claim the judge never
+                  assessed is not stored (see error; W21 R2-21).
               provenance:
                 type: array
                 items:
@@ -10478,12 +10799,165 @@ components:
                   - $ref: "#/components/schemas/ProcessingCoverage"
                 nullable: true
               answerRunId: { type: string, nullable: true }
-              generatorVersion: { type: string, nullable: true }
-              error: { type: string, nullable: true }
+              generatorVersion:
+                type: string
+                nullable: true
+                description: >-
+                  The worker version that finished the cell. grid-v3 (W21): answer
+                  cells follow CB2 (an unfinished run fails) and CB3 (the absolute
+                  sentence only after a whole-text check). grid-v2 (W20): neither;
+                  such cells are reported as described for state and answerText.
+                  grid-v4 (W21 round two): R2-21, R2-23 and R2-24 as described for
+                  error; census cells counted with extract-v3 or later and scoped to the
+                  recognised formats (R2-22). grid-v5 and grid-v6 (the closing
+                  re-checks) move with the census extractor (grid-v6 counts with
+                  extract-v7, which reads no exchange rate as an amount); answer
+                  cells are unchanged since grid-v4. A census cell of an older
+                  generator is re-stated as described for answerText.
+              error:
+                type: string
+                nullable: true
+                description: >-
+                  Why the cell has no answer. W21 — an answer run the pipeline
+                  could not finish (time budget spent, retrieval or drafter failed)
+                  is not stored as an abstention: the cell fails (retryable) with
+                  "Bu hücre tamamlanamadı: arama başarısız oldu ya da süre doldu;
+                  yeniden deneyin." A failed or re-queued cell carries no previous
+                  answer text. W21 round two — a spent time budget fails the cell
+                  only when the run has no claim; claims drafted and verified before
+                  the budget ran out are stored (R2-24). A claim whose passage
+                  support the judge never assessed (ENTAILMENT_NOT_CHECKED) fails
+                  the cell, retryably: "Bu hücre tamamlanamadı: cevap cümlesi
+                  yazıldı, ama pasajın bu cümleyi destekleyip desteklemediği
+                  denetlenemedi ..." (R2-21). An abstention from a search in which
+                  an exact, lexical, trigram or dense lane failed fails the cell,
+                  retryably: "Bu hücre tamamlanamadı: arama şeritlerinden biri
+                  başarısız oldu ..." (R2-23).
         progress:
           $ref: "#/components/schemas/ReviewTableProgress"
         modesTr: { type: object, additionalProperties: { type: string } }
         supportTr: { type: object, additionalProperties: { type: string } }
+        sourceChanged:
+          type: array
+          description: W21 — file ids whose current version differs from the row pin.
+          items: { type: string }
+        stale:
+          type: boolean
+          description: W21 — at least one row is stale (see rows[].stale).
+    AnalysisTaskProgress:
+      type: object
+      required: [stage, state, count]
+      properties:
+        stage:
+          type: string
+          enum: [weigh_claim, weigh_defense, contradiction_group, synthesis_group, synthesis_reduce]
+        state:
+          type: string
+          enum: [pending, running, done, failed, excluded]
+        count: { type: integer, minimum: 0 }
+    ExtractionCoverage:
+      type: object
+      description: >-
+        W21 — what structured (model-assisted) extraction achieved, separate
+        from processingCoverage (what was read). A unit counts as succeeded
+        only when nothing was truncated and every proposed item was grounded
+        in the source; rejected or ambiguous quotes keep it incomplete.
+      required: [required, unitsRequiringStructuredExtraction, unitsExtractionSucceeded, complete, gapsTr]
+      properties:
+        required: { type: boolean }
+        unitsRequiringStructuredExtraction: { type: integer, minimum: 0 }
+        unitsExtractionAttempted: { type: integer, minimum: 0 }
+        unitsExtractionSucceeded: { type: integer, minimum: 0 }
+        unitsExtractionIncomplete: { type: integer, minimum: 0 }
+        unitsExtractionFailed: { type: integer, minimum: 0 }
+        unitsExtractionPending: { type: integer, minimum: 0 }
+        generatedItems: { type: integer, minimum: 0 }
+        acceptedGroundedItems: { type: integer, minimum: 0 }
+        malformedItems: { type: integer, minimum: 0 }
+        rejectedQuotes: { type: integer, minimum: 0 }
+        ambiguousQuotes: { type: integer, minimum: 0 }
+        truncatedResponses: { type: integer, minimum: 0 }
+        continuationPasses: { type: integer, minimum: 0 }
+        repairPasses: { type: integer, minimum: 0 }
+        complete: { type: boolean }
+        gapsTr:
+          type: array
+          items: { type: string }
+    IntelligenceCoverage:
+      type: object
+      description: >-
+        W21 — which analytical stages reached a terminal, successful state.
+        claimsWeighed counts a claim only when every candidate batch of it
+        finished and was answered; a claim the planner never gave a task is
+        pending, never weighed.
+      required: [requiredStages, claimsTotal, claimsWeighed, defensesTotal, defensesWeighed, complete, gapsTr]
+      properties:
+        requiredStages:
+          type: array
+          items:
+            type: string
+            enum: [deterministic_relations, claim_weighing, defense_weighing, semantic_contradictions, synthesis]
+        claimsTotal: { type: integer, minimum: 0 }
+        claimsWeighed: { type: integer, minimum: 0 }
+        claimsFailed: { type: integer, minimum: 0 }
+        claimsPending: { type: integer, minimum: 0 }
+        claimsUnresolved: { type: integer, minimum: 0 }
+        defensesTotal: { type: integer, minimum: 0 }
+        defensesWeighed: { type: integer, minimum: 0 }
+        defensesFailed: { type: integer, minimum: 0 }
+        defensesPending: { type: integer, minimum: 0 }
+        defensesUnresolved: { type: integer, minimum: 0 }
+        evidenceItemsTotal: { type: integer, minimum: 0 }
+        evidenceCandidateAnalysesPlanned: { type: integer, minimum: 0 }
+        evidenceCandidateAnalysesCompleted: { type: integer, minimum: 0 }
+        claimsWithCompleteSearch: { type: integer, minimum: 0 }
+        contradictionGroupsTotal: { type: integer, minimum: 0 }
+        contradictionGroupsProcessed: { type: integer, minimum: 0 }
+        contradictionPairsTotal: { type: integer, minimum: 0 }
+        contradictionPairsClassified: { type: integer, minimum: 0 }
+        semanticContradictionLane:
+          type: string
+          enum: [PERFORMED, NOT_REQUIRED, NOT_AVAILABLE]
+        synthesisGroupsTotal: { type: integer, minimum: 0 }
+        synthesisGroupsProcessed: { type: integer, minimum: 0 }
+        synthesisLevels: { type: integer, minimum: 0 }
+        unresolvedStages:
+          type: array
+          items: { type: string }
+        failedStages:
+          type: array
+          items: { type: string }
+        truncatedStages:
+          type: array
+          items: { type: string }
+        finalized: { type: boolean }
+        complete: { type: boolean }
+        gapsTr:
+          type: array
+          items: { type: string }
+    AnalysisCompleteness:
+      type: object
+      description: >-
+        W21 — source, extraction and analysis coverage combined in exactly one
+        place. complete is true only when all three are complete.
+      required: [state, sourceComplete, extractionComplete, intelligenceComplete, complete, headlineTr, sectionsTr, refusedBecause]
+      properties:
+        state:
+          type: string
+          enum: [COMPLETE, INCOMPLETE, IN_PROGRESS]
+        sourceComplete: { type: boolean }
+        extractionComplete: { type: boolean }
+        intelligenceComplete: { type: boolean }
+        complete: { type: boolean }
+        headlineTr: { type: string }
+        sectionsTr:
+          type: object
+          required: [source, extraction, analysis]
+          properties:
+            source: { type: string }
+            extraction: { type: string }
+            analysis: { type: string }
+        refusedBecause: { type: string, nullable: true }
     MatterAnalysisRun:
       type: object
       required: [runId, matterId, task, status, createdAt]
@@ -10512,9 +10986,23 @@ components:
           $ref: "#/components/schemas/MatterAnalysisProgress"
         stale:
           type: boolean
-          description: A source file has a newer version than the one this run read.
+          description: >-
+            The run no longer speaks for the matter as it is now: a pinned file
+            has a newer version or was deleted (sourceChanged), a document was
+            added to the matter after a whole-matter run (sourceAdded), or a
+            pinned document left the matter (sourceRemoved). W21: a stale run
+            is never reported complete (analysisCompleteness.complete false,
+            exhaustiveClaimRefusedBecause set).
         sourceChanged:
           type: array
+          items: { type: string }
+        sourceAdded:
+          type: array
+          description: W21 — documents of the matter this whole-matter run never read.
+          items: { type: string }
+        sourceRemoved:
+          type: array
+          description: W21 — documents this run read that are no longer in the matter.
           items: { type: string }
         summary: { type: object, additionalProperties: true }
         model: { type: string, nullable: true }
@@ -10522,6 +11010,28 @@ components:
           type: array
           items: { type: string }
         links: { type: object, additionalProperties: { type: string } }
+        analysisProgress:
+          type: array
+          description: W21 — analytical task counts by stage and state (claim weighing, contradiction batches, synthesis groups).
+          items:
+            $ref: "#/components/schemas/AnalysisTaskProgress"
+        extractionCoverage:
+          $ref: "#/components/schemas/ExtractionCoverage"
+        intelligenceCoverage:
+          $ref: "#/components/schemas/IntelligenceCoverage"
+        analysisCompleteness:
+          allOf:
+            - $ref: "#/components/schemas/AnalysisCompleteness"
+          nullable: true
+          description: >-
+            W21 — the ONLY field that may license the statement that the
+            analysis is complete. processingCoverage.complete (every page read)
+            may be true while this is false; the two are different claims.
+        analysisComplete:
+          type: boolean
+          description: >-
+            List views only — source read, extraction complete and every
+            analytical stage complete (the same rule as analysisCompleteness).
     AnswerScope:
       type: object
       additionalProperties: false

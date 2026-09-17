@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://collex.local/schemas/collex.matter.gold/v1",
+  "title": "collex.matter.gold/v1",
+  "description": "Whole-Matter gold annotation. Mirrors control-plane/src/evals/matterGold.ts (matterGoldSchema); the TypeScript validator is authoritative. Encoded here as well: field shapes, the lawyer_annotated annotator rule and the chronology date/precision rule (chronologyEvent). Checked ONLY by the TypeScript validator: cross-references (unique ids and fileIds, targets, appliesTo, a contradiction alternative's 'side'), that a legal issue has 'sources' or 'keywords', and the LOCATION of every quote in the file text: a quote that does not occur, occurs ambiguously without 'occurrence', or does not sit at a given 'startChar' makes the file invalid.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "title", "source", "annotators", "adjudication", "files"],
+  "allOf": [
+    {
+      "if": { "properties": { "source": { "const": "lawyer_annotated" } }, "required": ["source"] },
+      "then": { "properties": { "annotators": { "minItems": 1 } } }
+    }
+  ],
+  "properties": {
+    "schema": { "const": "collex.matter.gold/v1" },
+    "id": { "$ref": "#/$defs/id" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "source": { "enum": ["synthetic", "lawyer_annotated"] },
+    "annotators": { "type": "array", "maxItems": 10, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+    "adjudication": { "enum": ["pending", "agreed", "disputed"] },
+    "clientRole": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "notes": { "type": "string", "maxLength": 4000 },
+    "files": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "$ref": "#/$defs/file" } },
+    "claims": { "type": "array", "items": { "$ref": "#/$defs/partyStatement" } },
+    "defenses": { "type": "array", "items": { "$ref": "#/$defs/partyStatement" } },
+    "evidenceLinks": { "type": "array", "items": { "$ref": "#/$defs/evidenceLink" } },
+    "contradictions": { "type": "array", "items": { "$ref": "#/$defs/contradiction" } },
+    "chronology": { "type": "array", "items": { "$ref": "#/$defs/chronologyEvent" } },
+    "legalIssues": { "type": "array", "items": { "$ref": "#/$defs/legalIssue" } },
+    "expectedAbstentions": { "type": "array", "items": { "$ref": "#/$defs/abstention" } },
+    "completenessRequirements": { "type": "array", "items": { "$ref": "#/$defs/completeness" } },
+    "alternatives": { "type": "array", "items": { "$ref": "#/$defs/alternative" } }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,80}$",
+      "description": "Letters, digits and . _ : - (max 80). Unique across the whole gold file."
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$",
+      "description": "YYYY, YYYY-MM or YYYY-MM-DD."
+    },
+    "relation": { "enum": ["CONTRADICTION", "TENSION"] },
+    "supportStatus": {
+      "enum": [
+        "supported",
+        "opposed",
+        "ambiguous",
+        "unsupported",
+        "disputed",
+        "no_support_in_candidates",
+        "search_incomplete",
+        "not_weighed"
+      ]
+    },
+    "passage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fileId", "quote"],
+      "properties": {
+        "fileId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Copied EXACTLY from the file text; the application finds the offsets."
+        },
+        "occurrence": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Which occurrence (1-based) when the quote occurs more than once."
+        },
+        "startChar": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optional code-point offset hint; checked against the text, never trusted on its own."
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fileId", "title"],
+      "properties": {
+        "fileId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000000,
+          "description": "Inline text (synthetic samples). A lawyer's gold file omits it; the scorer is given the product's extracted text instead."
+        }
+      }
+    },
+    "partyStatement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "sources"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "party": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "sources": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/passage" } },
+        "notes": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "evidenceLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "target", "stance", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "target": { "$ref": "#/$defs/id", "description": "Id of a claim or defense in this file." },
+        "stance": { "enum": ["supports", "opposes"] },
+        "evidence": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/passage" } },
+        "notes": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "contradiction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "relation", "left", "right"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "relation": { "$ref": "#/$defs/relation" },
+        "left": { "$ref": "#/$defs/passage" },
+        "right": { "$ref": "#/$defs/passage" },
+        "explanation": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "chronologyEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "date", "description", "sources"],
+      "description": "A given 'precision' must fit the date: 'exact' needs YYYY-MM-DD, 'month' needs at least YYYY-MM. Without 'precision' it is read from the date's length.",
+      "allOf": [
+        {
+          "if": { "properties": { "precision": { "const": "exact" } }, "required": ["precision"] },
+          "then": { "properties": { "date": { "pattern": "^\\d{4}-\\d{2}-\\d{2}$" } } }
+        },
+        {
+          "if": { "properties": { "precision": { "const": "month" } }, "required": ["precision"] },
+          "then": { "properties": { "date": { "pattern": "^\\d{4}-\\d{2}(-\\d{2})?$" } } }
+        }
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "date": { "$ref": "#/$defs/date" },
+        "precision": { "enum": ["exact", "month", "year", "approximate"] },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "sources": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/passage" } }
+      }
+    },
+    "legalIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement"],
+      "description": "Needs 'sources' or 'keywords' (checked by the TypeScript validator).",
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "sources": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/passage" } },
+        "keywords": { "type": "array", "maxItems": 10, "items": { "type": "string", "minLength": 2, "maxLength": 100 } }
+      }
+    },
+    "abstention": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "type", "left", "right", "relations", "reason"],
+          "properties": {
+            "id": { "$ref": "#/$defs/id" },
+            "type": { "const": "no_contradiction" },
+            "left": { "$ref": "#/$defs/passage" },
+            "right": { "$ref": "#/$defs/passage" },
+            "relations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/relation" } },
+            "reason": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "type", "target", "statuses", "reason"],
+          "properties": {
+            "id": { "$ref": "#/$defs/id" },
+            "type": { "const": "no_support_status" },
+            "target": { "$ref": "#/$defs/id" },
+            "statuses": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/supportStatus" } },
+            "reason": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "type", "kinds", "passage", "reason"],
+          "properties": {
+            "id": { "$ref": "#/$defs/id" },
+            "type": { "const": "no_item" },
+            "kinds": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "maxLength": 60 } },
+            "passage": { "$ref": "#/$defs/passage" },
+            "reason": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "type", "passage", "date", "reason"],
+          "properties": {
+            "id": { "$ref": "#/$defs/id" },
+            "type": { "const": "no_event_date" },
+            "passage": { "$ref": "#/$defs/passage" },
+            "date": { "$ref": "#/$defs/date" },
+            "reason": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          }
+        }
+      ]
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["run_finished", "coverage_complete", "coverage_gap_reported", "all_files_processed"] },
+        "description": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "alternative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "appliesTo", "description"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "appliesTo": { "$ref": "#/$defs/id" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "acceptKinds": { "type": "array", "minItems": 1, "items": { "enum": ["claim", "defense"] } },
+        "acceptRelations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/relation" } },
+        "acceptSources": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/passage" } },
+        "acceptDate": { "$ref": "#/$defs/date" },
+        "side": { "enum": ["left", "right"] },
+        "optional": { "type": "boolean" }
+      }
+    }
+  }
+}

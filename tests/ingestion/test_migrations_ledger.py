@@ -62,6 +62,9 @@ DURABLE_MIGRATION = "20260912090000_durable_matter_analysis.sql"
 DENSE_MIGRATION = "20260912100000_private_dense_vectors.sql"
 #: W20: the persisted review grid, four RLS policies.
 REVIEW_MIGRATION = "20260912110000_review_tables.sql"
+#: W21: durable analytical tasks + extraction/intelligence coverage columns,
+#: one RLS policy.
+STAGES_MIGRATION = "20260913090000_analysis_stages.sql"
 
 
 def _db_unavailable() -> str | None:
@@ -149,6 +152,7 @@ def test_bootstrap_boundary_is_a_real_migration_and_newer_ones_declare_sentinels
         DURABLE_MIGRATION,
         DENSE_MIGRATION,
         REVIEW_MIGRATION,
+        STAGES_MIGRATION,
     ]
     probes: dict[str, list[tuple[str, str]]] = {}
     by_path = {p.name: p for p in runnable_migrations()}
@@ -580,6 +584,7 @@ def test_half_applied_matters_migration_is_NOT_bootstrapped_and_gets_applied(fre
                 ANALYSIS_MIGRATION,
                 DURABLE_MIGRATION,
                 REVIEW_MIGRATION,
+                STAGES_MIGRATION,
             ):
                 continue
             conn.execute(path.read_text(encoding="utf-8"))
@@ -611,6 +616,9 @@ def test_half_applied_matters_migration_is_NOT_bootstrapped_and_gets_applied(fre
             # migration does not and is bootstrapped instead.
             DURABLE_MIGRATION,
             REVIEW_MIGRATION,
+            # W21: alters the W19/W20 analysis tables, so it too applies
+            # after them.
+            STAGES_MIGRATION,
         ]
 
         # And the policies the half-applied file skipped now exist.
@@ -628,11 +636,12 @@ def test_half_applied_matters_migration_is_NOT_bootstrapped_and_gets_applied(fre
 def test_complete_database_carries_the_expected_rls_policy_count(fresh_db):
     """B-05 (d): ``/v1/health rls.present == rls.expected`` on a full database.
 
-    31 = 12 policies from 20260826060000_rls.sql + 5 from the matters
+    32 = 12 policies from 20260826060000_rls.sql + 5 from the matters
     migration + 1 from the W14 AI audit ledger + 1 from the W19 source
     locators migration + 4 from the W19 matter-analysis migration + 3 from
     the W20 durable-analysis migration + 1 from the W20 private dense
-    vectors migration + 4 from the W20 review-table migration = 31.
+    vectors migration + 4 from the W20 review-table migration + 1 from the
+    W21 analysis-stages migration = 32.
     ``control-plane/src/store/health.ts`` EXPECTED_RLS_POLICIES carries the
     same number and persistence.test.ts asserts it against a real cluster;
     this is the Python side of the same count. (ENGRISK measured 17 before
@@ -644,7 +653,7 @@ def test_complete_database_carries_the_expected_rls_policy_count(fresh_db):
             "select count(*) from pg_policies"
             " where schemaname in ('legal', 'app_private')"
         ).fetchone()[0]
-        assert present == 31
+        assert present == 32
 
 
 def test_two_concurrent_apply_passes_on_an_empty_database_both_succeed(fresh_db):

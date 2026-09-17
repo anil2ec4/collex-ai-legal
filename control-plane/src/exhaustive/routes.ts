@@ -22,6 +22,13 @@
  * Every run response carries `processingCoverage` — LIVE while the run is in
  * progress (derived from the ledger), stored once it finishes — so a caller
  * never infers how much was read from the absence of a field.
+ *
+ * W21: reading everything is not analysing everything. Each run response
+ * also carries `extractionCoverage` (what structured extraction achieved),
+ * `intelligenceCoverage` (which claims, comparisons, contradiction batches
+ * and synthesis groups reached a terminal state) and `analysisCompleteness`,
+ * the one combined statement. `processingCoverage.complete === true` with
+ * `analysisCompleteness.complete === false` is a normal, reported state.
  */
 
 import { Hono } from "hono";
@@ -29,14 +36,29 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { fieldIssues } from "../api/zodIssues.js";
 import { trustLabelTr, type EndpointTrust } from "../llm/endpointTrust.js";
-import { resolveMatterScope } from "../matters/scope.js";
+import { matterFileIds, resolveMatterScope } from "../matters/scope.js";
 import type { MatterStore } from "../matters/types.js";
+import {
+  deriveAnalysisCompleteness,
+  deriveExtractionCoverage,
+  deriveIntelligenceCoverage,
+  type ExtractionCoverage,
+  type IntelligenceCoverage,
+} from "./analysisCoverage.js";
 import type { DurableAnalysisStore, DurableRunRow } from "./durableStore.js";
 import { canonicalRunIdentity, runIdentityKey, type RunIdentity } from "./identity.js";
 import { INTEL_VERSION } from "./intelligence.js";
+import {
+  decideModelTasks,
+  resolveEffectiveAiPolicy,
+  type AiPolicy,
+  type ModelTaskDecision,
+} from "../llm/aiPolicy.js";
+import { resolveLocalGenerationConfig } from "../llm/localGenerationConfig.js";
 import { MODEL_EXTRACTOR_VERSION } from "./modelExtractor.js";
 import { coverageSentenceTr, refuseExhaustiveClaim, type ProcessingCoverage } from "./processingCoverage.js";
 import { EXTRACTOR_VERSION, planUnits, runReduce, UNIT_BUILDER_VERSION } from "./runner.js";
+import { STAGE_SCHEMA_VERSION } from "./stageTypes.js";
 import { ANALYSIS_TASKS, TASK_SPECS, taskAvailability, type AnalysisTask } from "./tasks.js";
 import type { WorkerModelRoutes } from "./worker.js";
 
@@ -65,6 +87,25 @@ export interface ExhaustiveRouterDeps {
   readonly worker?: { kick(): void } | undefined;
   /** The configured model routes; resolved per request, never cached. */
   readonly models?: (() => WorkerModelRoutes) | undefined;
+  /** W21: the application AI policy; absent -> read from the environment per call. */
+  readonly aiPolicy?: (() => AiPolicy) | undefined;
+  /** W21: where the configured local endpoint runs, even when the route table refused it. */
+  readonly localTrust?: (() => EndpointTrust | null) | undefined;
+  /**
+   * W21: why the configured local model address was REFUSED by the trust
+   * rules (an unlisted LAN host such as http://192.168.1.20:11434 without
+   * COLLEX_TRUSTED_LOCAL_HOSTS, a bad scheme), or null. Absent -> read from
+   * the environment per call. A set-but-refused address is never reported
+   * as "no model is configured".
+   */
+  readonly localRefusedReason?: (() => string | null) | undefined;
+}
+
+/** A model-task decision and the reason a task refusal should name, if any. */
+interface ModelGate {
+  readonly decision: ModelTaskDecision;
+  /** Undefined only when the plain "no model is configured" sentence applies. */
+  readonly blockedReasonTr: string | undefined;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -79,13 +120,70 @@ function runNotFound(c: Context): Response {
   return c.json({ error: { kind: "RUN_NOT_FOUND", message: "Bu inceleme bulunamadı." } }, 404);
 }
 
+/** Why a finished run no longer speaks for the matter as it is now. */
+export const RUN_NOT_CURRENT_TR =
+  "Bu inceleme bittikten sonra dosyaya belge eklendi, bir belge değişti ya da dosyadan çıkarıldı;" +
+  " sonuç dosyanın bugünkü hâlinin tamamını kapsamıyor. Güncel sonuç için incelemeyi yeniden başlatın.";
+export const MATTER_MEMBERS_UNKNOWN_TR =
+  "Dosyanın güncel belge listesi okunamadı; incelemeden sonra belge eklenip eklenmediği bilinmiyor.";
+
+/** How the matter's documents changed since a run froze its scope. */
+export interface ScopeDrift {
+  /** Pinned files whose current version differs (or that were deleted). */
+  readonly changed: string[];
+  /** Documents of the matter the run never read (whole-matter runs). */
+  readonly added: string[];
+  /** Pinned files that are no longer documents of the matter. */
+  readonly removed: string[];
+  readonly membersUnknown: boolean;
+}
+
+export function isDrifted(drift: ScopeDrift): boolean {
+  return drift.changed.length > 0 || drift.added.length > 0 || drift.removed.length > 0;
+}
+
 function modelReady(routes: WorkerModelRoutes): boolean {
   return routes.extraction !== undefined && routes.synthesis !== undefined;
+}
+
+/** Source read, extraction complete and every analytical stage complete. */
+function analysisCompleteOf(run: DurableRunRow): boolean {
+  return (
+    run.status === "done" &&
+    run.coverage?.complete === true &&
+    run.extractionCoverage?.complete === true &&
+    run.intelligenceCoverage?.complete === true
+  );
 }
 
 export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
   const app = new Hono();
   const routes = (): WorkerModelRoutes => deps.models?.() ?? {};
+  /** The trust rules' refusal of a configured local address, or "". */
+  const refusedReason = (): string => {
+    if (deps.localRefusedReason !== undefined) return (deps.localRefusedReason() ?? "").trim();
+    const resolved = resolveLocalGenerationConfig();
+    return resolved.kind === "REFUSED" ? resolved.refusal.message.trim() : "";
+  };
+  /**
+   * W21: may the model tasks run at all (AI policy + where the model runs)?
+   * The refused-address reason is passed on, so an address that is set but
+   * refused reaches the capabilities and the 409 message as what it is.
+   */
+  const modelGate = (models: WorkerModelRoutes): ModelGate => {
+    const missing = models.extraction === undefined || models.synthesis === undefined;
+    const refused = missing ? refusedReason() : "";
+    const decision = decideModelTasks(
+      deps.aiPolicy?.() ?? resolveEffectiveAiPolicy().policy,
+      models,
+      deps.localTrust?.() ?? null,
+      refused === "" ? null : refused,
+    );
+    // Only a plain "no model is configured" keeps the task's own sentence;
+    // the AI policy, an outside endpoint and a refused address are named.
+    const plainNoModel = decision.code === "MODEL_UNAVAILABLE" && refused === "";
+    return { decision, blockedReasonTr: decision.allowed || plainNoModel ? undefined : decision.reasonTr };
+  };
 
   /** Live coverage for an active run; the stored one for a finished run. */
   async function coverageOf(run: DurableRunRow): Promise<ProcessingCoverage | null> {
@@ -97,6 +195,40 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
     return runReduce(documents, ledger, [], []).coverage;
   }
 
+  /**
+   * The two analytical layers: stored once a run is done, derived LIVE from
+   * the ledger and the task rows otherwise (a failed or cancelled run is
+   * derived too, and is never finalized, so it is never complete).
+   */
+  async function analysisLayersOf(
+    run: DurableRunRow,
+  ): Promise<{ extraction: ExtractionCoverage; intelligence: IntelligenceCoverage }> {
+    if (run.status === "done" && run.extractionCoverage !== undefined && run.intelligenceCoverage !== undefined) {
+      return { extraction: run.extractionCoverage, intelligence: run.intelligenceCoverage };
+    }
+    const spec = TASK_SPECS[run.task];
+    const terminal = run.status === "failed" || run.status === "cancelled";
+    const extraction = deriveExtractionCoverage(
+      await deps.store.loadExtractionLedger(run.runId),
+      spec.requiresModel && spec.modelKinds.length > 0,
+      terminal,
+    );
+    const tasks = await deps.store.loadTasks(run.runId);
+    const weighPlan = tasks.find((row) => row.stage === "plan" && row.taskKey === "weigh");
+    const details = (weighPlan?.result?.["details"] ?? {}) as Record<string, unknown>;
+    const intelligence = deriveIntelligenceCoverage({
+      task: run.task,
+      tasks,
+      claimsTotal: Number(details["claims"] ?? 0),
+      defensesTotal: Number(details["defenses"] ?? 0),
+      evidenceItemsTotal: Number(details["evidenceUniverse"] ?? 0),
+      modelAvailable: modelReady(routes()),
+      finalized: false,
+      terminal,
+    });
+    return { extraction, intelligence };
+  }
+
   /** Files whose current version is no longer the one the run read. */
   async function changedSources(run: DurableRunRow): Promise<string[]> {
     if (run.snapshot === undefined) return [];
@@ -106,11 +238,63 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
       .map(([fileId]) => fileId);
   }
 
+  /** The matter's current documents, or null when the matter store cannot answer. */
+  async function currentMembers(matterId: string): Promise<readonly string[] | null> {
+    try {
+      return await matterFileIds(deps.matters, matterId);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * W21 round-two review: a run froze the matter's documents when it
+   * started. A document added to the matter since (a whole-matter run), a
+   * pinned document changed or deleted, or one removed from the matter
+   * makes the result NOT CURRENT: its "every document was read" and its
+   * "no support was found" findings no longer speak for the matter.
+   */
+  async function scopeDrift(run: DurableRunRow, members?: readonly string[] | null): Promise<ScopeDrift> {
+    const changed = await changedSources(run);
+    if (run.snapshot === undefined) return { changed, added: [], removed: [], membersUnknown: false };
+    const current = members === undefined ? await currentMembers(run.matterId) : members;
+    if (current === null) return { changed, added: [], removed: [], membersUnknown: true };
+    const pinned = new Set(run.snapshot.fileIds);
+    const memberSet = new Set(current);
+    return {
+      changed,
+      added: run.snapshot.wholeMatter === false ? [] : current.filter((fileId) => !pinned.has(fileId)),
+      removed: run.snapshot.fileIds.filter((fileId) => !memberSet.has(fileId) && !changed.includes(fileId)),
+      membersUnknown: false,
+    };
+  }
+
   async function runView(run: DurableRunRow): Promise<Record<string, unknown>> {
     const coverage = await coverageOf(run);
     const progress = await deps.store.progress(run.runId);
+    const layers = await analysisLayersOf(run);
+    const active = run.status !== "done" && run.status !== "failed" && run.status !== "cancelled";
+    const derived =
+      coverage === null
+        ? null
+        : deriveAnalysisCompleteness({
+            task: run.task,
+            source: coverage,
+            extraction: layers.extraction,
+            intelligence: layers.intelligence,
+            active,
+          });
     const spec = TASK_SPECS[run.task];
-    const sourceChanged = await changedSources(run);
+    const drift = await scopeDrift(run);
+    const sourceChanged = drift.changed;
+    const stale = isDrifted(drift);
+    const notCurrent = stale ? RUN_NOT_CURRENT_TR : drift.membersUnknown ? MATTER_MEMBERS_UNKNOWN_TR : null;
+    // A run that was complete for the documents it froze is not complete for
+    // the matter as it is now.
+    const completeness =
+      derived !== null && notCurrent !== null && derived.complete
+        ? { ...derived, complete: false, refusedBecause: notCurrent, headlineTr: notCurrent }
+        : derived;
     return {
       runId: run.runId,
       matterId: run.matterId,
@@ -122,18 +306,30 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
       error: run.error,
       cancelRequested: run.cancelRequested,
       progress,
+      analysisProgress: await deps.store.taskProgress(run.runId),
       processingCoverage: coverage,
+      extractionCoverage: layers.extraction,
+      intelligenceCoverage: layers.intelligence,
+      // The ONLY field that may license "the analysis is complete".
+      analysisCompleteness: completeness,
       coverageSummary: coverage === null ? null : coverageSentenceTr(coverage),
       // Present whenever an exhaustive claim is NOT permitted. A caller that
       // renders "tüm çelişkiler" must check this first.
+      // W21: also refused while extraction or an analytical stage is
+      // incomplete or still running — "every page read" never licenses
+      // "tüm çelişkiler" on its own. The source reason keeps priority.
       exhaustiveClaimRefusedBecause:
-        coverage === null ? "İnceleme kapsamı hesaplanamadı." : refuseExhaustiveClaim(coverage) ?? null,
+        coverage === null
+          ? "İnceleme kapsamı hesaplanamadı."
+          : refuseExhaustiveClaim(coverage) ?? completeness?.refusedBecause ?? notCurrent,
       // A finished run is an immutable snapshot of the versions it read; a
       // newer upload of one of those files makes the result STALE, and the
       // lawyer is told which files changed rather than shown old findings as
       // current.
       sourceChanged,
-      stale: sourceChanged.length > 0,
+      sourceAdded: drift.added,
+      sourceRemoved: drift.removed,
+      stale,
       summary: run.summary,
       model: run.modelId,
       limitsTr: spec.limitsTr,
@@ -149,17 +345,24 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
   app.get("/v1/matters/:matterId/analysis/capabilities", (c) => {
     if (!UUID_RE.test(c.req.param("matterId"))) return notFound(c);
     const models = routes();
-    const ready = modelReady(models);
+    const gate = modelGate(models);
+    const decision = gate.decision;
+    const ready = decision.allowed;
     const trust: EndpointTrust | undefined = models.extraction?.trust;
     return c.json({
       model: {
-        configured: ready,
+        configured: modelReady(models),
         ...(models.extraction !== undefined ? { model: models.extraction.model } : {}),
         ...(trust !== undefined ? { where: trustLabelTr(trust) } : {}),
+        // W21: configured is not usable — the AI policy and the on-machine
+        // rule decide, and the reason is said in plain Turkish.
+        usable: ready,
+        code: decision.code,
+        reasonTr: decision.reasonTr,
       },
       tasks: ANALYSIS_TASKS.map((task) => {
         const spec = TASK_SPECS[task];
-        const availability = taskAvailability(task, ready);
+        const availability = taskAvailability(task, ready, gate.blockedReasonTr);
         return {
           task,
           titleTr: spec.titleTr,
@@ -247,7 +450,8 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
     // A model-required task does not start without a model — it is never
     // quietly downgraded to its deterministic part.
     const models = routes();
-    const availability = taskAvailability(task, modelReady(models));
+    const gate = modelGate(models);
+    const availability = taskAvailability(task, gate.decision.allowed, gate.blockedReasonTr);
     if (!availability.available) {
       return c.json(
         { error: { kind: "MODEL_REQUIRED", message: availability.messageTr ?? "Model gerekiyor." } },
@@ -270,7 +474,9 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
       unitBuilderVersion: UNIT_BUILDER_VERSION,
       extractorVersion: EXTRACTOR_VERSION,
       modelSchemaVersion: spec.requiresModel ? MODEL_EXTRACTOR_VERSION : null,
-      intelVersion: INTEL_VERSION,
+      // The reduce builders AND the analytical stage schema: a change to
+      // either makes earlier results incomparable, so it is a new run.
+      intelVersion: `${INTEL_VERSION}+${STAGE_SCHEMA_VERSION}`,
       model:
         extraction === undefined
           ? null
@@ -298,6 +504,7 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
         snapshot: {
           versions,
           fileIds: [...scope.fileIds],
+          wholeMatter: parsed.data.fileIds === undefined,
           clientRole,
           synthesisModel: spec.requiresModel ? models.synthesis?.model ?? null : null,
           identity: canonicalRunIdentity(identity),
@@ -333,38 +540,56 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
     const matterId = c.req.param("matterId");
     if (!UUID_RE.test(matterId)) return notFound(c);
     const runs = await deps.store.listRuns(matterId);
-    return c.json({
-      runs: runs.map((run) => ({
+    const members = await currentMembers(matterId);
+    const views = [];
+    for (const run of runs) {
+      const drift = await scopeDrift(run, members);
+      const stale = isDrifted(drift);
+      views.push({
         runId: run.runId,
         task: run.task,
         taskTitle: TASK_SPECS[run.task].titleTr,
         status: run.status,
         createdAt: run.createdAt,
         finishedAt: run.finishedAt,
-        complete: run.coverage?.complete ?? false,
+        // A run over documents the matter no longer has as they were is not
+        // "the whole file read" or "complete" for the matter now.
+        complete: !stale && (run.coverage?.complete ?? false),
+        analysisComplete: !stale && !drift.membersUnknown && analysisCompleteOf(run),
+        stale,
+        sourceChanged: drift.changed,
+        sourceAdded: drift.added,
+        sourceRemoved: drift.removed,
         coverageSummary: run.coverage === undefined ? null : coverageSentenceTr(run.coverage),
-      })),
-    });
+      });
+    }
+    return c.json({ runs: views });
   });
 
   app.get("/v1/matters/:matterId/intelligence", async (c) => {
     const matterId = c.req.param("matterId");
     if (!UUID_RE.test(matterId)) return notFound(c);
     const latest = await deps.store.latestFinishedRuns(matterId);
+    const members = await currentMembers(matterId);
     const tasks = [];
     for (const run of latest) {
-      const sourceChanged = await changedSources(run);
+      const drift = await scopeDrift(run, members);
+      const stale = isDrifted(drift);
       tasks.push({
         task: run.task,
         taskTitle: TASK_SPECS[run.task].titleTr,
         runId: run.runId,
         finishedAt: run.finishedAt,
-        complete: run.coverage?.complete ?? false,
+        complete: !stale && (run.coverage?.complete ?? false),
+        analysisComplete: !stale && !drift.membersUnknown && analysisCompleteOf(run),
         coverageSummary: run.coverage === undefined ? null : coverageSentenceTr(run.coverage),
-        // Derived intelligence is a cache: when a source changed, the cached
-        // result is flagged stale and a new run is needed to rebuild it.
-        stale: sourceChanged.length > 0,
-        sourceChanged,
+        // Derived intelligence is a cache: when a source changed, or the
+        // matter gained or lost a document, the cached result is flagged stale
+        // and a new run is needed to rebuild it.
+        stale,
+        sourceChanged: drift.changed,
+        sourceAdded: drift.added,
+        sourceRemoved: drift.removed,
         items: (run.summary["items"] as Record<string, number> | undefined) ?? {},
       });
     }

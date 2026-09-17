@@ -1,0 +1,200 @@
+{
+  "schema": "collex.matter.gold/v1",
+  "id": "ornek-kira-davasi",
+  "title": "Örnek kira alacağı ve tahliye davası (sentetik)",
+  "source": "synthetic",
+  "annotators": ["sentetik-ornek"],
+  "adjudication": "pending",
+  "clientRole": "davacı",
+  "notes": "SENTETİKTİR. Gerçek kişi, gerçek dosya ya da müvekkil bilgisi içermez; taraflar 'Kiraya veren A' ve 'Kiracı B' olarak adlandırılmıştır. Biçimin nasıl doldurulacağını gösterir; hukukî kalite ölçümü için avukatın hazırladığı dosyalar gerekir.",
+  "files": [
+    {
+      "fileId": "f-dilekce",
+      "title": "Dava dilekçesi",
+      "text": "DAVA DİLEKÇESİ\nDavacı: Kiraya veren A\nDavalı: Kiracı B\nKonu: Kira alacağı ve tahliye.\n1. Taraflar arasında 01.01.2023 başlangıç tarihli, aylık 10.000 TL bedelli kira sözleşmesi bulunmaktadır.\n2. Davalı, Mart 2024 kira bedelini ödememiştir.\n3. Davalıya 11.03.2024 tarihinde ihtarname tebliğ edilmiş, ödeme için otuz gün süre verilmiştir.\n4. Verilen süre içinde de ödeme yapılmamıştır.\nTalep: Kiralananın tahliyesine ve 10.000 TL kira alacağının faiziyle tahsiline karar verilmesini talep ederiz.\n"
+    },
+    {
+      "fileId": "f-cevap",
+      "title": "Cevap dilekçesi",
+      "text": "CEVAP DİLEKÇESİ\n1. Mart 2024 kira bedeli 05.03.2024 tarihinde banka havalesiyle ödenmiştir.\n2. İhtarname müvekkile hiç tebliğ edilmemiştir.\n3. Kiralananın çatısındaki su sızıntısı davacıya bildirilmiş, ancak giderilmemiştir.\nSonuç: Davanın reddine karar verilmesini talep ederiz.\n"
+    },
+    {
+      "fileId": "f-dekont",
+      "title": "Banka dekontu",
+      "text": "BANKA DEKONTU\nİşlem tarihi: 05.03.2024\nGönderen: Kiracı B\nAlıcı: Kiraya veren A\nTutar: 10.000,00 TL\nAçıklama: Mart 2024 kira bedeli\n"
+    },
+    {
+      "fileId": "f-tebligat",
+      "title": "Tebliğ mazbatası",
+      "text": "TEBLİĞ MAZBATASI\nMuhatap: Kiracı B\nTebliğ tarihi: 11.03.2024\nTebliğ şekli: Muhatabın kendisine imzası alınarak tebliğ edildi.\n"
+    }
+  ],
+  "claims": [
+    {
+      "id": "c1",
+      "statement": "Davalı Mart 2024 kira bedelini ödemedi.",
+      "party": "davacı",
+      "sources": [{ "fileId": "f-dilekce", "quote": "Davalı, Mart 2024 kira bedelini ödememiştir." }]
+    },
+    {
+      "id": "c2",
+      "statement": "İhtarname 11.03.2024 tarihinde tebliğ edildi ve verilen sürede ödeme yapılmadı.",
+      "party": "davacı",
+      "sources": [
+        { "fileId": "f-dilekce", "quote": "Davalıya 11.03.2024 tarihinde ihtarname tebliğ edilmiş" },
+        { "fileId": "f-dilekce", "quote": "Verilen süre içinde de ödeme yapılmamıştır." }
+      ]
+    }
+  ],
+  "defenses": [
+    {
+      "id": "d1",
+      "statement": "Mart 2024 kirası 05.03.2024 tarihinde banka havalesiyle ödendi.",
+      "party": "davalı",
+      "sources": [{ "fileId": "f-cevap", "quote": "Mart 2024 kira bedeli 05.03.2024 tarihinde banka havalesiyle ödenmiştir." }]
+    },
+    {
+      "id": "d2",
+      "statement": "İhtarname davalıya tebliğ edilmedi.",
+      "party": "davalı",
+      "sources": [{ "fileId": "f-cevap", "quote": "İhtarname müvekkile hiç tebliğ edilmemiştir." }]
+    }
+  ],
+  "evidenceLinks": [
+    {
+      "id": "e1",
+      "target": "d1",
+      "stance": "supports",
+      "evidence": [
+        { "fileId": "f-dekont", "quote": "Açıklama: Mart 2024 kira bedeli" },
+        { "fileId": "f-dekont", "quote": "İşlem tarihi: 05.03.2024" }
+      ]
+    },
+    {
+      "id": "e2",
+      "target": "c1",
+      "stance": "opposes",
+      "evidence": [
+        { "fileId": "f-dekont", "quote": "Açıklama: Mart 2024 kira bedeli" },
+        { "fileId": "f-dekont", "quote": "İşlem tarihi: 05.03.2024" }
+      ]
+    },
+    {
+      "id": "e3",
+      "target": "c2",
+      "stance": "supports",
+      "evidence": [{ "fileId": "f-tebligat", "quote": "Tebliğ tarihi: 11.03.2024" }]
+    },
+    {
+      "id": "e4",
+      "target": "d2",
+      "stance": "opposes",
+      "evidence": [{ "fileId": "f-tebligat", "quote": "Muhatabın kendisine imzası alınarak tebliğ edildi." }]
+    }
+  ],
+  "contradictions": [
+    {
+      "id": "x1",
+      "relation": "CONTRADICTION",
+      "left": { "fileId": "f-dilekce", "quote": "Davalı, Mart 2024 kira bedelini ödememiştir." },
+      "right": { "fileId": "f-cevap", "quote": "Mart 2024 kira bedeli 05.03.2024 tarihinde banka havalesiyle ödenmiştir." },
+      "explanation": "Aynı ayın kirası için bir taraf 'ödenmedi', diğeri 'ödendi' diyor."
+    },
+    {
+      "id": "x2",
+      "relation": "CONTRADICTION",
+      "left": { "fileId": "f-cevap", "quote": "İhtarname müvekkile hiç tebliğ edilmemiştir." },
+      "right": { "fileId": "f-tebligat", "quote": "Muhatabın kendisine imzası alınarak tebliğ edildi." },
+      "explanation": "Cevap dilekçesi tebliği inkâr ediyor; mazbata muhatabın kendisine tebliğ edildiğini gösteriyor."
+    }
+  ],
+  "chronology": [
+    {
+      "id": "t1",
+      "date": "2023-01-01",
+      "description": "Kira sözleşmesinin başlangıcı",
+      "sources": [{ "fileId": "f-dilekce", "quote": "01.01.2023 başlangıç tarihli" }]
+    },
+    {
+      "id": "t2",
+      "date": "2024-03-05",
+      "description": "Mart 2024 kirası için yapılan havale",
+      "sources": [{ "fileId": "f-dekont", "quote": "İşlem tarihi: 05.03.2024" }]
+    },
+    {
+      "id": "t3",
+      "date": "2024-03-11",
+      "description": "İhtarnamenin tebliği",
+      "sources": [{ "fileId": "f-tebligat", "quote": "Tebliğ tarihi: 11.03.2024" }]
+    }
+  ],
+  "legalIssues": [
+    {
+      "id": "l1",
+      "statement": "Mart 2024 kira bedeli ödenmiş midir; ödenmemişse tahliye koşulları oluşmuş mudur?",
+      "sources": [{ "fileId": "f-dilekce", "quote": "Konu: Kira alacağı ve tahliye." }],
+      "keywords": ["tahliye"]
+    },
+    {
+      "id": "l2",
+      "statement": "İhtarname usulüne uygun tebliğ edilmiş midir?",
+      "keywords": ["tebliğ"]
+    }
+  ],
+  "expectedAbstentions": [
+    {
+      "id": "a1",
+      "type": "no_contradiction",
+      "left": { "fileId": "f-dilekce", "quote": "aylık 10.000 TL bedelli" },
+      "right": { "fileId": "f-dekont", "quote": "Tutar: 10.000,00 TL" },
+      "relations": ["CONTRADICTION", "TENSION"],
+      "reason": "Aynı tutar farklı biçimde yazılmıştır; yazım farkı çelişki değildir."
+    },
+    {
+      "id": "a2",
+      "type": "no_support_status",
+      "target": "d2",
+      "statuses": ["supported"],
+      "reason": "Tebliğ mazbatası tebliğin yapıldığını gösteriyor; 'tebliğ edilmedi' savunmasına 'desteklendi' denmemeli."
+    },
+    {
+      "id": "a3",
+      "type": "no_item",
+      "kinds": ["evidence"],
+      "passage": { "fileId": "f-cevap", "quote": "Kiralananın çatısındaki su sızıntısı davacıya bildirilmiş, ancak giderilmemiştir." },
+      "reason": "Bu bir taraf beyanıdır, delil değildir; delil olarak gösterilmemeli."
+    },
+    {
+      "id": "a4",
+      "type": "no_event_date",
+      "passage": { "fileId": "f-dilekce", "quote": "ödeme için otuz gün süre verilmiştir" },
+      "date": "2024-04-10",
+      "reason": "Sürenin bitiş tarihi belgede yazmıyor; sistem hesaplanmış bir tarihi olay tarihi gibi göstermemeli."
+    }
+  ],
+  "completenessRequirements": [
+    { "id": "k1", "type": "run_finished", "description": "İnceleme bitmiş olmalı." },
+    { "id": "k2", "type": "coverage_complete", "description": "Dört dosyanın tamamı okunabilir; kapsam tam bildirilmeli." },
+    { "id": "k3", "type": "all_files_processed" }
+  ],
+  "alternatives": [
+    {
+      "id": "alt1",
+      "appliesTo": "t3",
+      "description": "Tebliğ tarihi dava dilekçesinde de yazıyor; oradan gösterilmesi de doğrudur.",
+      "acceptSources": [{ "fileId": "f-dilekce", "quote": "Davalıya 11.03.2024 tarihinde ihtarname tebliğ edilmiş" }]
+    },
+    {
+      "id": "alt2",
+      "appliesTo": "x2",
+      "description": "İmzanın kime ait olduğu ayrıca tartışılabilir; bu çifti 'gerilim' olarak etiketlemek de kabul edilir.",
+      "acceptRelations": ["TENSION"]
+    },
+    {
+      "id": "alt3",
+      "appliesTo": "l2",
+      "description": "Tebliğ meselesi bu dosyada yan meseledir; bulunması doğrudur, bulunmaması hata sayılmaz.",
+      "optional": true
+    }
+  ]
+}

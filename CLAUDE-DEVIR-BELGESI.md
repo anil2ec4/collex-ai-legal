@@ -262,6 +262,92 @@ Mevcut genel durum **PARTIAL**’dır. “Rakipleri tamamen gereksiz kıldı” 
 10. Canlı hukuk sonucu, doğrulanmamış mevzuat veya sentetik eval sonucu için
     pazarlama cümlesi üretme.
 
+## W21 durumu (11.09.2026) — okumak incelemek değildir: üç kapsam, eksiksiz aşamalar, yapay zekâ ilkesi, Mac mini üretim tasarımı
+
+W20 "her sayfa okundu"yu kanıtlanabilir yaptı. Ama sonraki aşamalar yalnız
+ilk 25 iddiayı, iddia başına 8 adayı ve ilk 40 bulguyu işliyordu. W21 bu
+kesmeleri kaldırdı ve "inceleme tamamlandı" cümlesini tek, türetilmiş bir
+sözleşmeye bağladı. Kararlar ADR-040..050'de, ölçümler
+`docs/implementation/STATUS.md` W21 bölümünde.
+
+- **Üç kapsam (ADR-040).**
+  - KAYNAK: sayfalar ve birimler okundu mu.
+  - ÇIKARIM: her birimin çıkarımı tamam mı (kesilen yanıt,
+    bulunamayan ya da iki kez geçen alıntı, onarım).
+  - ANALİZ: her iddia ve savunma tartıldı mı; her çelişki ve özet grubu
+    işlendi mi.
+
+  "İnceleme tamamlandı" yalnız `analysisCompleteness.complete` iken yazılır.
+  "Bütün sayfalar okundu ama inceleme tamamlanmadı" normal ve açıkça
+  gösterilen bir durumdur.
+- **Kesme yok (ADR-041, ADR-044).** Çağrı başına sınırlar ayardır
+  (`COLLEX_ANALYSIS_*`); fazlası partilere bölünür, atılmaz. Aşamalar
+  kalıcı, kiralı görevlerdir (`app_private.matter_analysis_tasks`). İşçi 70
+  iddianın 20'sinden sonra ölürse yeni işçi yalnız kalan 50'yi yapar.
+- **Aday bulma ve "destek yok" (ADR-042).** Aday bulmada kullanılan
+  sinyaller: atıf ve sayı eşleşmesi, Türkçe kök, yerel E5 benzerliği, kişi,
+  tarih, taraf ve belge yapısı. Dosyada en çok 48 delil varsa her iddia her
+  delille karşılaştırılır. "Destek bulunamadı" yalnız tam aramadan sonra
+  yazılır; aksi halde "adaylar arasında destek yok", "arama eksik" ya da
+  "tartılmadı".
+- **Anlamsal çelişki şeridi (ADR-043).** Değer şeridinin yanında çalışır ve
+  yalnız doğrulanmış önermeleri eşler. Kalitesi gerçek modelle ÖLÇÜLMEDİ.
+- **Hiyerarşik özet (ADR-044)** ve **çıkarımda kesilmenin telafisi
+  (ADR-045)**.
+- **İnceleme tablosu sürüm sabitleme (ADR-046).** Satır yalnız sabitlendiği
+  sürümden cevaplanır ya da reddedilir. Yeni yükleme "bayat" olarak
+  gösterilir; "güncel sürüm" yalnız yayımlanmış sürümdür.
+- **Yapay zekâ ilkesi (ADR-047).** `COLLEX_AI_POLICY` dört değer alır:
+  `LOCAL_ONLY`, `LOCAL_PREFERRED` (varsayılan; `AUTO` aynı anlama gelir),
+  `CLOUD_ALLOWED`, `DETERMINISTIC_ONLY`.
+  - Yerelden buluta sessiz geçiş yoktur.
+  - Dosya incelemesi dışarıdaki bir modeli asla kullanmaz.
+  - Neden kodla söylenir: `MODEL_OFF_MACHINE` ile `MODEL_UNAVAILABLE`
+    ayrıdır.
+  - Sağlıkta `aiPolicy` bloğu var; Ayarlar › Sistem durumu'nda ilke, yerel
+    model ve OCR satırları görünür.
+- **OCR durumu ve geri yükleme (ADR-048).** OCR altı kodla bildirilir; bu
+  makinede durum `OCR_EXECUTABLE_MISSING`. Geri yükleme komutu
+  `node control-plane/scripts/backup.mjs --restore <klasör> --yes`: önce
+  doğrular, veritabanını silmez (kenara alır), asılları birleştirir ve
+  yerinde yeniden doğrular.
+- **Değerlendirme düzenekleri (ADR-049).** Gömme karşılaştırması, dosya
+  altın vaka biçimi ve bake-off'ta anlamsal çelişki ile iddia-delil
+  görevleri. Hiçbiri kazanan seçmez; hiçbir gerçek dil modeli çağrılmadı.
+- **Üretim hedefi (ADR-050).** Her şeyi tek, sürekli açık bir M2 Mac mini
+  (8 GB) çalıştıracak. Tasarım, launchd şablonları, betikler ve 26 adımlık
+  Windows→Mac taşıma kitabı yazıldı. **FİZİKSEL MAC'TE DOĞRULANMADI.**
+
+### W21'de yeni değişmezler (bunları bozma)
+
+- "Tamamlandı" yalnız `analysisCompleteness`'ten gelir; konsol bu cümleyi
+  kendisi kurmaz.
+- Analiz evreninden hiçbir şey ilk-N ile atılmaz. Çağrı başına sınırın
+  ötesi partiye bölünür ya da "kesildi" diye sayılır.
+- `unsupported` yalnız tam aramadan sonra kullanılır.
+- Aşama sonucu yalnız `completeStageTask` içinde yazılır: kira denetimiyle
+  ve görevi bitiren aynı ifadede. Sonlandırma yalnız kalıcı satırları okur.
+- Tablo hücresi yalnız sabitlenmiş sürümü okur ya da reddeder.
+- Yapay zekâ kararı hiçbir porta dokunulmadan verilir. `LOCAL_ONLY`
+  altında bulut çağrısı sıfırdır.
+- Taranmış sayfa yalnız `OCR_READY` iken okunur. Sağlıkta `ocr: null`
+  "henüz bilinmiyor" demektir, "hazır" değil.
+- Mac için ölçülmemiş sayı yazma; "Mac'te çalışıyor" deme.
+
+### W21'de AÇIK kalanlar — kapatılmış gibi yazma
+
+- **Gerçek dil modeli yine çağrılmadı** (REAL_MODEL_MEASUREMENT_PENDING).
+  Anlamsal çelişki ve iddia-delil kalitesi ölçülmedi.
+- **Mac mini fiziksel olarak doğrulanmadı;** bellek bütçesi tahmindir.
+- **Yerel OCR yok** (`OCR_EXECUTABLE_MISSING`).
+- **Avukat etiketli altın vaka yok.**
+- **W21 migrasyonu `collex_local`'a uygulanmadı**
+  (`20260913090000_analysis_stages.sql`). `ColleX-Baslat.cmd` sonraki
+  açılışta `--ensure-db` ile ekler.
+- **Vektörü olmayan sabitlenmiş eski sürüm.** Anlamsal şerit o sürüm için
+  aday üretmez; sözcük şeritleri çalışır. Bu durum ayrıca DEGRADED olarak
+  gösterilmez.
+
 ## W20 durumu (11.09.2026) — dosya incelemesi kalıcı, yerel model hattı bağlı, özel anlamsal şerit çalışıyor
 
 W19'un "yalnız API'de, senkron, modelsiz" bıraktığı dosya incelemesi bu

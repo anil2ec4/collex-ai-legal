@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- UNVALIDATED ON PHYSICAL MAC
+
+  Günlük ColleX yedeği (her gün 19.30). deploy/macos/collex-backup.sh
+  çalışır: pg_dump (yalnız okur), belge asılları ve yedek.json. Hiçbir eski
+  yedek silinmez; yer açmak avukatın kararıdır.
+  Mac o saatte uykudaysa launchd yedeği uyanınca bir kez çalıştırır.
+
+  Kurulum:
+    1. Yer tutucuları değiştirin: __COLLEX_HOME__, __COLLEX_DATA_DIR__,
+       __COLLEX_PGBIN__, __USER_HOME__ (launchd ~ genişletmez).
+    2. mkdir -p ~/Library/Logs/ColleX
+    3. cp com.collex.backup.plist ~/Library/LaunchAgents/
+    4. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.collex.backup.plist
+  Yedek klasörü MÜVEKKİL VERİSİ içerir: COLLEX_BACKUP_DIR şifreli bir diskte olmalı.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.collex.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__COLLEX_HOME__/deploy/macos/collex-backup.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__COLLEX_HOME__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>COLLEX_HOME</key>
+    <string>__COLLEX_HOME__</string>
+    <key>COLLEX_DATA_DIR</key>
+    <string>__COLLEX_DATA_DIR__</string>
+    <key>COLLEX_PGBIN</key>
+    <string>__COLLEX_PGBIN__</string>
+    <key>COLLEX_PGPORT</key>
+    <string>55432</string>
+    <key>COLLEX_BACKUP_DIR</key>
+    <string>__USER_HOME__/ColleX-Yedek</string>
+    <key>COLLEX_LOG_DIR</key>
+    <string>__USER_HOME__/Library/Logs/ColleX</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>LANG</key>
+    <string>tr_TR.UTF-8</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>19</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>__USER_HOME__/Library/Logs/ColleX/collex-backup.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__USER_HOME__/Library/Logs/ColleX/collex-backup.err.log</string>
+</dict>
+</plist>

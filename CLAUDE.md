@@ -264,6 +264,11 @@ at most annotated in place — never rewritten.
 | `control-plane/src/exhaustive/` (W20 additions) | `identity.ts` (frozen run identity sha256; content-addressed `observationKey`), `tasks.ts` (`TASK_SPECS`; model-required tasks answer `409 MODEL_REQUIRED`), `durableStore.ts` (`PgDurableAnalysisStore`: leased units via `for update skip locked`, lease-guarded completion, stale recovery, leased reduce stage, cancellation), `worker.ts` (`AnalysisWorker`, in-process or `scripts/analysis_worker.mjs`), `modelExtractor.ts` (`mx-v2`: a quote is kept only if it occurs exactly once, verbatim; app-derived offsets, sha256), `intelligence.ts` (relational Matter Intelligence, every item sourced) — ADR-034/035 |
 | `control-plane/src/embeddings/` | **W20** private dense lane (ADR-036): `vectorCodec.ts`, `chunkVectorStore.ts` (bytea float32 vectors keyed tenant→version→chunk→profile, stale by chunk sha, tenant-scoped job claims), `embeddingWorker.ts` (consumer of the `app_private.jobs` queue `embedding` + backfill), `denseLane.ts` (`ExactCosineDenseLane`: file-scoped exact cosine, truthful health) |
 | `control-plane/src/reviewTables/` | **W20** persisted review grid (ADR-039): `store.ts`, `worker.ts`, `routes.ts` (`/v1/review-tables*`, per-cell retry, CSV with formula guard) |
+| `control-plane/src/exhaustive/` (W21 additions) | `stageTypes.ts` (`StageConfig`, `COLLEX_ANALYSIS_*`), `analysisCoverage.ts` (extraction + intelligence coverage and `analysisCompleteness` — the ONLY license for "complete"), `candidateDiscovery.ts` (hybrid signals: references, stems, local E5, entity, temporal, party, structure), `stagePlanner.ts` (orchestrating reduce: plan → wait → finalize), `stageProcessors.ts` (weigh / classify / synthesize + their validators), `stageFinalize.ts` (support states), `semanticContradictions.ts` (semantic lane, detector `semantic-v1`), `synthesisPlan.ts` (hierarchical synthesis), `promptLabels.ts` (label neutralisation inside every analysis prompt block) — ADR-040..045 |
+| `control-plane/src/llm/aiPolicy.ts` | **W21** application AI policy (`COLLEX_AI_POLICY`), `decideProvider` / `decideModelTasks` / `describeAiPolicy` — decided before any port is touched (ADR-047) |
+| `control-plane/src/ocr/ocrStatus.ts` | **W21** once-per-process OCR status probe behind `/v1/health.ocr` (ADR-048) |
+| `control-plane/src/evals/embeddingEval.ts`, `matterGold.ts` | **W21** embedding comparison harness and whole-Matter gold scoring (ADR-049); `bakeoff.ts` gained `semantic_contradiction` and `claim_weighing` |
+| `deploy/macos/` | **W21** launchd templates and shell scripts for the single Mac mini production host — **UNVALIDATED ON PHYSICAL MAC** (ADR-050) |
 | `control-plane/src/llm/providerFactory.ts` | **W20** one route table for the roles answer / verifier / matterExtraction / matterSynthesis, one shared request gate per endpoint, no model family in code (ADR-037) |
 | `control-plane/src/evals/bakeoff.ts`, `scripts/bakeoff.mjs` | **W20** local-model bake-off over `evals/bakeoff/*.jsonl` (`GOLD_FORMAT.md`); `--dry-run` is labelled a harness check, never a measurement, and the report never picks a winner |
 | `intake/ocr.py` | **W20** local OCR boundary (`TesseractCliProvider`, capability detection, `COLLEX_OCR`), ADR-038 |
@@ -637,6 +642,74 @@ ceiling.
 - **The whole project must typecheck cleanly** (`npx tsc --noEmit`) when you
   finish.
 
+### W21 invariants (ADR-040..050)
+
+- **Reading everything is not analysing everything.** `processingCoverage`
+  means the source was read and nothing more. "The analysis is complete"
+  comes only from `analysisCompleteness` (source + extraction +
+  intelligence), and the console never composes that sentence itself.
+- **No first-N truncation of the analysis universe.** Bounds are per call
+  (`StageConfig`). Everything beyond a bound is batched, never dropped. A
+  per-call cap that does drop output is counted as truncated and keeps the
+  coverage incomplete.
+- **`unsupported` only after a complete search:** every evidence item
+  compared, every comparison answered, and the extraction behind it
+  complete. Otherwise the state is `no_support_in_candidates`,
+  `search_incomplete` or `not_weighed`.
+- **Stage results are written only by `completeStageTask`,** under the
+  lease, in the same statement that marks the task done. Finalization reads
+  persisted rows only.
+- **A semantic relation joins two verified observations.** Its detector is
+  `semantic-v1` and its lane is `semantic`; the value lane stays
+  `deterministic`.
+- **A review-table cell reads exactly its pinned version or refuses.**
+  "Current" is the newest published version.
+- **The AI decision is made before any port is touched.** Under `LOCAL_ONLY`
+  there are no cloud calls and no silent local-to-cloud fallback. Matter
+  analysis never uses a model that runs off this machine or network. The
+  reason is named: `MODEL_OFF_MACHINE` is not `MODEL_UNAVAILABLE`.
+- **Only `OCR_READY` reads scanned pages.** `health.ocr: null` means "not
+  known yet", never "ready".
+- **The Mac production documents are designs.** Never write "works on the
+  Mac" or a Mac number unless it was measured on the physical machine.
+- **Evaluation reports never name a winner,** and a synthetic case is never
+  quality evidence.
+
+### W21 hostile-review invariants (two adversarial rounds, 2026-09-17)
+
+- **"No support after a complete search" needs ALL of:** the source read
+  completely, the extraction complete, every item of the task's support
+  universe (`SUPPORT_UNIVERSE_KINDS` it extracted) compared and answered, the
+  planned universe equal to the one the finalizer builds, and no comparison on
+  a CLIPPED quote (`quoteClipped` / `claimQuoteClipped`). An item overlapping
+  the claim's own span is never weighed against it. Support found while other
+  comparisons failed is `search_incomplete`, not `supported`.
+- **A status travels with the text it was reached on.** Weighing judges the
+  verified quote; the claim carries `judgedText: "quote"` and `judgedQuote`,
+  and deterministic titles name that quote, never the model's paraphrase.
+- **Document text is data in every prompt block.** Labels inside payloads
+  (`[eN]`, `[oN]`, `[pN]`, section headings, side markers) are neutralised by
+  `exhaustive/promptLabels.ts` after removing hidden characters; never put a
+  document-derived string into a trusted instruction.
+- **A judge that did not answer is not a measurement.** Transport failure,
+  timeout, empty/unparseable reply, missing or non-numeric score, a score
+  outside 0..1, or "does not entail" with a score at or above the threshold
+  throws (local and cloud); the claim reads `ENTAILMENT_NOT_CHECKED`
+  ("denetlenemedi"), in the answer, the renderer, the console and the grid.
+- **A run speaks only for the matter it froze.** A whole-matter run whose
+  matter gained, changed or lost a document is `stale` and never complete; a
+  failed or cancelled run's gaps say "tamamlanmadı", never "henüz".
+- **A partial synthesis says it is partial** (`missingParts` → `partial` on the
+  summary and points); a two-sided finding carries both quotes.
+- **Party sides:** counterclaim qualifiers (`karşı`, `K.`, `mukabil`,
+  `karşılık`, `karşıdava`) flip the side; a side in a joined/separated case, or
+  a label naming both sides, is `unknown` — counted, never listed as the
+  client's.
+- **A backup is "tamam" only when every original the database names is in it**;
+  a review-table cell whose run could not finish fails retryably; an empty
+  date/amount census says "no value in a recognised format", never "none in
+  the whole document".
+
 ## Scratch database discipline — which lane owns which name
 
 One local PostgreSQL 18 cluster on **port 55432** (user `postgres`, no
@@ -659,6 +732,13 @@ database.
 | `collex_fix_test` | **W14.** The phase-B1 integration probe (multi-sentinel `constraint:` kind, the B-06 saturated-corpus measurement); dropped at the end of the run |
 | `collex_final_test` | **W14 phase F.** The closing audit's own 20 000-chunk probe (`W14-F-VERIFY` §2); created, measured, **dropped** |
 | `collex_srv_test` | **W14 phase C.** C-SRV's probe: the V-14 backup/restore round trip and the trigram-threshold measurement; created, measured, **dropped** |
+| `collex_durable_test`, `collex_durable_process_test`, `collex_exhaustive_test`, `collex_modeltasks_test` | **W20/W21.** `control-plane/tests/exhaustive/{durableRun,durableProcess,exhaustiveHttp,modelTasks}.test.ts` |
+| `collex_w21_analysis_test` | **W21.** `control-plane/tests/exhaustive/w21Analysis.test.ts` (durable stages, scope drift) |
+| `collex_dense_test`, `collex_dense_private_test`, `collex_dense_real_test` | **W20.** `control-plane/tests/store/denseLane.test.ts`, `tests/embeddings/{denseLane,realE5}.test.ts` |
+| `collex_review_tables_test`, `collex_w21_review_pin_test`, `collex_w21_review_pin_retrieval_test` | **W20/W21.** `control-plane/tests/reviewTables/{reviewTables,versionPin}.test.ts`, `tests/store/retrievalVersionPin.test.ts` |
+| `collex_lanec_test` | **W21.** `control-plane/tests/llm/aiPolicyCapabilitiesW21.test.ts` |
+| `collex_w21_platform_test` | **W21.** `control-plane/tests/backup/restore.test.ts` (real restore drill) |
+| `collex_w21_verify` | **W21 verification only.** The scratch server on port 8979 (`serve.mjs --dsn …collex_w21_verify`, data dir in the session scratchpad); created with the test helpers because `--ensure-db` refuses the name. Never `collex_local` |
 | `collex_local` | **Persistent** local product store — created by `intake.cli --ensure-db`, default DB of `serve.mjs` and the launcher. NEVER dropped, NEVER touched by tests, NEVER given test data. Probes go to `collex_demo` |
 
 If you add a database-backed lane, give it a new `collex_*` name and make its

@@ -17,7 +17,15 @@
  *
  * Models come from the same environment variables as the control plane
  * (COLLEX_LOCAL_LLM_*, COLLEX_DATA_BOUNDARY), resolved through the same
- * provider factory. `--pause-ms` waits between units (to keep a small
+ * provider factory. W21: the per-call bounds of the analytical stages come
+ * from COLLEX_ANALYSIS_* (stageTypes.ts resolveStageConfig), and analytical
+ * tasks (claim weighing, contradiction batches, synthesis groups) are leased
+ * and resumed exactly like units.
+ *
+ * NOTE for the 8 GB appliance: this process builds its OWN model request
+ * gate. Running it next to serve.mjs (which runs the same worker in-process)
+ * doubles the possible concurrent generations; on a small machine run ONE of
+ * the two. `--pause-ms` waits between units (to keep a small
  * machine cool, or to make a test's kill land mid-run). Nothing is logged
  * except structured progress events; never document text.
  */
@@ -58,8 +66,28 @@ const { createDb } = await importControlPlane("src/store/db.ts");
 const { PgDurableAnalysisStore } = await importControlPlane("src/exhaustive/durableStore.ts");
 const { AnalysisWorker } = await importControlPlane("src/exhaustive/worker.ts");
 const { resolveModelRoutes } = await importControlPlane("src/llm/providerFactory.ts");
+const { resolveStageConfig } = await importControlPlane("src/exhaustive/stageTypes.ts");
+const { policyAllowsModelTasks } = await importControlPlane("src/llm/aiPolicy.ts");
+const { checkAnalysisSchema } = await importControlPlane("src/store/health.ts");
+const { ensureDbCommandTr } = await importControlPlane("src/platform/operatorHints.ts");
 
 const sql = createDb({ url: args.dsn, max: 2, applicationName: "collex-analysis-worker" });
+
+// W21 round two (R2-20): the same schema gate serve.mjs applies. A worker
+// started against a database without the analysis-stage objects would fail
+// every tick on a missing relation; it refuses to start and says why.
+const schema = await checkAnalysisSchema(sql).catch((error) => ({
+  ready: false,
+  missing: [`(şema denetlenemedi: ${error?.message ?? error})`],
+}));
+if (!schema.ready) {
+  process.stderr.write(
+    `analiz çalışanı başlatılmadı: veritabanı şeması eksik (${schema.missing.join(", ")}) —` +
+      ` ${ensureDbCommandTr()} ile tamamlayın.\n`,
+  );
+  await sql.end({ timeout: 5 }).catch(() => undefined);
+  process.exit(1);
+}
 const routes = resolveModelRoutes(process.env);
 const log = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,18 +96,27 @@ const worker = new AnalysisWorker({
   store: new PgDurableAnalysisStore(sql),
   ...(args.workerId !== undefined ? { workerId: args.workerId } : {}),
   batchSize: args.batch,
+  taskBatchSize: args.batch,
   unitLeaseMs: args.leaseMs,
+  taskLeaseMs: args.leaseMs,
+  stageConfig: resolveStageConfig(process.env),
   pollIntervalMs: args.pollMs,
   // The loop is this process's only job; an unref'd idle timer would let
   // Node exit the moment the queue is empty.
   keepProcessAlive: true,
-  models: () => ({
-    extraction: routes.roles.matterExtraction,
-    synthesis: routes.roles.matterSynthesis,
-  }),
+  // The same gate serve.mjs applies. The route table already honours the AI
+  // policy; a separate worker process states it explicitly all the same.
+  models: () => {
+    const models = { extraction: routes.roles.matterExtraction, synthesis: routes.roles.matterSynthesis };
+    return policyAllowsModelTasks(routes.policy, models) ? models : {};
+  },
   hooks: {
     afterUnit: async (claim) => {
       log({ event: "unit-done", runId: claim.runId, unitNo: claim.unitNo });
+      if (args.pauseMs > 0) await pause(args.pauseMs);
+    },
+    afterTask: async (claim) => {
+      log({ event: "task-done", runId: claim.runId, stage: claim.stage });
       if (args.pauseMs > 0) await pause(args.pauseMs);
     },
   },

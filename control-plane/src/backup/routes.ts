@@ -19,6 +19,7 @@
 
 import { Hono } from "hono";
 import type { BackupResult, BackupSummary } from "./runner.js";
+import { backupNotConfiguredHintTr, operatorHintsPayload } from "../platform/operatorHints.js";
 
 export interface BackupPort {
   /** Take a backup now. Rejects with a BackupError-shaped error on failure. */
@@ -30,7 +31,7 @@ export interface BackupPort {
 export const BACKUP_IN_PROGRESS_MESSAGE_TR =
   "Bir yedekleme zaten sürüyor; bitmesini bekleyin.";
 export const BACKUP_UNAVAILABLE_MESSAGE_TR =
-  "Yedekleme bu sunucuda yapılandırılmadı — ColleX-Yedekle.cmd dosyasını kullanın.";
+  backupNotConfiguredHintTr(); // W21: names the platform's own backup script
 
 /** Turkish label for "no backup has ever been taken" (console + health). */
 export const BACKUP_NEVER_MESSAGE_TR =
@@ -42,7 +43,9 @@ export function createBackupRouter(deps: { backup: BackupPort }): Hono {
 
   app.get("/v1/backup", async (c) => {
     const last = await deps.backup.last().catch(() => null);
-    return c.json({ backup: last });
+    // W21 round two (R2-36): the backup and restore scripts of the platform
+    // this server runs on, so the card never names a Windows file on a Mac.
+    return c.json({ backup: last, ...operatorHintsPayload() });
   });
 
   app.post("/v1/backup", async (c) => {

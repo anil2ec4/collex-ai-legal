@@ -1202,10 +1202,12 @@ describe("W14 B-21 · document × question grid (tabular review)", () => {
   it("never leaves a cell blank and anchors a filled cell to its source offset", () => {
     // W15 şerit E: "kapsanmadı" uydurma bir durum adıydı; hücre yine BOŞ
     // KALMAZ, ama artık ne olduğunu tam cümleyle söyler.
-    expect(html).toContain('var why = "Bu belgede bu soruya karşılık bulunamadı.";');
+    // W21 #18: the old lock pinned a whole-document "not found" drawn from the retrieved passages only; CB3 names what was examined.
+    expect(html).toContain('"Bu soru için getirilen pasajlarda karşılık bulunamadı; belgenin tamamı taranmadı."');
     // W15 şerit E: "kapsanmadı" edilgen ve uydurma bir durum adıydı; hücre
     // artık sorunun neden cevapsız kaldığını tam cümleyle söylüyor.
-    expect(html).toContain('"Bu belgede karşılığı bulunamadı — şu sözcüklerin geçtiği bir yer yok: "');
+    // W21 #18: "şu sözcüklerin geçtiği bir yer yok" claimed the whole document was scanned; the browser never scans it (CB3).
+    expect(html).toContain('"Bu soru için getirilen pasajlarda karşılığı bulunamadı — bu pasajlarda şu sözcükler geçmiyor: "');
     expect(html).toContain("gotoDocument(f.fileId, { focusChunk: cell.chunkId });");
     expect(html).toContain("if (opts.focusChunk) { setTimeout(function () { highlightChunk(opts.focusChunk); }, 80); }");
     // showView used to pass {} and kill docPage.pendingOpts entirely
@@ -1217,7 +1219,9 @@ describe("W14 B-21 · document × question grid (tabular review)", () => {
     // W15 şerit E: sütun adları avukatın gördüğü sözcüklerdir; "Unicode" ve
     // "SHA-256" teknik adları Sözlük'e taşındı. Ölçülen davranış aynı: her
     // hücrenin kaynağı KENDİ sütunundadır ve hiçbiri düşürülmedi.
-    expect(html).toContain('["Belge", "Belge kimliği", "Soru", "Durum", "Cevap", "Kaynak pasaj", "Metindeki yeri", "Alıntının parmak izi", "Araştırma no"]');
+    // W21 (#19): "Belge durumu" is appended LAST, as in the server export; the
+    // nine W15 columns keep their names and positions.
+    expect(html).toContain('["Belge", "Belge kimliği", "Soru", "Durum", "Cevap", "Kaynak pasaj", "Metindeki yeri", "Alıntının parmak izi", "Araştırma no", "Belge durumu"]');
     expect(html).toContain('a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(');
     // W15 şerit E: "CSV" ve "pano" bilgisayar diliydi; ölçülen davranış aynı —
     // tablo panoya kopyalanabiliyor ve dosya olarak indirilebiliyor.
@@ -1323,8 +1327,10 @@ describe("W14 B-27 · warning budget, machine dictionary, undefined terms", () =
     expect(html).toContain("if (withRaw && g.raws.length) {");
     expect(html).toContain("function observedReasonTR(reason, withRaw)");
     // both raw-enabled call sites are inside a <details>
-    expect(html).toContain("warnGroupList(data.warnings, { raw: true })");
-    expect(html).toContain("warnGroupList(data.reasons, { raw: true })");
+    // W21: the fold also passes whether claims were written, so a budget spent AFTER
+    // drafting is not worded as "tespit yazımı eksik bırakıldı"; the raw codes still fold.
+    expect(html).toContain("warnGroupList(data.warnings, { raw: true, claimsWritten: (data.claims || []).length > 0 })");
+    expect(html).toContain("warnGroupList(data.reasons, { raw: true, claimsWritten: (data.claims || []).length > 0 })");
     expect(html).toContain('obsTech.appendChild(el("summary", null, "Teknik ayrıntılar — ham kodlar"))');
     expect(html).toContain('rejDet.appendChild(el("summary", null, "Teknik ayrıntılar — kimlik ve ham gerekçe"))');
     // the intent enum no longer trails the Turkish name in the main flow
@@ -2213,7 +2219,13 @@ describe("W14 F-UI · V-15 / V-16 / V-20 / V-22: contrast, machine names, narrow
     expect(html).toContain(".monogram { width: 34px; height: 34px; display: block; }");
     expect(html).toContain(".masthead .rule {\n  margin: 11px auto 0;");
     expect(html).toContain("  margin: 12px auto 18px;\n  max-width: 880px;");
-    expect(html).toContain("@media (min-width: 1201px) {\n  .topbar { grid-template-columns: auto auto 1fr auto;");
+    // The single-row topbar this line used to pin was measured overflowing the
+    // page (W21 closing browser check: 1255 px of topbar in a 1064 px content
+    // area, 91 px of horizontal page scroll at 1280 px, theme button off
+    // screen). The first-run masthead trim below is what V-22 is about and is
+    // unchanged; the topbar is now two rows at every width.
+    expect(html).toContain('grid-template-areas: "brand . theme" "matter pills pills";');
+    expect(html).not.toContain('grid-template-areas: "brand matter pills theme"');
     // the compact (post-first-run) chrome is untouched: it still hides the block
     expect(html).toContain("body.compact .monomark, body.compact .masthead .brand");
   });

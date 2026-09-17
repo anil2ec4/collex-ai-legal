@@ -2153,3 +2153,422 @@ data policy.
   `tests/pipeline/consoleW20.test.ts`.
 
 ---
+
+## ADR-040 — Reading everything is not analysing everything: three coverage contracts
+
+- **Status:** accepted (2026-09-11, W21)
+- **Context:** W20 made "every selected page and unit was read" provable
+  (`processingCoverage`, ADR-032/034). The stages after reading then worked on
+  PREFIXES — the first 25 claims (`MAX_CLAIMS_LINKED`), 8 lexically similar
+  candidates per claim (`MAX_CANDIDATES_PER_CLAIM`), the first 40 findings for
+  the synthesis (`MAX_DIGEST_ENTRIES`), and an unnamed `.slice(0, 16)` on
+  synthesized points — and a response over 40 items per unit was cut and
+  folded into `invalid_items`. A run could therefore read 928/928 pages and be
+  shown as complete while most of its claims were never weighed. The only
+  signal was a note in `result_summary`.
+- **Candidates:** (a) raise the constants — moves the cliff, keeps it;
+  (b) widen `processingCoverage.complete` to mean "everything" — overloads a
+  contract other code and tests rely on and makes it impossible to say "all
+  pages read, analysis unfinished"; (c) separate, derived contracts.
+- **Decision:** (c), in `control-plane/src/exhaustive/analysisCoverage.ts`:
+  - `processingCoverage` keeps its W19/W20 meaning (source read) and nothing
+    else — W21 even moved W20's `SYNTHESIS_FAILED` gap out of it;
+  - `ExtractionCoverage` (per unit: attempted / succeeded / incomplete /
+    failed; generated, grounded, malformed, not-found and ambiguous quotes,
+    truncated responses, continuation and repair passes);
+  - `IntelligenceCoverage` (claims and defenses weighed / failed / pending /
+    unresolved, planned vs completed candidate comparisons, contradiction and
+    synthesis groups processed, unresolved / failed / truncated stages);
+  - `AnalysisCompleteness`, the ONE place the three are combined into the
+    sentence a lawyer reads; `complete` only when all three are complete.
+  Each `complete` is derived from counts in exactly one function. A claim the
+  planner never gave a task counts as pending, so a planner bug cannot yield
+  a complete coverage. `sourceComplete && !intelligenceComplete` is a normal,
+  reported state, and the console shows it as "Dosyanın bütün sayfaları okundu,
+  ancak inceleme tamamlanmadı".
+- **Evidence:** `control-plane/tests/exhaustive/w21Stages.test.ts` (I, pure),
+  `w21Analysis.test.ts` (I through the API and the runs list),
+  `tests/pipeline/consoleW21.test.ts` (the console never composes the
+  whole-analysis sentence itself).
+- **Amendment (W21 hostile self-review, 2026-09-17):** round one found that
+  `exhaustiveClaimRefusedBecause` could be null while weighing or synthesis had
+  failed or was still running (#2): it now also refuses when
+  `analysisCompleteness` is incomplete. A cancelled or save-failed run no
+  longer reads "no findings came out of this review" (#3), and the gap list
+  says how many lines it did not show (#4).
+- **Amendment (W21 second hostile review, 2026-09-17):** a run no longer speaks
+  for a matter that changed after it. A whole-matter run whose matter gained a
+  document (`sourceAdded`), or whose pinned document changed, was deleted or
+  left the matter (`sourceChanged`, `sourceRemoved`), is `stale`: its
+  `analysisCompleteness.complete` is false, `exhaustiveClaimRefusedBecause`
+  names the reason, and the list and intelligence views never call it complete.
+  The snapshot records `wholeMatter`. A failed or cancelled run's gaps say what
+  was not done ("tamamlanmadı"), never "henüz", and the console shows the
+  stored Turkish reason.
+
+---
+
+## ADR-041 — Analytical stages are durable leased tasks; the reduce stage orchestrates
+
+- **Status:** accepted (2026-09-11, W21; extends ADR-034)
+- **Decision:** `20260913090000_analysis_stages.sql` adds
+  `app_private.matter_analysis_tasks`: one row per analytical task — each
+  claim or defense against one bounded batch of candidates, each batch of
+  free-text proposition pairs, each synthesis group at each level — with
+  lease, attempts, backoff, stored input and result, and a unique
+  `(run_id, stage, task_key)`. Tasks are claimed with `for update skip
+  locked`; the result is written in the SAME statement that marks the task
+  done, guarded by the lease; stale leases are recovered; a task that
+  exhausts its budget is `failed` and keeps coverage incomplete; an
+  exclusion always carries its reason (CHECK constraint).
+  The W20 reduce stage became an ORCHESTRATOR (`stagePlanner.ts`): claimable
+  only when no unit and no task of the run is pending or running, it either
+  inserts the next step's tasks with a `plan` marker in one transaction, or
+  finalizes from persisted rows only. Planning passes do not consume the
+  stage retry budget (`releaseAfterPlanning`).
+  Per-call bounds are configuration (`COLLEX_ANALYSIS_*`, `resolveStageConfig`
+  ignores values that would disable the analysis); none removes anything
+  from the analysis universe. Extraction/intel/stage schema versions are in
+  the frozen run identity.
+- **Evidence:** `w21Analysis.test.ts` A (70/70 claims weighed, one durable
+  task each) and J (the worker dies after 20 of 70 weighings; a fresh worker
+  makes exactly the 50 remaining calls, no duplicate task or item).
+- **Amendment (W21 second hostile review, 2026-09-17):** the stage schema is
+  `stage-v3`. Finalization never writes a source naming an observation the run
+  no longer holds (a file deleted mid-run): such relations and sources are
+  dropped and counted, and the run finalizes as incomplete instead of failing
+  on a foreign key. The contradiction planner builds its clipped texts once per
+  proposition, not once per pair.
+- **Amendment (W21 hostile self-review, 2026-09-17):**
+  - every jsonb write goes through `wellFormedJson`, and clips never end in a
+    lone surrogate; a planning pass that keeps failing closes the run as
+    failed after the stage budget, with its coverage (#14);
+  - the task loop checks cancellation before each task, and
+    `completeStageTask` refuses a cancelled run (#15);
+  - `versionMismatch` refuses a run whose intel, stage or model schema
+    version differs from the running code (`stage-v2`, `mx-v3`) (#16).
+
+---
+
+## ADR-042 — Hybrid candidate discovery, and "no support" only as strong as the search
+
+- **Status:** accepted (2026-09-11, W21)
+- **Decision:** `candidateDiscovery.ts` ranks EVERY evidence/fact item against
+  every claim with independent signals — exact references (exhibit numbers,
+  docket numbers, dates, amounts, plates), significant Turkish stems, local
+  embeddings (W20 private E5, when available), shared entities, temporal and
+  party compatibility, document structure. When the matter has at most
+  `fullSearchMaxEvidence` (48) evidence items, every claim is compared with
+  all of them. Above that, the candidate set is the union of the top items by
+  combined, lexical and semantic signal plus every reference match — recall
+  first, never capped below the union.
+  Support states (`stageFinalize.ts`): `unsupported` is used ONLY for
+  NO_SUPPORT_FOUND_AFTER_COMPLETE_SEARCH (every evidence item compared, every
+  comparison answered, and the extraction that produced the evidence was
+  itself complete); otherwise `no_support_in_candidates`; a failed, pending or
+  unanswered comparison is `search_incomplete`; a claim with no comparison is
+  `not_weighed`. Only complete searches may become the red team's
+  "unsupported proposition".
+- **Evidence:** `w21Stages.test.ts` D (a weakly-worded supporting exhibit is
+  found with embeddings and missed by lexical overlap alone; reference
+  matches always included) and the search-state cases.
+- **Amendment (W21 hostile self-review, 2026-09-17):** "no support after a
+  complete search" now also needs the SOURCE complete (#1, #5), the universe
+  is every `SUPPORT_UNIVERSE_KINDS` item, not only what the model labelled
+  evidence (#6), and the universe the weighing was planned over must equal the
+  universe the finalizer builds (#16 leftover). An ambiguous verdict never
+  becomes `unsupported` (#7). A verdict or candidate whose ref no longer
+  resolves counts as unresolved and makes the claim `search_incomplete`, with
+  the counts in the run summary (#11). Party sides are read from the
+  principal designation of the whole label: counterclaim qualifiers
+  (`karşı`, `K.`, `mukabil`, `karşılık`) flip the side, a joined/separated
+  case is undecidable, and a label naming both sides is `unknown` — counted,
+  never listed as the client's (#12). Exhibit references accept the inflected
+  Turkish forms and `No.lu` (#13). Weighing judges verified quotes, the
+  document text stays inside the untrusted block, and fake `[eN]` or section
+  labels inside it are neutralised (#8, #9).
+- **Amendment (W21 second hostile review, 2026-09-17):**
+  - an item whose span overlaps the claim's own span (a date window around the
+    claim sentence) is not weighed against it (`selfOverlapExcluded`); the
+    weighing prompt says a restatement of the claim is not support;
+  - quotes are shown up to 600 (candidate) / 800 (claim) characters; a clipped
+    quote is recorded and keeps the model's summary as a labelled line, and a
+    "no support" reached on clipped text is never "unsupported";
+  - support found while other comparisons of the claim failed is
+    `search_incomplete` (with `supportsFound`), not `supported`;
+  - the status carries the verified quote it was reached on (`judgedText`,
+    `judgedQuote`), and the missing-support and unsupported-proposition titles
+    name that quote, never the paraphrase;
+  - every support-bearing kind a task extracted stays in its universe (red
+    team's procedural events and credibility issues); the missing-support
+    title names exactly the kinds the task's universe holds;
+  - a side in a joined case ("birleşen dosya davacısı") is `unknown`; more
+    exhibit spellings are read ("Ek No: 3", ASCII "numarali", any dash) and
+    article numbers or amounts are not.
+
+---
+
+## ADR-043 — A semantic contradiction lane beside the deterministic one
+
+- **Status:** accepted (2026-09-11, W21); model quality NOT measured
+- **Decision:** `semanticContradictions.ts`. Input: verified model propositions
+  only (quotes already located in the pinned source). Pairing is deterministic
+  and recall-oriented (shared entity, stem overlap ≥ 0.34, local-embedding
+  cosine ≥ 0.86, same date), connected pairs form groups, groups are
+  classified in bounded batches as durable tasks with the vocabulary
+  CONTRADICTION / TENSION / CORROBORATION / INDEPENDENT / INSUFFICIENT_EVIDENCE;
+  the prompt says a language difference is not a contradiction. Relations are
+  stored with detector `semantic-v1` and exposed with `lane: "semantic"`; the
+  W20 value lane stays `lane: "deterministic"`. Both sides of every relation
+  are stored observations with exact spans.
+- **Scope:** runs in `full_review` and `red_team`. `contradictions` stays the
+  deterministic task and its limit text says so. With only scripted
+  classifiers available, the lane's architecture is tested; its legal quality
+  is REAL_MODEL_MEASUREMENT_PENDING.
+- **Amendment (W21 hostile self-review, 2026-09-17):** the lane classifies the
+  two VERIFIED quotes, never the model's paraphrase; a pair without both
+  quotes is not sent and keeps the lane incomplete (#8).
+- **Amendment (W21 second hostile review, 2026-09-17):** a CONTRADICTION
+  judged on a clipped quote is stored as a TENSION (`judgedOnClippedQuote`),
+  with no follow-up question. Labels inside quotes (`[p2]`, side markers) are
+  neutralised (`promptLabels.ts`).
+
+---
+
+## ADR-044 — Hierarchical synthesis instead of a bounded digest
+
+- **Status:** accepted (2026-09-11, W21)
+- **Decision:** `synthesisPlan.ts`. Every finding of a synthesis kind is placed
+  in exactly one stable group (its legal issue, else its family) and every
+  group is summarized in bounded batches (level 1); each next level summarizes
+  the level below until ONE final task produces the `review_summary`. Each
+  summary must cite what it was shown (an uncited summary fails the task); the
+  union of observation ids travels upward, so the final summary still points at
+  original spans. A failed lower task is never replaced by a guess — its
+  findings are absent above it and synthesis coverage stays incomplete. Points
+  beyond the per-call bound are reported as truncated.
+- **Evidence:** `w21Stages.test.ts` B (100 findings: each in exactly one
+  level-1 batch; the finding in the last batch is in the final task's
+  provenance), `w21Analysis.test.ts` E (a final, source-linked summary).
+- **Amendment (W21 hostile self-review, 2026-09-17):** level-1 synthesis
+  entries carry the finding's verified basis quote next to the model's title,
+  and the instruction says to rely on the quote when the two disagree; the
+  group label travels inside the untrusted block (#9).
+- **Amendment (W21 second hostile review, 2026-09-17):** a synthesis task that
+  was not shown every lower part carries `missingParts`; the prompt bounds the
+  evaluation to what it was shown and names the missing parts inside the data
+  block, and the stored summary and points are `partial` with a note. A
+  two-sided finding carries both quotes, and neither is presented as
+  established. Forged `[oN]` / KISIM labels inside finding text are neutralised.
+
+---
+
+## ADR-045 — Extraction truncation is recoverable or reported
+
+- **Status:** accepted (2026-09-11, W21; extends ADR-035)
+- **Decision:** `modelExtractor.ts extractExhaustively`: a response over the
+  per-call item bound is discarded and the unit is split at the text boundary
+  nearest the middle and extracted again (up to 3 levels); unplaceable items
+  (not found, or found more than once) get ONE repair call asking for an exact,
+  unique quote, which the application locates exactly like the first; whatever
+  is still truncated, malformed or unplaceable is counted and makes the unit's
+  extraction `incomplete`. Ambiguous quotes are now counted separately from
+  missing ones (`ambiguous_quotes`), and a quote refused by the provenance gate
+  also marks the unit incomplete — failed extraction is never hidden inside a
+  done unit.
+- **Evidence:** `w21Stages.test.ts` C (60 items through continuation with exact
+  offsets; permanently over-full responses reported; repair success and
+  failure).
+- **Amendment (W21 hostile self-review, 2026-09-17):** a repair is bound to an
+  item only when it contains the item's original quote in order, no other
+  unplaced item could claim it, and no two statements land on one span; the
+  extractor version became `mx-v3` (#10).
+
+---
+
+## ADR-046 — A review-table row answers from its pinned version, exactly, or refuses
+
+- **Status:** accepted (2026-09-11, W21; extends ADR-039)
+- **Context:** W20 rows stored `document_version_id`, but retrieval filtered
+  by file id and the temporal "current" test. After a re-upload a cell that
+  was recomputed read V2 while the row still claimed V1.
+- **Decision:** retrieval accepts `documentVersionIds`
+  (`pipeline/ports.ts`, `retrieval/searchService.ts keepPinnedVersions`). For
+  tenant rows it REPLACES the temporal test and only narrows inside the
+  file and tenant scope. Every lane honours it: lexical, trigram, exact-pin,
+  citation expansion, dense hydration (`embeddings/chunkVectorStore.ts`,
+  `denseLane.ts`) and divergence (`store/chunkStore.ts` visibility filter).
+  The worker (`reviewTables/worker.ts`):
+  - refuses a pin that cannot be read exactly (`PinnedVersionRefusal`,
+    terminal, no retry budget spent);
+  - refuses an answer or abstention whose evidence names another version
+    (`EVIDENCE_VERSION_MISMATCH`);
+  - re-checks the pin AFTER the answer, so a version withdrawn while the
+    cell was computed is refused, not stored as an abstention.
+
+  The store reports `currentDocumentVersionId` (the newest PUBLISHED version;
+  a failed or processing upload is never offered as current) and `stale`.
+  A retry answers `CELL_BUSY` for a cell being computed before any pin
+  check, and `409 ROW_VERSION_STALE` for an unreadable pin.
+- **Known limit:** the dense lane only has vectors for versions the embedding
+  worker processed. For a pinned, superseded version without vectors it
+  contributes nothing; the lexical lanes still answer, and no other version
+  is substituted. Dense health does not report this per row.
+- **Evidence:** `control-plane/tests/store/retrievalVersionPin.test.ts`,
+  `tests/reviewTables/versionPin.test.ts` (acceptance F and the W21 verifier
+  fixes).
+
+---
+
+## ADR-047 — One application AI policy, decided before any port is touched; no silent local-to-cloud fallback
+
+- **Status:** accepted (2026-09-11, W21; extends ADR-037); live-untested
+- **Decision:** `control-plane/src/llm/aiPolicy.ts`. The policy variable
+  `COLLEX_AI_POLICY` takes one of four values:
+  - `LOCAL_ONLY`;
+  - `LOCAL_PREFERRED`, the default (`AUTO` is read as it);
+  - `CLOUD_ALLOWED`;
+  - `DETERMINISTIC_ONLY`.
+
+  It is combined with `COLLEX_DATA_BOUNDARY` into the effective policy and
+  boundary once (`resolveEffectiveAiPolicy`, resolved once in `serve.mjs`).
+  `decideProvider` is pure:
+  - `DETERMINISTIC_ONLY` is always rule-based;
+  - an explicit `useLocalAi` never reaches the cloud;
+  - `useCloudAi` is honoured only where the policy and the boundary permit
+    and a cloud is configured;
+  - the default is the local model when usable, else rule-based, with
+    `MODEL_UNAVAILABLE` under `LOCAL_ONLY` whether or not the request asked
+    for the local model.
+
+  An endpoint behind the local setting that is not on this computer or
+  network is treated as an outside service. It is used only with
+  per-request consent under `CLOUD_ALLOWED`, and the warning says an
+  outside server wrote the answer.
+
+  Matter analysis has no per-request consent. `decideModelTasks` lets the
+  model tasks run only when both matter roles run on premises and the
+  policy is not `DETERMINISTIC_ONLY`. The route table keeps the trust of an
+  outside endpoint it refused, so health, the matter capabilities
+  (`model.usable/code/reasonTr`) and the 409 message name the reason:
+  `AI_POLICY_DETERMINISTIC`, `MODEL_UNAVAILABLE` (no model) or
+  `MODEL_OFF_MACHINE` (the model is outside). The separate
+  `analysis_worker.mjs` applies the same gate. `health.dataBoundary` now
+  reports the EFFECTIVE boundary; the new `health.aiPolicy` shows the
+  decision.
+- **Measured (scripted endpoints, no real model):**
+  - peak concurrent model calls 1 at concurrency 1, 2 at concurrency 2;
+  - cloud calls under `LOCAL_ONLY` across 7 entry paths: 0.
+- **Evidence:** `tests/llm/aiPolicy.test.ts`, `tests/llm/aiPolicyW21Fixes.test.ts`,
+  `tests/pipeline/aiPolicyAnswer.test.ts`, `tests/exhaustive/modelTasks.test.ts`
+  (W21 block).
+
+---
+
+## ADR-048 — OCR is a probed state with six codes; restore verifies, merges and never drops; the runtime is portable
+
+- **Status:** accepted (2026-09-11, W21; extends ADR-038 and the W14 backup)
+- **OCR:** `intake/ocr.py` reports one of six codes through
+  `python -m intake.ocr --status`:
+  - `OCR_READY`;
+  - `OCR_DISABLED`;
+  - `OCR_EXECUTABLE_MISSING`;
+  - `OCR_TURKISH_DATA_MISSING`;
+  - `OCR_RASTERIZER_MISSING`;
+  - `OCR_FAILED`.
+
+  `control-plane/src/ocr/ocrStatus.ts` probes once per process.
+  `/v1/health.ocr` waits at most 250 ms for that answer and is `null` until
+  it arrives. A failed or unparseable probe is `OCR_FAILED`, never ready.
+  Only `OCR_READY` lets a scanned page be read. This machine reports
+  `OCR_EXECUTABLE_MISSING`.
+- **Restore:** `node control-plane/scripts/backup.mjs --restore <dir> --yes`
+  (`runRestore`) runs in this order:
+  1. verify the backup first;
+  2. require explicit confirmation;
+  3. take a safety dump;
+  4. rename the existing database aside (never drop it);
+  5. create the new database (`template0`, UTF8, locale C);
+  6. run `pg_restore --exit-on-error`;
+  7. merge the originals: same bytes stay, different bytes are set aside as
+     `.eski-<stamp>`, nothing is deleted, copies use `COPYFILE_EXCL`;
+  8. re-verify every original in place.
+
+  A filesystem error after `pg_restore` is reported per file, never thrown.
+  The backup CLI defaults to the same folder as the console's backup
+  button. Measured: a real end-to-end restore took 2591 ms.
+- **Portability:** runtime paths come from `path`/`os`, never drive letters.
+  The macOS scripts in `deploy/macos/` are forced to LF by `.gitattributes`.
+  `collex-env.sh` reads `~/.collex/collex.env` for both launchd and manual
+  runs, and refuses an unreplaced `__…__` template placeholder with exit
+  code 64.
+- **Evidence:** `tests/intake/test_ocr_status.py`, `control-plane/tests/ocr/ocrStatus.test.ts`,
+  `tests/backup/restore.test.ts`, `tests/portability/*`, `tests/test_portability_macos.py`.
+
+---
+
+## ADR-049 — Evaluation harnesses measure and never pick a winner
+
+- **Status:** accepted (2026-09-11, W21; extends the W20 bake-off)
+- **Embeddings:** `control-plane/src/evals/embeddingEval.ts`,
+  `scripts/embedding_eval.mjs`. The same labelled cases run through any
+  `EmbeddingPort` with the product's own query/document formatting. It
+  reports:
+  - R@1/3/5/10, MRR and graded nDCG@10;
+  - semantic-only recall — a passage counts only when the annotator's flag
+    AND the product's lexeme matcher agree it shares no content word;
+  - latency p50/p95, failure codes, dimension checks, start-up time and
+    memory.
+
+  Synthetic cases are labelled as such.
+- **Matter gold:** `collex.matter.gold/v1` (`matterGold.ts`,
+  `evals/gold/matter-gold.schema.json`, `MATTER_GOLD_FORMAT.md`) is scored
+  per category. Expected abstentions report `violated` and `unverifiable`
+  separately; an unverifiable one is never counted as respected.
+  Completeness is `met`, `not_met` or `unknown`. A contradiction's
+  alternatives must name the side they restate. A run event is never
+  credited with a finer date than its own `datePrecision`. Lawyer files
+  (`*.lawyer.*`) are git-ignored.
+- **Bake-off:** `semantic_contradiction` and `claim_weighing` run through
+  the PRODUCTION request builders and validators. False contradiction and
+  false support, the errors that become false legal conclusions, are
+  measured on their own.
+- **Measured** (local E5, 22 synthetic cases, re-run after the
+  semantic-only fix with identical quality figures):
+  - R@1 0.379, R@3 0.864, MRR 0.890, nDCG@10 0.703;
+  - semantic-only R@1 0.136, R@3 0.795;
+  - per-call p50 19.3 ms / p95 36.4 ms, query p50 7.2 ms;
+  - start-up 2662 ms, memory 477.4 → 484.2 MiB.
+
+  No language model was measured: REAL_MODEL_MEASUREMENT_PENDING.
+- **Evidence:** `tests/evals/{embeddingEval,matterGold,bakeoffSemantic,bakeoffWeighing}.test.ts`.
+
+---
+
+## ADR-050 — The production host is one always-on Mac mini M2 (8 GB) running everything — designed, not validated
+
+- **Status:** accepted as a design (2026-09-11, W21); UNVALIDATED ON PHYSICAL MAC
+- **Decision:** `docs/implementation/MAC-MINI-PRODUCTION.md` lays out the
+  single-machine topology:
+  - PostgreSQL 18;
+  - the control plane with its in-process analysis worker (model
+    concurrency 1);
+  - the local E5 embedder;
+  - an optional local model server on `127.0.0.1:8080`;
+  - Homebrew tesseract and poppler for OCR.
+
+  Supporting pieces:
+  - launchd templates `com.collex.{postgres,app,llm,backup}`;
+  - `deploy/macos/collex-{env,start,stop,backup,restore}.sh`;
+  - `BACKUP-RESTORE.md`;
+  - `WINDOWS-TO-MAC-MIGRATION.md`, 26 numbered steps, each with commands,
+    verification and rollback.
+
+  No cloud service and no second machine is required.
+  `MAC-MINI-INFERENCE.md` is kept as the interim topology (a separate
+  inference box) and is not the production plan.
+- **Honesty:** the 8 GB budget is an ESTIMATE. No command in these documents
+  was run on a Mac, and no Mac number exists.
+- **Evidence:** `tests/portability/productionHost.test.ts`, `tests/test_portability_macos.py`.
+
+---

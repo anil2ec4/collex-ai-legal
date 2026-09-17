@@ -386,18 +386,25 @@ const { createDb } = await importControlPlane("src/store/db.ts");
 const APPLICATION_NAME = "collex-serve";
 const sql = createDb({ url: args.dsn, connectTimeoutS: 3, applicationName: APPLICATION_NAME });
 
+// W21: every launcher, stop script and interpreter path an operator line
+// names is the RUNNING platform's (Mac: deploy/macos/*.sh, .venv/bin/python).
+// Round two (R2-36): the database-down line and the stop hints too.
+const { ensureDbCommandTr, databaseDownStartupTr, operatorHints } =
+  await importControlPlane("src/platform/operatorHints.ts");
+const hints = operatorHints();
+
 // 1. Database first: a dead database is a launcher problem, say so and stop.
 const db = await checkDatabase(sql);
 const dbName = dbNameOf(args.dsn);
 if (db.state === "down") {
-  warn(`veritabanı: ÇALIŞMIYOR — ColleX-Baslat.cmd ile başlatın (${dbName} @ yerel PostgreSQL 55432 cevap vermedi)`);
+  warn(databaseDownStartupTr(dbName));
   await sql.end({ timeout: 2 }).catch(() => undefined);
   process.exit(1);
 }
 if (db.state === "missing") {
   warn(
     db.reason === "database"
-      ? `veritabanı: ${dbName} yok: .venv/Scripts/python.exe -m intake.cli --dsn <dsn> --ensure-db ile oluşturun (sunucu yine de açılıyor; dosya ve cevap uçları tipli 503 döner)`
+      ? `veritabanı: ${dbName} yok: ${ensureDbCommandTr()} ile oluşturun (sunucu yine de açılıyor; dosya ve cevap uçları tipli 503 döner)`
       : `veritabanı: ${dbName} var ama şema eksik (legal.documents yok): intake.cli --ensure-db ile tamamlayın (sunucu yine de açılıyor)`,
   );
 }
@@ -461,7 +468,7 @@ if (db.state !== "down") {
   if (!held && (await anotherServerConnected())) {
     warn(
       `HATA: ${dbNameOf(args.dsn)} veritabanına başka bir ColleX sunucusu zaten bağlı.` +
-        " Aynı anda tek bir ColleX çalışabilir — önce ColleX-Durdur.cmd ile kapatın.",
+        ` Aynı anda tek bir ColleX çalışabilir — önce ${hints.stop} ile kapatın.`,
     );
     await sql.end({ timeout: 2 }).catch(() => undefined);
     process.exit(1);
@@ -538,7 +545,7 @@ if (args.withMcp) {
   if (picked.stale) {
     warn(
       `uyarı: ${args.mcpPort} portunda eski bir MCP süreci (uvicorn) dinliyor —` +
-        ` ColleX-Durdur.cmd ile temizleyin; bu oturum için ${picked.port} portu kullanılıyor`,
+        ` ${hints.stop} ile temizleyin; bu oturum için ${picked.port} portu kullanılıyor`,
     );
   }
   mcpPort = picked.port;
@@ -561,7 +568,7 @@ const { createStoreRetrievalPort, createStoreTextPort, createStoreVersionFactsPo
 const { AnswerPipeline } = await importControlPlane("src/pipeline/answerPipeline.ts");
 const { createApp } = await importControlPlane("src/api/server.ts");
 const { localEmbeddingResolution } = await importControlPlane("src/retrieval/localEmbeddingConfig.ts");
-const { checkDatabase: describeDatabase, describeDatabaseHealth } =
+const { checkDatabase: describeDatabase, describeDatabaseHealth, checkAnalysisSchema } =
   await importControlPlane("src/store/health.ts");
 const { PgAnswerStore } = await importControlPlane("src/store/answerStore.ts");
 const { PgDraftStore } = await importControlPlane("src/store/draftStore.ts");
@@ -572,7 +579,9 @@ const backupRunner = await importControlPlane("src/backup/runner.ts");
 const { PgAiLedger } = await importControlPlane("src/ai/ledger.ts");
 const { FileLocalLibrary } = await importControlPlane("src/sources/localLibrary.ts");
 const { resolveModelRoutes, localModelLabel } = await importControlPlane("src/llm/providerFactory.ts");
-const { resolveDataBoundary } = await importControlPlane("src/llm/localGenerationConfig.ts");
+const { resolveEffectiveAiPolicy, policyAllowsModelTasks } = await importControlPlane("src/llm/aiPolicy.ts");
+const { createOcrStatusProbe } = await importControlPlane("src/ocr/ocrStatus.ts");
+const { resolveStageConfig } = await importControlPlane("src/exhaustive/stageTypes.ts");
 const { PgDurableAnalysisStore } = await importControlPlane("src/exhaustive/durableStore.ts");
 const { AnalysisWorker } = await importControlPlane("src/exhaustive/worker.ts");
 const { createEmbeddingPort } = await importControlPlane("src/retrieval/semanticRerank.ts");
@@ -600,10 +609,19 @@ const dbHealthLine = persistent
 // W12: cloud AI is OFF unless ANTHROPIC_API_KEY is set; the key itself is
 // never logged (AiConfig keeps it out of every serialization path).
 const aiConfig = resolveAiConfig(process.env);
+// W21: ONE application AI policy (COLLEX_AI_POLICY = LOCAL_ONLY |
+// LOCAL_PREFERRED (default; AUTO is the same) | CLOUD_ALLOWED |
+// DETERMINISTIC_ONLY), resolved ONCE here and combined with
+// COLLEX_DATA_BOUNDARY — the stricter wins. The same object reaches every
+// consumer below: the answer pipeline (who drafts), the model route table
+// (which endpoint may fill which role), the analysis worker (model tasks)
+// and createApp (health, /v1/ai/*, embeddings).
+const aiPolicy = resolveEffectiveAiPolicy(process.env);
 // W20: the data boundary is read ONCE here and handed to every consumer.
 // Under LOCAL_ONLY the answer pipeline refuses `useCloudAi` before any
-// cloud port is touched and /v1/ai/* refuses every POST.
-const dataBoundary = resolveDataBoundary(process.env);
+// cloud port is touched and /v1/ai/* refuses every POST. W21: this is the
+// EFFECTIVE boundary (the policy can only narrow it).
+const dataBoundary = aiPolicy.boundary;
 const cloud = aiConfig !== null
   ? (({ drafter, entailment, label }) => ({ drafter, entailment, label }))(createAiPorts(aiConfig))
   : undefined;
@@ -637,14 +655,25 @@ const backupPort = {
 // W20: ONE place resolves the local model roles (answer, verifier, matter
 // extraction, matter synthesis). A refused or absent endpoint leaves every
 // role empty; nothing falls back to the cloud.
-const modelRoutes = resolveModelRoutes(process.env);
+const modelRoutes = resolveModelRoutes(process.env, { policy: aiPolicy });
 const localPorts =
   modelRoutes.roles.answer !== undefined && modelRoutes.roles.verifier !== undefined
     ? {
         drafter: modelRoutes.roles.answer,
         entailment: modelRoutes.roles.verifier,
         label: localModelLabel(modelRoutes.roles.answer),
+        trust: modelRoutes.trust,
       }
+    : undefined;
+// W21: a configured endpoint the table REFUSED builds no port, but a
+// `useLocalAi` answer must still say WHY no local model wrote it ("outside
+// this computer, the policy refused it" / "the address failed the trust
+// rules") — the same reason health and the matter capabilities give — and
+// never "no local model is configured". Only the facts travel, never an
+// adapter, so nothing becomes callable.
+const localRefusal =
+  localPorts === undefined && modelRoutes.status === "refused" && modelRoutes.policy !== "DETERMINISTIC_ONLY"
+    ? { trust: modelRoutes.trust }
     : undefined;
 
 // W20: the durable exhaustive-analysis worker. Only on the real schema: a
@@ -666,15 +695,45 @@ if (persistent && !w20Schema) {
   console.log("uyarı: dosya incelemesi ve inceleme tablosu için veritabanı şeması eksik —"
     + " intake.cli --ensure-db ile tamamlayın; arka plan işleri kapalı.");
 }
-const analysisStore = w20Schema ? new PgDurableAnalysisStore(sql) : null;
+// W21 round two (R2-20): the gate above is the W20 one, and the W21 worker
+// needs MORE — matter_analysis_tasks, the run coverage columns and the unit
+// extraction accounting (20260913090000_analysis_stages.sql). On a W20-only
+// schema it used to start anyway, fail every tick on a missing relation and
+// leave every run queued while POST /analysis answered 500. This gate probes
+// every object the worker uses (health.ts ANALYSIS_WORKER_MIGRATIONS); when
+// any is missing, the analysis worker and its routes stay off and say why.
+const analysisSchema = w20Schema
+  ? await checkAnalysisSchema(sql).catch(() => ({ ready: false, missing: ["(şema denetlenemedi)"] }))
+  : { ready: false, missing: [] };
+const analysisSchemaReady = analysisSchema.ready;
+if (w20Schema && !analysisSchemaReady) {
+  console.log("uyarı: dosya incelemesi (analiz aşamaları) için veritabanı şeması eksik —"
+    + ` ${ensureDbCommandTr()} ile tamamlayın; dosya incelemesi işi kapalı`
+    + ` (eksik: ${analysisSchema.missing.join(", ")}).`);
+}
+// The review grid reads document versions through the same store class; it
+// needs only the W20 tables, so it keeps its own (W20) gate.
+const documentStore = w20Schema ? new PgDurableAnalysisStore(sql) : null;
+const analysisStore = analysisSchemaReady ? documentStore : null;
 const analysisWorker =
   analysisStore !== null
     ? new AnalysisWorker({
         store: analysisStore,
-        models: () => ({
-          extraction: modelRoutes.roles.matterExtraction,
-          synthesis: modelRoutes.roles.matterSynthesis,
-        }),
+        // W21: batch sizes and hierarchical limits (COLLEX_ANALYSIS_*).
+        stageConfig: resolveStageConfig(process.env),
+        // W21: the local E5 embedder, when --with-local-embeddings runs, adds
+        // the cosine signal to claim/evidence candidate discovery. Read
+        // lazily: it is resolved further down this file.
+        embedder: () => denseEmbedder ?? undefined,
+        // W21: matter analysis has no per-request consent; the policy (and
+        // the on-machine rule) decides whether model tasks may run at all.
+        models: () => {
+          const routes = {
+            extraction: modelRoutes.roles.matterExtraction,
+            synthesis: modelRoutes.roles.matterSynthesis,
+          };
+          return policyAllowsModelTasks(aiPolicy.policy, routes) ? routes : {};
+        },
         // Structured events only; never document text.
         log: (event) => {
           if (event.event !== "unit-done") console.log(`analiz: ${JSON.stringify(event)}`);
@@ -713,15 +772,24 @@ const answerPipeline = new AnswerPipeline({
     producer: "collex control-plane (scripts/serve.mjs)",
     ...(cloud !== undefined ? { cloud } : {}),
     ...(localPorts !== undefined ? { local: localPorts } : {}),
+    ...(localRefusal !== undefined ? { localRefusal } : {}),
     dataBoundary: () => dataBoundary,
+    // W21: with the policy wired, a configured local model drafts by
+    // default (no browser flag); useCloudAi stays per-request consent.
+    aiPolicy: () => aiPolicy,
 });
 
 // W20: the persisted review grid's worker (real schema only).
 const reviewStore = w20Schema ? new PgReviewTableStore(sql) : null;
 const reviewWorker =
-  reviewStore !== null && analysisStore !== null
-    ? new ReviewTableWorker({ store: reviewStore, answer: answerPipeline, documents: analysisStore })
+  reviewStore !== null && documentStore !== null
+    ? new ReviewTableWorker({ store: reviewStore, answer: answerPipeline, documents: documentStore })
     : null;
+
+// W21: the local OCR capability, probed ONCE per process (Python start-up +
+// tesseract --list-langs) and started now so the first health poll has it.
+const ocrProbe = createOcrStatusProbe({ repoRoot: REPO_ROOT });
+void ocrProbe.get();
 
 const app = createApp({
   answerPipeline,
@@ -738,6 +806,8 @@ const app = createApp({
   sql,
   dbName,
   modelRoutes,
+  aiPolicy: () => aiPolicy,
+  ocrStatus: () => ocrProbe.get(),
   ...(reviewStore !== null && reviewWorker !== null
     ? { reviewTables: { store: reviewStore, worker: reviewWorker } }
     : {}),
@@ -861,9 +931,22 @@ server = serve(
     log(`kayıt  : ${persistent ? "kalıcı (app_private.answers/drafts/matters/settings)" : "bellek içi"}`);
     log(
       aiConfig !== null
-        ? `ai     : açık (${aiConfig.model}; istek başına onay gerekir, canlı sınanmadı)`
+        ? aiPolicy.policy === "DETERMINISTIC_ONLY" || aiPolicy.boundary === "LOCAL_ONLY"
+          ? `ai     : anahtar tanımlı ama yapay zekâ ilkesi bulutu kapatıyor (${aiPolicy.policy}, veri sınırı ${aiPolicy.boundary}); dışarıya metin gitmez`
+          : `ai     : açık (${aiConfig.model}; istek başına onay gerekir, canlı sınanmadı)`
         : "ai     : kapalı (ANTHROPIC_API_KEY yok)",
     );
+    log(
+      `ilke   : ${aiPolicy.policy}` +
+        (aiPolicy.policy !== aiPolicy.configuredPolicy ? ` (ayar: ${aiPolicy.configuredPolicy})` : "") +
+        ` · veri sınırı ${aiPolicy.boundary} · yerel model: ` +
+        (modelRoutes.status === "configured"
+          ? modelRoutes.models.answer
+          : modelRoutes.status === "refused"
+            ? "reddedildi"
+            : "yok"),
+    );
+    for (const note of aiPolicy.warnings) log(`ilke   : ${note}`);
     log(
       mcp !== null
         ? `mcp    : başlatılıyor (${mcp.baseUrl}); hazır olana kadar /v1/research tipli 502 döner`
@@ -931,7 +1014,7 @@ server.on("error", (error) => {
   if (error?.code === "EADDRINUSE") {
     warn(
       `HATA: ${args.port} portu kullanımda — ColleX zaten çalışıyor olabilir` +
-        ` (http://127.0.0.1:${args.port}/) ya da ColleX-Durdur.cmd ile eski süreci kapatın.`,
+        ` (http://127.0.0.1:${args.port}/) ya da ${hints.stop} ile eski süreci kapatın.`,
     );
   } else {
     warn(`HATA: HTTP sunucusu açılamadı (${error?.code ?? error?.message ?? error})`);

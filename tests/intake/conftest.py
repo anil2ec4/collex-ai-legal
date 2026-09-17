@@ -43,6 +43,21 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_local_ocr_unless_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin ``COLLEX_OCR=off`` for every intake test (W21).
+
+    Most intake tests assert the NO-OCR behaviour of scanned pages
+    (UNREADABLE, the fail-closed "OCR bu modda devre dışı" warning). On a
+    machine that happens to have tesseract + pdftoppm + tur installed — a
+    Mac with Homebrew, say — default detection would run REAL OCR on the
+    fixtures and silently change what those tests mean. The OCR tests hand
+    in their provider (a fake) or an explicit environment instead, so this
+    pin does not touch them.
+    """
+    monkeypatch.setenv("COLLEX_OCR", "off")
+
+
 _MISSING_DRIVER = (
     "the psycopg driver is not importable; tests/intake are REAL"
     " integration tests against the local scratch PostgreSQL and cannot run"

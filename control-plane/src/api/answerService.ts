@@ -123,10 +123,18 @@ export const answerRequestSchema = z
     /**
      * Additive (W12-B/E): route THIS request through the configured cloud
      * ports (consent per request). Unconfigured -> AI_UNAVAILABLE warning and
-     * the rule-based drafter continues.
+     * the rule-based drafter continues. W21: still the ONLY way to consent to
+     * an outside service for one answer; the AI policy (llm/aiPolicy.ts)
+     * decides whether that consent may be honoured.
      */
     useCloudAi: z.boolean().optional(),
-    /** Additive (W20): draft + verify with the configured local model. */
+    /**
+     * Additive (W20): draft + verify with the configured local model. W21:
+     * under the default AI policy (LOCAL_PREFERRED) a configured local model
+     * is used WITHOUT this flag; it stays accepted for backward
+     * compatibility, and asking for a local model that is not there is said
+     * (LOCAL_AI_UNAVAILABLE), never hidden.
+     */
     useLocalAi: z.boolean().optional(),
     /**
      * Additive (W12-A, contract [M]): file the answer under this matter. The
@@ -144,6 +152,21 @@ export const answerRequestSchema = z
   .strict();
 
 export type AnswerApiRequest = z.infer<typeof answerRequestSchema>;
+
+/**
+ * W21: the per-request AI flags handed to the pipeline — BOTH, exactly as
+ * sent. `/v1/answer` used to forward only `useCloudAi`, so a client that
+ * asked for the local model silently got the rule-based drafter with no
+ * warning. A flag the client did not send is not invented here.
+ */
+export function answerAiFlags(
+  data: Pick<AnswerApiRequest, "useCloudAi" | "useLocalAi">,
+): Pick<AnswerRequest, "useCloudAi" | "useLocalAi"> {
+  return {
+    ...(data.useCloudAi !== undefined ? { useCloudAi: data.useCloudAi } : {}),
+    ...(data.useLocalAi !== undefined ? { useLocalAi: data.useLocalAi } : {}),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Limit clamping

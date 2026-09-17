@@ -37,7 +37,9 @@ describe("W20 · Dosya incelemesi (Matter tab)", () => {
 
   it("never builds the completeness claim itself", () => {
     expect(html).toContain("if (run.coverageSummary) { card.appendChild(el(\"p\", null, run.coverageSummary)); }");
-    expect(html).toContain("if (active || !cov || !run.exhaustiveClaimRefusedBecause) { return; }");
+    // W21 hostile review: the "not fully read" box follows SOURCE gaps only;
+    // the refusal field now also covers incomplete analysis.
+    expect(html).toContain("if (active || !cov || cov.complete !== false) { return; }");
     expect(html).toContain("Dosyanın tamamı okunmadı; bu sonuç “bütün dosya” için söylenemez.");
     for (const reason of [
       "UNREADABLE_NO_TEXT", "UNIT_FAILED", "UNIT_NOT_PROCESSED", "NO_SOURCE_MAP",

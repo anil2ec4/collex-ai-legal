@@ -41,6 +41,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Sql } from "./db.js";
+import { ensureDbCommandTr } from "../platform/operatorHints.js";
 
 /** Mirror of ingestion.migrations.PGVECTOR_MARKER. */
 export const PGVECTOR_MARKER = "[REQUIRES PGVECTOR]";
@@ -152,13 +153,14 @@ export interface DatabaseHealth {
  *   20260912090000_durable_matter_analysis.sql     3  (W20 Matter Intelligence)
  *   20260912100000_private_dense_vectors.sql       1  (W20 phase E)
  *   20260912110000_review_tables.sql               4  (W20 review grid)
+ *   20260913090000_analysis_stages.sql             1  (W21 analytical tasks)
  * ENGRISK counted 17 on a restored database before the W14 migration; this
- * build ships 31. Re-measured against a real cluster by
+ * build ships 32. Re-measured against a real cluster by
  * `tests/ingestion/test_migrations_ledger.py` and `persistence.test.ts`, so
  * a dropped policy block — the ENGRISK E3 failure — is caught rather than
  * reported as `11/11 OK`.
  */
-export const EXPECTED_RLS_POLICIES = 31;
+export const EXPECTED_RLS_POLICIES = 32;
 
 export interface CheckDatabaseOptions {
   /** Probe budget in milliseconds (default 3000). */
@@ -391,6 +393,78 @@ export async function checkDatabase(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Analysis worker schema gate (W21 round two, R2-20)
+// ---------------------------------------------------------------------------
+
+/**
+ * The migrations whose objects the durable matter-analysis worker and its
+ * routes read or write. The worker polls every second: started against a
+ * database that lacks ANY of them, every tick fails on a missing relation or
+ * column and no run ever moves. serve.mjs and analysis_worker.mjs start the
+ * worker only when `checkAnalysisSchema` says ready. A migration that touches
+ * the analysis tables must be listed here
+ * (tests/exhaustive/analysisSchemaGate.test.ts fails otherwise).
+ */
+export const ANALYSIS_WORKER_MIGRATIONS: readonly string[] = Object.freeze([
+  "20260911100000_source_locators.sql",
+  "20260911110000_matter_analysis.sql",
+  "20260912090000_durable_matter_analysis.sql",
+  "20260913090000_analysis_stages.sql",
+]);
+
+/**
+ * Objects those files create that their [LEDGER SENTINEL] lines do not name
+ * but the worker's statements use (the run coverage layers every run read
+ * selects, the unit extraction accounting every completed unit writes).
+ */
+export const ANALYSIS_WORKER_EXTRA_PROBES: readonly string[] = Object.freeze([
+  "column:app_private.matter_analysis_runs.extraction_coverage",
+  "column:app_private.matter_analysis_runs.intelligence_coverage",
+  "column:app_private.matter_analysis_units.repair_passes",
+]);
+
+export interface AnalysisSchemaReadiness {
+  readonly ready: boolean;
+  /** Probes that did not resolve, and listed migration files not on disk. */
+  readonly missing: string[];
+}
+
+/**
+ * Whether every object the analysis worker needs EXISTS (probed, never read
+ * from the ledger: a ledger row does not prove the table is there). Throws
+ * only when the database cannot be queried; callers treat that as not ready.
+ */
+export async function checkAnalysisSchema(
+  sql: Sql,
+  options: { migrationsDir?: string } = {},
+): Promise<AnalysisSchemaReadiness> {
+  const plan = await planRunnableMigrations(options.migrationsDir ?? DEFAULT_MIGRATIONS_DIR);
+  const byName = new Map(plan.map((migration) => [migration.name, migration]));
+  const missing: string[] = [];
+  const probes: PlannedMigration[] = [];
+  for (const name of ANALYSIS_WORKER_MIGRATIONS) {
+    const migration = byName.get(name);
+    if (migration === undefined) missing.push(name);
+    else probes.push(migration);
+  }
+  probes.push({
+    name: "analysis-worker-extra-probes",
+    timestamp: "",
+    sentinel: null,
+    probe: null,
+    sentinels: [...ANALYSIS_WORKER_EXTRA_PROBES],
+  });
+  const wanted = new Set(
+    probes.flatMap((migration) =>
+      migration.sentinels.length > 0 ? migration.sentinels : migration.sentinel !== null ? [migration.sentinel] : [],
+    ),
+  );
+  const existing = await resolveSentinels(sql, probes);
+  for (const raw of wanted) if (!existing.has(raw)) missing.push(raw);
+  return { ready: missing.length === 0, missing };
+}
+
 /** One Turkish start-up line for serve.mjs / the console's system status. */
 export function describeDatabaseHealth(health: DatabaseHealth): string {
   const name = health.dbName !== undefined ? ` (${health.dbName})` : "";
@@ -402,8 +476,8 @@ export function describeDatabaseHealth(health: DatabaseHealth): string {
   }
   if (health.db === "missing") {
     return (
-      `Veritabanı${name} var ama şema yok — .venv/Scripts/python.exe -m intake.cli` +
-      " --dsn <dsn> --ensure-db çalıştırın."
+      // W21: the interpreter path is the RUNNING platform's (Mac: .venv/bin/python).
+      `Veritabanı${name} var ama şema yok — ${ensureDbCommandTr()} çalıştırın.`
     );
   }
   const m = health.migrations;

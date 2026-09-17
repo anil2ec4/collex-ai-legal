@@ -18,10 +18,19 @@ Empty ranges are expected, not an error: a page with no text layer
 contributes no characters and is stored with ``start_char == end_char`` so
 processing coverage can count what was NOT read. The table's EXCLUDE
 constraint tolerates them because an empty ``int4range`` never overlaps.
+
+R2-34: the RANGES of a version are immutable, but how each page was read is a
+judgement of the extractor, and a later extractor can correct it without
+changing a single character (W21 #25 turned a scanned page carrying only an
+e-signature footer from EXTRACTED into SPARSE). ``resync_segments`` is the one
+place that rewrites ``extraction_method`` / ``extraction_status`` /
+``confidence`` of stored rows, and only after checking that the stored map
+describes exactly the same ranges.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Iterable, Sequence
 
 import psycopg
@@ -88,6 +97,104 @@ def insert_segments(
             cur.executemany(_INSERT_SQL, batch)
             inserted += max(0, cur.rowcount)
     return inserted
+
+
+#: Stored confidences are ``real`` (float4); a difference below this is the
+#: storage rounding of the same value, not a new reading.
+_CONFIDENCE_EPSILON = 1e-5
+
+_UPDATE_SQL = (
+    "update legal.document_version_segments"
+    " set extraction_method = %s, extraction_status = %s, confidence = %s"
+    " where document_version_id = %s and segment_no = %s"
+)
+
+
+@dataclass(frozen=True)
+class SegmentResync:
+    """What ``resync_segments`` did to one version's stored page map."""
+
+    #: Rows written because the version had NO stored map.
+    inserted: int = 0
+    #: Rows whose method, status or confidence now follow the new extraction.
+    updated: int = 0
+    #: Rows that were EXTRACTED and are now SPARSE or UNREADABLE.
+    downgraded: int = 0
+    #: The stored map does not describe the same ranges (or the new
+    #: extraction produced no map): NOTHING was written.
+    refused: bool = False
+
+
+def _same_confidence(stored: float | None, new: float | None) -> bool:
+    if stored is None or new is None:
+        return stored is None and new is None
+    return abs(float(stored) - float(new)) < _CONFIDENCE_EPSILON
+
+
+def resync_segments(
+    conn: psycopg.Connection,
+    version_id: str,
+    segments: Sequence[SourceSegment],
+) -> SegmentResync:
+    """Bring a version's stored page statuses in line with a re-extraction of
+    the SAME canonical text (R2-34).
+
+    The caller guarantees the new extraction produced the stored canonical
+    text byte for byte (the pipeline found the version by its content hash).
+    Every stored row must then name the same segment, locator and range as the
+    new map; if one does not, the stored map describes something else and
+    nothing is written (``refused``). A version without a stored map gets the
+    new one inserted. Otherwise each row's ``extraction_method``,
+    ``extraction_status`` and ``confidence`` become the new extraction's, so a
+    page the current extractor counts as SPARSE or UNREADABLE is never left
+    EXTRACTED because an older extractor said so.
+
+    Runs in the caller's transaction; rows are locked while they are compared.
+    """
+    rows = conn.execute(
+        "select segment_no, locator_kind, locator_label, start_char, end_char,"
+        " extraction_method, extraction_status, confidence"
+        " from legal.document_version_segments"
+        " where document_version_id = %s order by segment_no for update",
+        (version_id,),
+    ).fetchall()
+    new = sorted(segments, key=lambda s: s.segment_no)
+    if not rows:
+        if not new:
+            return SegmentResync()
+        return SegmentResync(inserted=insert_segments(conn, version_id, new))
+    if len(rows) != len(new):
+        return SegmentResync(refused=True)
+    changes: list[tuple] = []
+    downgraded = 0
+    for row, segment in zip(rows, new):
+        if (
+            int(row[0]) != segment.segment_no
+            or str(row[1]) != segment.locator_kind
+            or str(row[2]) != segment.locator_label
+            or int(row[3]) != segment.start_char
+            or int(row[4]) != segment.end_char
+        ):
+            return SegmentResync(refused=True)
+        if (
+            str(row[5]) == segment.extraction_method
+            and str(row[6]) == segment.extraction_status
+            and _same_confidence(row[7], segment.confidence)
+        ):
+            continue
+        if str(row[6]) == "EXTRACTED" and segment.extraction_status != "EXTRACTED":
+            downgraded += 1
+        changes.append((
+            segment.extraction_method,
+            segment.extraction_status,
+            segment.confidence,
+            version_id,
+            segment.segment_no,
+        ))
+    if changes:
+        with conn.cursor() as cur:
+            cur.executemany(_UPDATE_SQL, changes)
+    return SegmentResync(updated=len(changes), downgraded=downgraded)
 
 
 def segments_from_hints(structure_hints: dict | None) -> tuple[SourceSegment, ...]:

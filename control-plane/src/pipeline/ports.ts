@@ -42,6 +42,15 @@ export interface CorpusSearchFilters {
   fileIds?: string[];
   /** Under file scope only: union with the public corpus. Default false. */
   includeCorpus?: boolean;
+  /**
+   * Additive (W21, review-table version pin): restrict the caller's UPLOADED
+   * rows to EXACTLY these document versions (legal.document_versions.id).
+   * The pin replaces the current-version test for those rows — a superseded
+   * upload version stays readable by its id — and it never widens: the
+   * fileIds and tenant tests still apply, and public rows follow
+   * includeCorpus as before. See chunkStore.StoreSearchFilters.
+   */
+  documentVersionIds?: string[];
 }
 
 export interface CorpusSearchRequest {

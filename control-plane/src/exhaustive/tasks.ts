@@ -72,7 +72,9 @@ export type IntelItemKind =
   | "unsupported_proposition"
   | "contrary_evidence"
   | "procedural_vulnerability"
-  | "hypothetical_argument";
+  | "hypothetical_argument"
+  | "issue_summary"
+  | "review_summary";
 
 export interface TaskSpec {
   readonly task: AnalysisTask;
@@ -116,7 +118,8 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
     produces: ["contradiction", "question"],
     limitsTr: [
       "Yalnız tarih, tutar ve oran içeren ifadeler karşılaştırılır; değer" +
-        " içermeyen serbest metin çelişkileri bu incelemenin kapsamı dışındadır.",
+        " içermeyen serbest metin çelişkileri bu incelemenin kapsamı dışındadır; onları" +
+        " \"Dosyanın tamamını incele\" yerel modelle ayrıca karşılaştırır.",
       "Hangi ifadelerin aynı konuya ait olduğu kelime örtüşmesiyle belirlenir;" +
         " her eşleşme kaynaktan doğrulanmalıdır.",
     ],
@@ -147,6 +150,9 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
     limitsTr: [
       "İddia ve delil tespitini yerel dil modeli yapar; her tespit belgedeki" +
         " birebir alıntıya bağlıdır ve alıntısı bulunamayan tespit atılır.",
+      "\"Destek bulunamadı\" yalnız dosyanın tamamı okunduğunda ve dosyadan çıkarılan bütün delil ve" +
+        " olgularla, kısaltılmamış metinler üzerinden karşılaştırma yapıldığında kesin bir tespit olarak" +
+        " söylenir; aksi hâlde yalnız karşılaştırılan aday deliller için geçerlidir ve sonuç bunu belirtir.",
     ],
   },
   full_review: {
@@ -173,12 +179,22 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
       "missing_support",
       "favorable_point",
       "unfavorable_point",
+      "issue_summary",
+      "review_summary",
     ],
     limitsTr: [
       "Lehe ve aleyhe noktalar yalnız müvekkilin sıfatı belirtildiğinde" +
         " çıkarılır.",
-      "Özet aşaması, çok büyük dosyalarda bulguların sınırlı bir özetini görür;" +
-        " bu durumda sonuç bunu açıkça belirtir.",
+      "Genel değerlendirme bütün bulguları gruplar hâlinde, kademeli olarak özetler;" +
+        " her iddia ve savunma aday delillerle ayrı ayrı karşılaştırılır. Tamamlanamayan" +
+        " bir aşama olursa sonuç bunu açıkça belirtir.",
+      "Serbest metin çelişkileri (değer içermeyen, birbiriyle bağdaşmayan ifadeler) yerel" +
+        " modelle ayrıca karşılaştırılır; her çelişkinin iki tarafı da belgedeki birebir" +
+        " alıntıya bağlıdır.",
+      "\"Destek bulunamadı\" yalnız dosyanın tamamı okunduğunda ve dosyadan çıkarılan bütün delil, olgu," +
+        " olay, usul işlemi ve güvenilirlik sorunlarıyla, kısaltılmamış metinler üzerinden karşılaştırma" +
+        " yapıldığında kesin bir tespit olarak söylenir; aksi hâlde yalnız karşılaştırılan aday deliller" +
+        " için geçerlidir ve sonuç bunu belirtir.",
     ],
   },
   red_team: {
@@ -206,6 +222,8 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
       "contrary_evidence",
       "procedural_vulnerability",
       "hypothetical_argument",
+      "issue_summary",
+      "review_summary",
     ],
     limitsTr: [
       "Karşı içtihat taraması bu incelemenin parçası değildir; içtihat için" +
@@ -227,7 +245,12 @@ export interface TaskAvailability {
  * Whether a task may start. A model-required task with no configured model
  * is NOT downgraded to its deterministic part: it refuses, with a sentence.
  */
-export function taskAvailability(task: AnalysisTask, modelReady: boolean): TaskAvailability {
+export function taskAvailability(
+  task: AnalysisTask,
+  modelReady: boolean,
+  /** W21: why a configured model may not be used (AI policy, off-machine), when that is the reason. */
+  blockedReasonTr?: string,
+): TaskAvailability {
   const spec = TASK_SPECS[task];
   if (spec.requiresModel && !modelReady) {
     return {
@@ -235,9 +258,12 @@ export function taskAvailability(task: AnalysisTask, modelReady: boolean): TaskA
       available: false,
       reason: "MODEL_REQUIRED",
       messageTr:
-        `"${spec.titleTr}" için yerel dil modeli gerekiyor ve şu an yapılandırılmış` +
-        " değil. Model olmadan bu inceleme yarım yapılmaz; tarih, tutar ve oran" +
-        " çelişkileri ile kronoloji modelsiz çalışır.",
+        blockedReasonTr !== undefined
+          ? `"${spec.titleTr}" yapılamıyor: ${blockedReasonTr} Model olmadan bu inceleme yarım` +
+            " yapılmaz; tarih, tutar ve oran çelişkileri ile kronoloji modelsiz çalışır."
+          : `"${spec.titleTr}" için yerel dil modeli gerekiyor ve şu an yapılandırılmış` +
+            " değil. Model olmadan bu inceleme yarım yapılmaz; tarih, tutar ve oran" +
+            " çelişkileri ile kronoloji modelsiz çalışır.",
     };
   }
   return { task, available: true };

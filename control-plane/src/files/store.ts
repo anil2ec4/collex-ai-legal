@@ -115,7 +115,12 @@ export interface FileExtraction {
   chars: number;
   chunkCount: number;
   pages?: number;
-  /** Always false today: OCR is fail-closed in the intake lane. */
+  /**
+   * W21 (#29): true when local OCR read at least one page of this file
+   * (`pages.ocrPages`, or the intake's `OCR_PAGES:<n>` warning). Before W21
+   * it was hard-coded false, so the console never took its "read by OCR"
+   * branch for pages OCR did read.
+   */
   ocr: boolean;
 }
 
@@ -126,6 +131,17 @@ export interface FileExtraction {
  * carry `SCANNED_PAGES:<n>` for the console dictionary. `sparsePages` are
  * pages with a text layer that is too short to establish full readability;
  * their short extracted text is preserved, but OCR is not implied.
+ *
+ * W21 (#29): the intake computes these AFTER local OCR. `emptyPages` lists
+ * only pages NOTHING read; a page local OCR read is in `ocrPages` instead
+ * (it is searchable and citable, and its quotes must be checked against the
+ * original). W21 (#25): `sparsePages` also holds scanned pages of which only
+ * a short text layer (a stamp, an e-signature footer) was read. W21 round
+ * two (R2-32/R2-33): and pages local OCR read but NOT fully — low
+ * confidence, only a few characters beyond a short text layer, or lines
+ * withheld as possible misread copies; such a page is in `ocrPages` too,
+ * and the warnings name the reason (`OCR_LOW_CONFIDENCE_PAGES`,
+ * `OCR_WITHHELD_LINES_PAGES`).
  */
 export interface FilePageStats {
   pageCount: number;
@@ -133,6 +149,24 @@ export interface FilePageStats {
   emptyPages: number[];
   /** 1-based pages whose text layer exists but is too sparse to trust. */
   sparsePages?: number[];
+  /** W21 (#29): 1-based pages local OCR read (additive; absent = none). */
+  ocrPages?: number[];
+}
+
+/** `OCR_PAGES:<n>` with n >= 1 — the intake's machine code for "OCR read pages". */
+const OCR_PAGES_WARNING_RE = /^OCR_PAGES:([1-9]\d*)$/u;
+
+/**
+ * W21 (#29): did local OCR read any page of this file? Decided from what
+ * the intake recorded — the page statistics or its machine warning code —
+ * never assumed.
+ */
+export function extractionUsedOcr(pages: FilePageStats | undefined, warnings: unknown): boolean {
+  if (pages?.ocrPages !== undefined && pages.ocrPages.length > 0) return true;
+  return (
+    Array.isArray(warnings) &&
+    warnings.some((warning) => typeof warning === "string" && OCR_PAGES_WARNING_RE.test(warning))
+  );
 }
 
 /** Additive (W12-F): which slice of the chunk previews `chunks` holds. */
@@ -255,6 +289,7 @@ export function pageStatsOf(value: unknown): FilePageStats | undefined {
   const pagesWithText = rec["pagesWithText"];
   const emptyPages = rec["emptyPages"];
   const sparsePages = rec["sparsePages"];
+  const ocrPages = rec["ocrPages"];
   const isCount = (value: unknown): value is number =>
     typeof value === "number" && Number.isInteger(value) && value >= 0;
   if (!isCount(pageCount) || !isCount(pagesWithText)) return undefined;
@@ -269,6 +304,7 @@ export function pageStatsOf(value: unknown): FilePageStats | undefined {
     ...(Array.isArray(sparsePages)
       ? { sparsePages: sparsePages.filter(isPage) }
       : {}),
+    ...(Array.isArray(ocrPages) ? { ocrPages: ocrPages.filter(isPage) } : {}),
   };
 }
 
@@ -613,14 +649,15 @@ export class PostgresFilesStore implements FilesReadStore {
     }));
 
     const pages = meta["pages"];
+    const analysis = meta["analysis"];
+    const warnings = meta["warnings"];
     const extraction: FileExtraction = {
       chars: entry.chars,
       chunkCount: entry.chunkCount,
-      ocr: false,
+      // W21 (#29): from what the intake recorded, no longer a constant false.
+      ocr: extractionUsedOcr(entry.pages, warnings),
       ...(typeof pages === "number" ? { pages } : {}),
     };
-    const analysis = meta["analysis"];
-    const warnings = meta["warnings"];
     // `pages` arrives with the list entry (toListEntry reads page_stats), so
     // the detail and the list can never disagree about a file's scan state.
     return {

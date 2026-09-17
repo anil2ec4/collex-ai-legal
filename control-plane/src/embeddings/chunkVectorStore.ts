@@ -22,6 +22,8 @@ import { LOCAL_TENANT_ID } from "../exhaustive/store.js";
 
 export const EMBEDDING_QUEUE = "embedding";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
 export interface EmbeddingProfile {
   readonly key: string;
   readonly model: string;
@@ -81,7 +83,11 @@ export interface ChunkVectorStore {
   completeJob(id: number): Promise<void>;
   failJob(id: number, message: string, backoffSeconds: number): Promise<void>;
   requeueStuckJobs(olderThanSeconds: number): Promise<number>;
-  scopedVectors(profile: EmbeddingProfile, fileIds: readonly string[]): Promise<ScopedVector[]>;
+  scopedVectors(
+    profile: EmbeddingProfile,
+    fileIds: readonly string[],
+    documentVersionIds?: readonly string[],
+  ): Promise<ScopedVector[]>;
   stats(profileKey: string): Promise<VectorStats>;
 }
 
@@ -240,19 +246,36 @@ export class PgChunkVectorStore implements ChunkVectorStore {
   }
 
   /**
-   * Fresh vectors of the CURRENT versions of the given uploads. This is the
-   * pre-filter; hydration re-applies the store's visibility filter anyway
-   * (hybrid.ts treats the index as untrusted input).
+   * Fresh vectors of the CURRENT versions of the given uploads — or, with
+   * `documentVersionIds` (W21 version pin), of EXACTLY those versions
+   * instead. A pinned version that was never embedded yields nothing; it
+   * never falls back to the current version's vectors, and a pin list with
+   * no well-formed id yields nothing. This is the pre-filter; hydration
+   * re-applies the store's visibility filter anyway (hybrid.ts treats the
+   * index as untrusted input).
    */
-  async scopedVectors(profile: EmbeddingProfile, fileIds: readonly string[]): Promise<ScopedVector[]> {
+  async scopedVectors(
+    profile: EmbeddingProfile,
+    fileIds: readonly string[],
+    documentVersionIds?: readonly string[],
+  ): Promise<ScopedVector[]> {
     const ids = [...new Set(fileIds)];
     if (ids.length === 0) return [];
+    const pins =
+      documentVersionIds === undefined
+        ? undefined
+        : [...new Set(documentVersionIds)].filter((id) => UUID_RE.test(id));
+    if (pins !== undefined && pins.length === 0) return [];
+    const versionTest =
+      pins === undefined
+        ? this.sql`upper_inf(v.system_period)`
+        : this.sql`v.id = any(${pins}::uuid[])`;
     const rows = await this.sql`
       select cv.chunk_id::text as chunk_id, cv.embedding
       from app_private.chunk_vectors cv
       join legal.chunks c on c.id = cv.chunk_id and c.content_sha256 = cv.chunk_sha256
       join legal.document_versions v
-        on v.id = c.document_version_id and upper_inf(v.system_period)
+        on v.id = c.document_version_id and ${versionTest}
       join legal.documents d on d.id = v.document_id
       where cv.profile_key = ${profile.key}
         and cv.tenant_id = ${this.tenantId}::uuid

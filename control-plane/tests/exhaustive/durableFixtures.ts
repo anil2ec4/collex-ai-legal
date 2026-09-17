@@ -12,10 +12,40 @@ import type { Sql } from "../../src/store/db.js";
 import { LOCAL_TENANT_ID } from "../../src/exhaustive/store.js";
 import type { MatterStore } from "../../src/matters/types.js";
 import type { JsonGenerator } from "../../src/exhaustive/modelExtractor.js";
+import { QUOTE_LABEL_TR } from "../../src/exhaustive/semanticContradictions.js";
+import { WEIGH_INSTRUCTION_MARKER_TR } from "../../src/exhaustive/stageProcessors.js";
 import {
   LocalGenerationError,
   type GenerateJsonRequest,
+  type LocalGenerationErrorCode,
 } from "../../src/llm/localGenerationAdapter.js";
+
+/** A structured-extraction request of one unit. */
+export function isExtractRequest(request: GenerateJsonRequest): boolean {
+  return request.instruction.includes("şu türdeki öğeleri çıkar");
+}
+
+/** A weighing request (the claim itself lives in the fenced data block). */
+export function isWeighRequest(request: GenerateJsonRequest): boolean {
+  return request.instruction.includes(WEIGH_INSTRUCTION_MARKER_TR);
+}
+
+/**
+ * The verified quotes of each pair a classification request shows, by pair
+ * id — the text the classifier is told to judge (semanticContradictions.ts).
+ */
+export function quotesShown(untrustedText: string): Array<{ id: string; left: string; right: string }> {
+  const out: Array<{ id: string; left: string; right: string }> = [];
+  const blocks = untrustedText.split(/(?=^\[p\d+\]$)/mu);
+  for (const block of blocks) {
+    const id = block.match(/^\[(p\d+)\]/u)?.[1];
+    if (id === undefined) continue;
+    const side = (label: string): string =>
+      block.match(new RegExp(`^\\s+${label} \\(${QUOTE_LABEL_TR}[^)]*\\): "(.*)"$`, "mu"))?.[1] ?? "";
+    out.push({ id, left: side("A"), right: side("B") });
+  }
+  return out;
+}
 
 export function sha256(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -192,23 +222,43 @@ export class ScriptedModel implements JsonGenerator {
     private readonly options: {
       fakeQuote?: string;
       failWhen?: (request: GenerateJsonRequest) => boolean;
+      /**
+       * What `failWhen` throws. Default MALFORMED_JSON: an answer the product
+       * cannot read, which spends an attempt of the unit or task. UNREACHABLE
+       * or HTTP 429/502/503/504 simulate a model ENDPOINT failure, which the
+       * worker waits out without spending attempts until its outage window is
+       * spent; TIMEOUT or another 5xx a REQUEST failure, waited out only for
+       * the short request grace (W21 round two, R2-19). Either spends attempts
+       * once another model call has succeeded between two of the work's
+       * failures. The default used to be UNREACHABLE; the suites that pinned
+       * "a failing request fails its task" meant an unreadable answer, so the
+       * default follows them.
+       */
+      failCode?: LocalGenerationErrorCode;
+      failStatus?: number;
       unsupportedClaimMarker?: string;
+      /** W21: relation for a free-text pair (default INSUFFICIENT_EVIDENCE). */
+      classify?: (left: string, right: string) => string;
     } = {},
   ) {}
 
   async generateJson<T = unknown>(request: GenerateJsonRequest): Promise<T> {
     this.calls.push(request);
     if (this.options.failWhen?.(request) === true) {
-      throw new LocalGenerationError("scripted failure", "UNREACHABLE");
+      throw new LocalGenerationError("scripted failure", this.options.failCode ?? "MALFORMED_JSON", this.options.failStatus);
     }
     const text = request.untrustedText ?? "";
     if (request.instruction.includes("şu türdeki öğeleri çıkar")) {
       return { items: this.extract(text, request.instruction) } as T;
     }
-    if (request.instruction.startsWith("İDDİA:")) {
+    // W21 weighing prompts: the claim ("İDDİA:" / "İDDİA (savunma):") and
+    // the candidates are BOTH in the fenced data block; the instruction is
+    // fixed text (W21 review #9).
+    if (isWeighRequest(request)) {
       const refs = [...text.matchAll(/\[(e\d+)\]/gu)].map((match) => match[1] as string);
       const marker = this.options.unsupportedClaimMarker;
-      const unsupported = marker !== undefined && request.instruction.includes(marker);
+      const claimBlock = text.split(/\n\s*ADAYLAR:/u)[0] ?? "";
+      const unsupported = marker !== undefined && claimBlock.includes(marker);
       return {
         links: refs.map((ref, index) => ({
           ref,
@@ -217,22 +267,39 @@ export class ScriptedModel implements JsonGenerator {
         })),
       } as T;
     }
-    if (request.instruction.includes("Müvekkil:")) {
+    // W21 hierarchical synthesis: every call returns a summary citing every
+    // entry it was shown (so a finding in the last batch reaches the final
+    // summary), plus the points the prompt asked for.
+    if (request.instruction.includes("summary alanına")) {
       const refs = [...text.matchAll(/\[(o\d+)\]/gu)].map((match) => match[1] as string);
-      const kinds = request.shapeHint.includes("opposing_theory")
-        ? ["opposing_theory", "weakness", "contrary_evidence", "procedural_vulnerability", "hypothetical_argument"]
-        : ["favorable_point", "unfavorable_point"];
+      const kinds = (request.shapeHint.match(/"kind":"([a-z_|]*)"/u)?.[1] ?? "").split("|").filter(Boolean);
       return {
-        points: [
-          ...kinds.map((kind, index) => ({
-            kind,
-            title: `Sınama noktası ${index + 1} (${kind})`,
-            body: null,
-            refs: [refs[index % Math.max(1, refs.length)] ?? "o1"],
-          })),
-          // A point that cites nothing it was shown must be rejected.
-          { kind: kinds[0], title: "Dayanaksız nokta", body: null, refs: ["o999"] },
-        ],
+        summary: { title: `Sınama özeti (${refs.length} bulgu)`, body: "sınama", refs: refs.slice(0, 24) },
+        points:
+          kinds.length === 0
+            ? []
+            : [
+                ...kinds.map((kind, index) => ({
+                  kind,
+                  title: `Sınama noktası ${index + 1} (${kind})`,
+                  body: null,
+                  refs: [refs[index % Math.max(1, refs.length)] ?? "o1"],
+                })),
+                // A point that cites nothing it was shown must be rejected.
+                { kind: kinds[0], title: "Dayanaksız nokta", body: null, refs: ["o999"] },
+              ],
+      } as T;
+    }
+    // W21 semantic contradiction lane: one verdict per pair shown, decided
+    // on the VERIFIED quotes the request labels as the text to judge.
+    if (request.instruction.includes("Her çift için A ve B'nin ilişkisini seç")) {
+      return {
+        pairs: quotesShown(text).map((pair) => ({
+          id: pair.id,
+          relation: this.options.classify?.(pair.left, pair.right) ?? "INSUFFICIENT_EVIDENCE",
+          rationale: "sınama gerekçesi",
+          confidence: 0.5,
+        })),
       } as T;
     }
     return {} as T;
@@ -254,6 +321,9 @@ export class ScriptedModel implements JsonGenerator {
         items.push({ kind: "legal_issue", text: "Kira bedelinin ödenip ödenmediği", quote: sentence });
       } else if (sentence.includes("tebliğ") && allowed("procedural_event")) {
         items.push({ kind: "procedural_event", text: sentence, quote: sentence, date: "2024-03-11" });
+      } else if (sentence.includes("araç") && allowed("fact")) {
+        // W21: free-text facts for the semantic contradiction lane.
+        items.push({ kind: "fact", text: sentence, quote: sentence });
       }
       if (sentence.includes("Ahmet Yılmaz") && allowed("entity")) {
         items.push({ kind: "entity", text: "Ahmet Yılmaz", quote: "Ahmet Yılmaz", role: "davacı", entityType: "person" });

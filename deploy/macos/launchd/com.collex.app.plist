@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- UNVALIDATED ON PHYSICAL MAC
+
+  ColleX uygulaması, kullanıcı oturumunda launchd ile (LaunchAgent).
+  deploy/macos/collex-start.sh ön planda (COLLEX_FOREGROUND=1) çalışır:
+  veritabanı denetimi, ensure-db, kütüphane yayımı, sonra serve.mjs.
+
+  Kurulum:
+    1. Yer tutucuları gerçek klasörlerle değiştirin (launchd ~ ve
+       değişkenleri GENİŞLETMEZ):
+         __COLLEX_HOME__     ColleX klasörü
+         __COLLEX_DATA_DIR__ veri klasörü (varsayılan istenirse satırı silin)
+         __COLLEX_PGBIN__    PostgreSQL araçları, ör. Homebrew postgresql@18 bin
+         __USER_HOME__       kullanıcının ev klasörü
+    2. mkdir -p ~/Library/Logs/ColleX
+    3. cp com.collex.app.plist ~/Library/LaunchAgents/
+    4. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.collex.app.plist
+  Durdurma: launchctl bootout gui/$(id -u)/com.collex.app
+
+  KeepAlive yalnız BAŞARISIZ çıkışta yeniden başlatır; collex.stop ile nazik
+  kapanış (çıkış kodu 0) sunucuyu yeniden açtırmaz.
+  Her adres 127.0.0.1'dir; bu makine dışında hiçbir hizmete bağlanılmaz.
+  Yerel dil modeli (com.collex.llm.plist) kullanılacaksa EnvironmentVariables
+  içine şunlar eklenir: COLLEX_LOCAL_LLM_BASE_URL = http://127.0.0.1:8080 (without /v1: ColleX appends /v1/chat/completions itself)
+  ve COLLEX_LOCAL_LLM_MODEL = sunucunun yüklediği model adı.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.collex.app</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__COLLEX_HOME__/deploy/macos/collex-start.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__COLLEX_HOME__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>COLLEX_FOREGROUND</key>
+    <string>1</string>
+    <key>COLLEX_HOME</key>
+    <string>__COLLEX_HOME__</string>
+    <key>COLLEX_DATA_DIR</key>
+    <string>__COLLEX_DATA_DIR__</string>
+    <key>COLLEX_PGBIN</key>
+    <string>__COLLEX_PGBIN__</string>
+    <key>COLLEX_PGPORT</key>
+    <string>55432</string>
+    <key>COLLEX_DB_URL</key>
+    <string>postgres://postgres@127.0.0.1:55432/collex_local</string>
+    <key>COLLEX_BACKUP_DIR</key>
+    <string>__USER_HOME__/ColleX-Yedek</string>
+    <key>COLLEX_LOG_DIR</key>
+    <string>__USER_HOME__/Library/Logs/ColleX</string>
+    <key>COLLEX_NO_DOTENV</key>
+    <string>1</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>LANG</key>
+    <string>tr_TR.UTF-8</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>__USER_HOME__/Library/Logs/ColleX/collex-app.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__USER_HOME__/Library/Logs/ColleX/collex-app.err.log</string>
+</dict>
+</plist>

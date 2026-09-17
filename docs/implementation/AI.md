@@ -258,6 +258,57 @@ kararlara aittir." (`tests/ai/routes.test.ts`: iki id de 400, adaptör
 **atılır** → `deps.revise(draft, patch, { trustEntailment: true, now })`
 → `drafts.put`.
 
+**W21 (R2-29) — denetlenemeyen atıf.** Bir atıf için hakemin yanıtı
+okunamazsa ya da kendi içinde çelişkiliyse (adaptör `MALFORMED` fırlatır:
+şekil bozuk, skor 0–1 dışında ya da `entails:false` iken skor ≥ 0,85) o atıf
+**denetlenemedi** sayılır: tutulmaz; `entailment` satırı `checked: false`,
+`score: 0` (ölçüm değil, yer tutucu), `entails: false` ve "denetlenemedi —
+hakemin yanıtı okunamadı ya da kendi içinde çelişkiliydi; bu kanıt bağı
+paragrafa yazılmadı" gerekçesini taşır; `warnings`'e "N kanıt bağı
+denetlenemedi (…) ve paragrafa yazılmadı: <id'ler>." düşer (eşik altı
+satırından ayrı). Ücreti ödenmiş paragraf ve öteki atıfların geçerli
+değerlendirmeleri **atılmaz**; taslak kaydedilir, hiçbir atıf kalmazsa
+KAYNAKSIZ işaretlenir. Bu durumda atıflardan en az biri denetlenemediyse
+paragraf notu ölçülmüş bir eksiklik ("hiçbir kanıt eşiği geçmedi")
+**söylemez**; not `NOTE_AI_KAYNAKSIZ_DENETLENEMEDI` olur: "KAYNAKSIZ — AI
+taslak; kanıt bağlarından en az biri denetlenemedi (hakemin yanıtı
+okunamadı), hiçbir kanıt bağı paragrafa yazılmadı; avukat eklemeli".
+Düzenleyici paragrafı yine de `supported:true` sayarsa not yine budur.
+Taslak düzeyinde, hiçbir bağ tutulmamış ve bir bağ denetlenememişse "kaynak
+bağları entailment ile doğrulandı" satırı (`WARNING_AI_PARAGRAPH`)
+**eklenmez**; denetlenemeyen bağı olan her paragraf için
+`WARNING_AI_PARAGRAPH_UNCHECKED` eklenir ("…kanıt bağlarından en az biri
+denetlenemeyen paragraf var; denetlenemeyen bağlar paragrafa yazılmadı ve
+doğrulanmış sayılmaz, metin avukat incelemesi olmadan kullanılamaz.").
+Tutulan bir bağ da varsa iki satır birlikte yazılır. Kural
+`aiParagraphNote` / `aiParagraphDraftWarnings` (`paragraph.ts`) içindedir.
+Eskiden tek bir çelişkili yanıt bütün isteği `502 AI_MALFORMED_OUTPUT`
+yapıyordu. Hakeme **ulaşılamaması** (zaman aşımı, ağ, 401/403, 5xx, 429) ya
+da hakemin isteği reddetmesi (`REFUSAL`) veya yanıtının kesilmesi
+(`TRUNCATED`) ise eskisi gibi isteğin tamamını başarısız sayar (502/503/504,
+bkz. hata eşlemesi) ve taslak değişmez. `checked` alanı yalnız denetlenemeyen
+satırda bulunur; OpenAPI `AiDraftParagraphResult.entailment` şeması bu alanı
+ve o satırdaki `score`'un ölçüm değil yer tutucu olduğunu belgeler.
+
+**Konsol (W21).** `renderAiParagraphResult`, sonucu `aiParagraphVerdict`
+üzerinden okur (`public/console.html`). `checked:false` satırında ölçek
+sütunu "denetlenemedi", sonuç sütunu "paragrafa yazılmadı" yazar; yer tutucu
+0 skorundan asla "zayıf" üretilmez. Böyle bir satır varken kart "Program her
+dayanağı ayrıca denetledi" demez; "…denetlemeye çalıştı; N dayanakta yapay
+zekâ hakeminin yanıtı okunamadı…" der. Hiçbir bağ kalmamışsa baş cümle
+denetlenemeyen bağları ayrıca sayar ("Bu paragrafa hiçbir dayanak yazılmadı:
+1 dayanak denetimi geçemedi, 1 dayanak denetlenemedi…" ya da hepsi
+denetlenemediyse "Bu paragrafın dayanakları denetlenemedi…"); "hiçbir
+dayanağı denetimi geçemedi" yalnız her bağ gerçekten ölçüldüğünde yazılır.
+Model hiçbir dayanak göstermediyse kart bunu söyler. Paragraf yazıldıktan
+sonraki bildirim (`aiParagraphToastText`) aynı hükmü kullanır: "hiçbir kanıt
+eşiği geçmedi" yalnız ölçülmüş eksiklikte çıkar. Hakemin tuttuğu bir bağ,
+kaydedilen paragrafın `evidenceIds` listesinde yoksa satırı "korundu"
+**yazmaz**; "denetimi geçti; taslak kabul etmedi" yazar, açıklama ve
+bildirim de "N dayanak … taslağın dayanak kurallarınca kabul edilmedi"
+cümlesini ekler (paragraf başka bir bağla kaynaklı kalsa bile).
+(`tests/pipeline/consoleW21Honesty.test.ts`, "R2-29 · the AI paragraph card".)
+
 Yanıt:
 
 ```json
@@ -275,11 +326,41 @@ Yanıt:
 
 Hiçbir atıf kalmazsa: `evidenceIds: []`, `supported:false`, `binding` yok,
 not `"KAYNAKSIZ — AI taslak; hiçbir kanıt entailment eşiğini (≥%85) geçmedi;
-avukat eklemeli"`, `unsupportedCount` yeniden sayılır. Düzenleyici (lane C
+avukat eklemeli"` (atıflardan biri denetlenemediyse
+`NOTE_AI_KAYNAKSIZ_DENETLENEMEDI`, bkz. yukarı), `unsupportedCount` yeniden
+sayılır. Düzenleyici (lane C
 `reviseDraft`) paragrafı daha sert değerlendirir de `supported:false` derse
-bu karar **asla** geri alınmaz; not KAYNAKSIZ'a çevrilir ve uyarı yazılır.
+bu karar **asla** geri alınmaz; paragraf KAYNAKSIZ kalır ve uyarı yazılır
+("Düzenleyici paragrafın kanıt bağını kabul etmedi…"). **W21:** bu durumda
+not artık "hiçbir kanıt … eşiğini geçmedi" **değildir** (bir bağ hakemden
+geçmişti); `NOTE_AI_KAYNAKSIZ_DUZENLEYICI` yazılır: "KAYNAKSIZ — AI taslak;
+entailment eşiğini (≥%85) geçen kanıt bağı taslağın dayanak kurallarınca
+kabul edilmedi; avukat eklemeli". Yanıttaki `kaynakli` **kaydedilen**
+paragrafın hâlidir (`paragraph.supported` ile aynı): hakemin tuttuğu bir bağ
+düzenleyicinin kaydettiği paragrafa yazılmadıysa `false`; hakemin kendi
+kararı `entailment[].kept` satırlarında durur. Taslağın "Düzenleme notu: AI
+paragraf (…) — kaynaklı" uyarısı da bu durumda "— KAYNAKSIZ" olarak yeniden
+yazılır. **W21:** kaydedilen paragraf kimliğiyle bulunur; ekleme
+(`paragraphId` yok) ve `insertAfter` yolunda gerçek düzenleyici
+(`reviseDraft`) taslağın tanımadığı kimliğe yeni bir kimlik verdiği için
+paragraf, hedef bölümde önceki taslakta olmayan ve gönderilen metni taşıyan
+**tek** paragraf olarak bulunur (`locateRevisedParagraph`); yanıttaki
+`paragraph` o kaydedilen paragraftır (`id` sunucunun ürettiği `p-…-ai-…`
+değil, düzenleyicinin verdiği kimlik olabilir). Eskiden yalnız kimlikle
+arandığı için bu yolda yanıt `kaynakli:true` diyor, kaydedilen paragraf ise
+KAYNAKSIZ duruyordu. Paragraf bulunamazsa (ya da iki aday çıkarsa) yanıt
+`kaynakli:false`, `paragraph.supported:false` döner ve uyarı paragrafın
+kaynaklı sayılmadığını söyler. Düzenleyici bağlardan birini kabul edip
+ötekini reddederse paragraf kaynaklı kalır; reddedilen bağ `warnings`'te
+adıyla yazılır ("N kanıt bağı entailment denetimini geçti, ancak taslağın
+dayanak kurallarınca kabul edilmedi ve paragrafa yazılmadı: <id'ler>.").
+(`tests/ai/draftParagraphRealReviser.test.ts`, ürünün kendi düzenleyicisiyle.)
+Konsol bu durumda "kaynaklı sayıldı" demez; "Bir dayanak anlam denetimini
+geçti, ancak taslağın dayanak kuralları onu kabul etmedi…" der (eski bir
+sunucunun `kaynakli:true` + `paragraph.supported:false` yanıtında da).
 Her AI revizyonu taslağın `warnings` listesine sabit bir "bulut yapay zekâ
-tarafından yazılmış paragraf var" satırı ekler.
+tarafından yazılmış paragraf var" satırı ekler (hiçbir bağ tutulmamış ve bir
+bağ denetlenememişse bu satırın yerine `WARNING_AI_PARAGRAPH_UNCHECKED`).
 
 Patch şekli (sözleşme [D]): taslağın **bütün** bölümleri, mevcut paragraflar
 kendi `binding`'iyle (`'lexical'` ya da korunan `{kind:'entailment',…}`),
@@ -296,7 +377,7 @@ hedef bölümde yeni/yerine paragraf; `note: "AI paragraf (<model>) — kaynakl�
 | `HTTP` diğer / 5xx (2 yeniden deneme) | 502 | `AI_UPSTREAM_FAILED` |
 | `REFUSAL` (`stop_reason: refusal`) | 502 | `AI_REFUSED` |
 | `TRUNCATED` (`stop_reason: max_tokens`) | 502 | `AI_OUTPUT_TRUNCATED` |
-| `MALFORMED` (araç bloğu yok / şekil bozuk) | 502 | `AI_MALFORMED_OUTPUT` |
+| `MALFORMED` (araç bloğu yok / şekil bozuk) | 502 | `AI_MALFORMED_OUTPUT` (draft-paragraph'ta tek bir atfın hakem yanıtı hariç: o atıf denetlenemedi sayılır, bkz. yukarı) |
 | `CONFIG` | 503 | `AI_NOT_CONFIGURED` |
 
 Hata mesajları Türkçedir ve adlandırma kuralına uyar (`AI_NOT_CONFIGURED`,
@@ -316,8 +397,17 @@ OCR'ın kendi 32 MB / 100 sayfa kapıları ayrıca uygulanır.
   yazmayı gerektirdi (`send()`).
 - Yapılandırılmış çıktı: `strict: true` araç şemaları + `tool_choice:
   {type:'tool'}` (`forced`) veya `{type:'auto'}` + sistem talimatı (`auto`).
-- Araçlar: `draft_claims`, `assess_entailment` (mevcut, davranışı değişmedi),
+- Araçlar: `draft_claims`, `assess_entailment` (mevcut),
   yeni `analyze_document`, `transcribe_pages`, `write_paragraph`.
+- **W21 (R2-27) `assess_entailment`:** skor 0–1 dışındaysa ya da
+  `entails:false` iken skor ≥ 0,85 ise yanıt `MALFORMED`'dır; skor artık
+  **kırpılmaz** (eskiden 7 ya da 95, 1'e kırpılıp eşiği geçiyordu). `strict`
+  araç kullanımında sayısal `minimum`/`maximum` kısıtları desteklenmediği için
+  şemada yoktur; ölçek şema açıklamasında ve sistem talimatında sözle
+  söylenir ("pasajın iddiayı desteklediğine dair 0 ile 1 arasında bir
+  olasılık", kararın kesinliği değil) ve istemci tarafında denetlenir. Cevap
+  hattında güvenli sarmalayıcı bunu `ENTAILMENT_PORT_FAILED` olarak kaydeder,
+  tespit `ENTAILMENT_NOT_CHECKED` okunur (yerel yargıçla aynı).
 - Her çağrı `{ value, usage }` döner; `adapter.usage` ve `adapter.calls`
   süreç toplamıdır.
 - `AbortSignal.timeout(60 000)` (çağrı başına geçersiz kılınabilir), 429/5xx/

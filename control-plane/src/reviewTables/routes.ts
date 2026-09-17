@@ -11,6 +11,32 @@
  * Additive: no existing path changes. The console grid now creates a table
  * here and polls it instead of looping over /v1/answer in the browser, so a
  * closed tab or a restarted server no longer loses finished cells.
+ *
+ * W21 (version pin): GET reports per row whether the file's current version
+ * differs from the pinned one (rows[].stale, rows[].currentDocumentVersionId;
+ * table-level sourceChanged/stale, as exhaustive runs do). A retry still
+ * reads the pinned version; when that version can no longer be read the
+ * retry is refused with 409 ROW_VERSION_STALE.
+ *
+ * W21 (#19, contract CB1): every row also carries staleReason
+ * ("newer_version" | "file_deleted" | "pin_gone" | "no_readable_current" |
+ * null), so a deleted file is never reported as a newer upload; the CSV
+ * says the same per row ("Belge durumu"). The CSV (#17) shows a finished
+ * cell's answer only for a FINISHED cell; a failed cell shows why it failed
+ * (e.g. an incomplete answer run), never a previous run's text. Its support
+ * labels (#18) name what an abstention examined — the retrieved passages —
+ * never the whole document.
+ *
+ * W21 (#17, #18, cells stored before grid-v3): GET and the CSV read cells
+ * through store.getTable, which reports a W20 "not found" whose run did not
+ * end in ABSTAIN as the failed, retryable cell it was, and re-states an old
+ * whole-document abstention passage-scoped. "Belge durumu" is the LAST CSV
+ * column, so the columns a W20 export had keep their positions.
+ *
+ * W21 round two (R2-22): a census cell that read the whole document but is
+ * not a complete census — it met value-like text its extractor could not
+ * read, or it was counted before grid-v4 — is exported with the "Destek"
+ * label CENSUS_PARTIAL_TR, never "belgenin tamamı okundu" alone.
  */
 
 import { Hono } from "hono";
@@ -19,7 +45,14 @@ import { z } from "zod";
 import { fieldIssues } from "../api/zodIssues.js";
 import { resolveMatterScope } from "../matters/scope.js";
 import type { MatterStore } from "../matters/types.js";
-import type { ColumnMode, PgReviewTableStore, ReviewCell } from "./store.js";
+import {
+  PIN_FILE_DELETED_TR,
+  PIN_UNREADABLE_TR,
+  type ColumnMode,
+  type PgReviewTableStore,
+  type ReviewCell,
+  type StaleReason,
+} from "./store.js";
 
 export const GRID_MAX_FILES = 50;
 export const GRID_MAX_QUESTIONS = 10;
@@ -64,10 +97,47 @@ const SUPPORT_TR: Readonly<Record<string, string>> = {
   verified: "kaynağıyla doğrulandı",
   partially_verified: "kısmen doğrulandı",
   unverified: "doğrulanamadı",
-  abstained: "karşılık bulunamadı",
-  no_evidence: "kaynak bulunamadı",
+  // W21 (#18): an abstention is about the passages retrieved for the
+  // question, not about the whole document — the label says which.
+  abstained: "getirilen pasajlarda karşılık bulunamadı",
+  no_evidence: "bu soru için pasaj getirilemedi",
   exhaustive_complete: "belgenin tamamı okundu",
   exhaustive_incomplete: "belge tam okunamadı",
+};
+
+/**
+ * W21 R2-22: "Destek" of a census that read every page but is PARTIAL (it met
+ * value-like text it could not read, or an older extractor counted it). The
+ * console grid shows the same words (console.html GRID_SUPPORT_TR.exhaustive_partial).
+ */
+export const CENSUS_PARTIAL_TR = "belgenin tamamı okundu; sayım eksik olabilir";
+
+/** The CSV "Destek" label of a finished cell. */
+export function supportLabelTr(cell: Pick<ReviewCell, "supportState" | "answerStatus">): string {
+  if (cell.supportState === null) return "";
+  if (cell.supportState === "exhaustive_complete" && cell.answerStatus !== "COMPLETE") return CENSUS_PARTIAL_TR;
+  return SUPPORT_TR[cell.supportState] ?? cell.supportState;
+}
+
+/** CSV "Durum" of a cell that has no finished answer. */
+const STATE_TR: Readonly<Record<string, string>> = {
+  pending: "sırada",
+  running: "hesaplanıyor",
+  failed: "hesaplanamadı",
+  cancelled: "iptal edildi",
+};
+
+/**
+ * CSV "Belge durumu" of a row (W21 #19): the export says WHY a row is stale.
+ * A deleted file is never exported as "a newer version was uploaded", and
+ * no row is offered a new table it cannot be part of.
+ */
+const ROW_STATUS_TR: Readonly<Record<StaleReason | "current", string>> = {
+  current: "güncel sürüm",
+  newer_version: "daha yeni bir sürümü yüklendi; hücreler sabitlenen sürümden",
+  file_deleted: "belge silindi; hücreler sabitlenen sürümden, yeniden hesaplanamaz",
+  pin_gone: "sabitlenen sürüm artık okunamıyor; hücreler yeniden hesaplanamaz",
+  no_readable_current: "daha yeni bir yükleme var ama okunabilir değil; hücreler sabitlenen sürümden",
 };
 
 function notFound(c: Context): Response {
@@ -177,9 +247,14 @@ export function createReviewTableRouter(deps: ReviewTableRouterDeps): Hono {
     if (!UUID_RE.test(tableId)) return notFound(c);
     const table = await deps.store.getTable(tableId);
     if (table === undefined) return notFound(c);
+    // A table is a snapshot of the versions its rows were pinned to; a newer
+    // upload of one of those files is reported, not silently answered from.
+    const sourceChanged = table.rows.filter((row) => row.stale).map((row) => row.fileId);
     return c.json({
       ...table,
       progress: await deps.store.progress(tableId),
+      sourceChanged,
+      stale: sourceChanged.length > 0,
       modesTr: MODE_TR,
       supportTr: SUPPORT_TR,
     });
@@ -196,6 +271,12 @@ export function createReviewTableRouter(deps: ReviewTableRouterDeps): Hono {
     if (outcome === "not_found") return notFound(c);
     if (outcome === "busy") {
       return c.json({ error: { kind: "CELL_BUSY", message: "Bu hücre şu an hesaplanıyor." } }, 409);
+    }
+    if (outcome === "version_unavailable") {
+      return c.json({ error: { kind: "ROW_VERSION_STALE", message: PIN_UNREADABLE_TR } }, 409);
+    }
+    if (outcome === "file_deleted") {
+      return c.json({ error: { kind: "ROW_VERSION_STALE", message: PIN_FILE_DELETED_TR } }, 409);
     }
     deps.worker?.kick();
     return c.json({ tableId, rowNo, columnNo, state: "pending" }, 202);
@@ -223,27 +304,38 @@ export function createReviewTableRouter(deps: ReviewTableRouterDeps): Hono {
       [
         "Belge", "Belge kimliği", "Belge sürümü", "Soru", "Yöntem", "Durum", "Cevap",
         "Destek", "Kaynak konumları", "Alıntı parmak izleri", "Kapsam", "Araştırma no",
+        // Added in W21, appended so the W20 columns keep their positions.
+        "Belge durumu",
       ],
     ];
     for (const row of table.rows) {
       for (const column of table.columns) {
         const cell = cells.get(`${row.rowNo}:${column.columnNo}`);
-        const coverage = cell?.processingCoverage as { complete?: boolean } | null | undefined;
+        // Only a FINISHED cell's text, support and sources are its answer. A
+        // failed (e.g. incomplete answer run) or re-queued cell shows why it
+        // has none — never a previous run's text as if it were current.
+        const finished = cell !== undefined && cell.state === "done" ? cell : undefined;
+        const coverage = finished?.processingCoverage as { complete?: boolean } | null | undefined;
         lines.push([
           row.fileName ?? row.fileId,
           row.fileId,
           row.documentVersionId ?? "",
           column.question,
           MODE_TR[column.mode],
-          cell === undefined ? "çalıştırılmadı" : cell.state === "done" ? cell.answerStatus ?? "" : cell.state,
-          cell?.answerText ?? cell?.error ?? "",
-          cell?.supportState === null || cell?.supportState === undefined ? "" : SUPPORT_TR[cell.supportState] ?? cell.supportState,
-          (cell?.provenance ?? [])
+          cell === undefined
+            ? "çalıştırılmadı"
+            : finished !== undefined
+              ? finished.answerStatus ?? ""
+              : STATE_TR[cell.state] ?? cell.state,
+          finished !== undefined ? finished.answerText ?? "" : cell?.error ?? "",
+          finished === undefined ? "" : supportLabelTr(finished),
+          (finished?.provenance ?? [])
             .map((entry) => `${entry.locator ?? ""}${entry.locator ? " " : ""}[${entry.startChar}-${entry.endChar}]`)
             .join(" | "),
-          (cell?.provenance ?? []).map((entry) => entry.quoteSha256).join(" | "),
+          (finished?.provenance ?? []).map((entry) => entry.quoteSha256).join(" | "),
           coverage === null || coverage === undefined ? "" : coverage.complete === true ? "tam" : "eksik",
-          cell?.answerRunId ?? "",
+          finished?.answerRunId ?? "",
+          ROW_STATUS_TR[row.staleReason ?? "current"],
         ]);
       }
     }

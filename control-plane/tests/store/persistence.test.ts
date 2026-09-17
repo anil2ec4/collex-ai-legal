@@ -712,21 +712,27 @@ describe.skipIf(!available)("persistence stores (collex_persist_test)", () => {
     expect(updated?.client).toBe("Ayşe Yılmaz");
     expect(await store.update("00000000-0000-4000-8000-00000000dead", { title: "x" })).toBeUndefined();
 
+    // Relative to the day this runs: an OPEN deadline that has passed is no
+    // longer "the next one", so absolute dates made this test rot.
+    const inDays = (days: number): string =>
+      new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+    const soonDue = inDays(3);
+    const laterDue = inDays(20);
     const soon = await store.addItem(a.id, {
       kind: "deadline",
-      payload: { title: "Cevap süresi", dueDate: "2026-09-16", status: "acik", source: "manual" },
+      payload: { title: "Cevap süresi", dueDate: soonDue, status: "acik", source: "manual" },
     });
     const later = await store.addItem(a.id, {
       kind: "deadline",
-      payload: { title: "İstinaf", dueDate: "2026-10-01", status: "acik", source: "hesap" },
+      payload: { title: "İstinaf", dueDate: laterDue, status: "acik", source: "hesap" },
     });
     await store.addItem(b.id, {
       kind: "deadline",
-      payload: { title: "Görüşme", dueDate: "2026-09-09", status: "acik", source: "manual" },
+      payload: { title: "Görüşme", dueDate: inDays(1), status: "acik", source: "manual" },
     });
     await store.addItem(b.id, {
       kind: "deadline",
-      payload: { title: "Bitti", dueDate: "2026-09-01", status: "tamam", source: "manual" },
+      payload: { title: "Bitti", dueDate: inDays(-10), status: "tamam", source: "manual" },
     });
     const note = await store.addItem(a.id, { kind: "note", refId: null, payload: { text: "Not", source: "manual" } });
     expect(soon?.itemId).toMatch(/^[0-9a-f-]{36}$/);
@@ -750,7 +756,7 @@ describe.skipIf(!available)("persistence stores (collex_persist_test)", () => {
     expect(summaryA?.nextDeadline).toMatchObject({
       itemId: soon!.itemId,
       title: "Cevap süresi",
-      dueDate: "2026-09-16",
+      dueDate: soonDue,
     });
     expect(summaryA?.lastActivityAt).toBe(note!.updatedAt);
     // Newest activity first (other tests in this file leave their own matters behind).
@@ -768,7 +774,7 @@ describe.skipIf(!available)("persistence stores (collex_persist_test)", () => {
       ["Cevap süresi", "Yılmaz / Kira tahliye"],
       ["İstinaf", "Yılmaz / Kira tahliye"],
     ]);
-    expect((await store.listDeadlines({ until: "2026-09-16" })).map((d) => d.payload["title"])).toEqual([
+    expect((await store.listDeadlines({ until: soonDue })).map((d) => d.payload["title"])).toEqual([
       "Görüşme",
       "Cevap süresi",
     ]);

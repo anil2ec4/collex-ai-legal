@@ -1268,3 +1268,105 @@ komutlar yeniden koşulmalıdır; ölçülen retrieval/cevap metriklerinin kayna
 her zaman `evals/reports/fixture_baseline_<tarih>.{json,md}` dosyasıdır — ve
 o dosyanın **cevap katmanı** satırları tek bir koşuya aittir, bandı S6
 yazar.
+
+## 17.09.2026 — W21: okumak incelemek değildir — üç kapsam, eksiksiz aşamalar, yapay zekâ ilkesi, Mac mini üretim tasarımı
+
+W20 "dosyanın bütün sayfaları okundu" cümlesini kanıtlanabilir yaptı. Ama
+okumadan sonraki aşamalar ilk 25 iddiayı, iddia başına 8 adayı ve özete ilk 40
+bulguyu alıyordu. W21 bu kesmeleri kaldırdı ve "inceleme tamamlandı" cümlesini
+tek, türetilmiş bir sözleşmeye bağladı. Kararlar ADR-040..050'de.
+
+Eklemeli bir migrasyon var (`20260913090000_analysis_stages.sql`); eski
+dosyaların hiçbiri değişmedi. Araç yüzeyi aynı kaldı (54).
+
+**(A) Üç kapsam (ADR-040).**
+- KAYNAK (`processingCoverage`): sayfalar ve birimler okundu mu.
+- ÇIKARIM (`extractionCoverage`): her birimin çıkarımı tamam mı.
+- ANALİZ (`intelligenceCoverage`): her iddia ve savunma tartıldı mı; her
+  çelişki ve özet grubu işlendi mi.
+
+"İnceleme tamamlandı" yalnız `analysisCompleteness.complete` iken yazılır.
+Konsol bu cümleyi kendisi kurmaz.
+
+**(B) Kesme yok (ADR-041, ADR-044, ADR-045).**
+- Çağrı başına sınırlar ayardır (`COLLEX_ANALYSIS_*`).
+- Fazlası partilere bölünür; hiçbir öğe atılmaz.
+- Aşamalar kalıcı, kiralı görevlerdir.
+- Özet hiyerarşiktir.
+- Çıkarımda kesilen yanıt bölünerek yeniden istenir ya da "kesildi" diye sayılır.
+
+**(C) Aday bulma ve "destek yok" (ADR-042).**
+- Sinyaller: atıf ve sayı eşleşmesi, Türkçe kök, yerel E5, kişi, tarih,
+  taraf, yapı.
+- "Destek bulunamadı" yalnız tam aramadan sonra söylenir. Tam arama şu
+  koşulların hepsini ister: dosyanın tamamı okunmuş, çıkarım tamam, dosyadan
+  çıkarılan bütün delil, olgu ve olaylarla karşılaştırılmış ve her
+  karşılaştırma cevaplanmış. Aksi hâlde sonuç "adaylar arasında destek yok",
+  "arama eksik" ya da "tartılmadı" olur.
+
+**(D) Anlamsal çelişki şeridi (ADR-043).** Değer şeridinin yanında çalışır.
+Kalitesi gerçek modelle ÖLÇÜLMEDİ.
+
+**(E) İnceleme tablosu sürüm sabitleme (ADR-046).** Satır yalnız sabitlendiği
+sürümden cevaplanır ya da reddedilir.
+
+**(F) Yapay zekâ ilkesi (ADR-047).** `COLLEX_AI_POLICY` dört değerlidir;
+yerelden buluta sessiz geçiş yoktur.
+
+**(G) OCR durumu, geri yükleme, taşınabilirlik (ADR-048).**
+
+**(H) Değerlendirme düzenekleri (ADR-049).**
+
+**(I) Mac mini üretim tasarımı (ADR-050).** FİZİKSEL MAC'TE DOĞRULANMADI.
+
+**(J) Konsol:**
+- Dosya incelemesi sekmesinde KAYNAK / ÇIKARIM / ANALİZ katmanları.
+- Ayarlar › Sistem durumu'nda ilke, yerel model ve OCR satırları.
+
+### Ölçüldü (17.09.2026, W21 kapanışı)
+
+| # | Ne | Sonuç | Başarısız |
+|---|---|---|---|
+| W21-1 | `npx tsc --noEmit` | temiz | 0 |
+| W21-2 | `npx vitest run` | 190 dosya · 3623 geçti · 7 atlandı | 0 |
+| W21-3 | `pytest tests evals/tests` | 1609 geçti · 1 atlandı (1530 `tests` + 79 `evals/tests`) | 0 |
+| W21-4 | `db_local_check.py` | 19/19 PASS | 0 |
+| W21-5 | `smoke_check.py` | 54 araç | 0 |
+| W21-6 | OpenAPI | 82 yol · 99 işlem · 164 şema · 0 boşta başvuru | 0 |
+| W21-7 | RLS ilkeleri | 32/32 | 0 |
+| W21-8 | Yerel E5, 22 sentetik vaka | R@1 0,379 · R@3 0,864 · MRR 0,890 · nDCG@10 0,703 · yalnız-anlam R@1 0,136 / R@3 0,795 · çağrı p50 19,3 ms / p95 36,4 ms · açılış 2662 ms · bellek 477,4 → 484,2 MiB | 0 |
+| W21-9 | Gerçek geri yükleme uçtan uca | 2591 ms, asılların tamamı yerinde doğrulandı | 0 |
+| W21-10 | Yapay zekâ ilkesi (betikli uçlar) | eşzamanlılık 1'de en fazla 1 çağrı; `LOCAL_ONLY` altında 7 yolda bulut çağrısı 0 | 0 |
+| W21-11 | Gerçek sunucu (`collex_w21_verify`, port 8979) | 19/19 migrasyon, 32/32 RLS ilkesi, 54 araç, platform win32, OCR `OCR_EXECUTABLE_MISSING`, yerel model yok, anlamsal arama ACTIVE (3 vektör) | 0 |
+| W21-12 | Konsol, gerçek sunucuda (1280/1024/820/640/390 px × açık/koyu) | on ölçümün onunda sayfa yatay kaymıyor (`scrollWidth` = gövde genişliği); 390 px'te yalnız rozet şeridi kendi içinde kayıyor — tasarım böyle; tarayıcı konsolunda hata yok | — |
+| W21-13 | Çekişmeli denetim | 7 boyut, bulgu başına 3 şüpheci: 46 aday, 45 doğrulandı, 1 çürütüldü; 45'i de kapatıldı ve şeritlerin bıraktığı artıklar bu oturumda elle kapatıldı. Kapanışta ÜÇÜNCÜ bir çekişmeli tur KOŞULMADI (kullanıcı isteği) | — |
+
+### Gerçek ve sahte — hangi çağrı neydi
+
+| Bileşen | Durum |
+|---|---|
+| PostgreSQL, işçi süreçleri, HTTP sunucusu, yerel E5 | Gerçek |
+| Dil modeli (çıkarım, tartma, sınıflama, özet) | **Betikli test çiftleri** — hiçbir gerçek model çağrılmadı |
+| OCR | Bu makinede yok (`OCR_EXECUTABLE_MISSING`) |
+| Mac mini | Hiç çalıştırılmadı |
+
+### W21'in AÇIK bıraktıkları — kapatılmış gibi yazma
+
+- **Gerçek dil modeli çağrılmadı** (REAL_MODEL_MEASUREMENT_PENDING).
+  Anlamsal çelişki, iddia-delil ve özet kalitesi ölçülmedi.
+- **Mac mini fiziksel olarak doğrulanmadı.** 8 GB bütçesi tahmindir.
+- **Yerel OCR bu makinede yok.** Taranmış sayfa hâlâ "okunamadı" sayılır.
+- **Avukat etiketli altın vaka yok.** Bütün değerlendirmeler sentetik.
+- **W21 migrasyonu `collex_local`'a uygulanmadı.** `ColleX-Baslat.cmd` sonraki
+  açılışta `--ensure-db` ile ekler.
+- ~~Üst çubukta sayfa düzeyinde yatay taşma.~~ **17.09.2026'da kapatıldı.**
+  Ölçüm: 1280 px'te üst çubuk 1064 px'lik içerik alanında 1255 px istiyordu
+  (`scrollWidth` 1356 / gövde 1265; tema düğmesi ekran dışında), 820 px'te 89 px.
+  Sebep: kabuk `.wrap` en çok 1120 px olduğu hâlde üst çubuğun TEK satırlık
+  şablonu iki yerde (biri kompakt kabuğun koşulsuz kuralı, kendisinden önceki
+  dar ekran kırılmalarını da eziyordu) dayatılıyordu. Üst çubuk artık her
+  genişlikte iki satır; kompakt kabuk kendi şablonunu taşımıyor.
+- **Üçüncü bir çekişmeli denetim turu koşulmadı.** İkinci turun 45 bulgusu
+  kapatıldı, ama kapanış değişiklikleri (üst çubuk yerleşimi, taşıma
+  cümlesi, OCR kopya kuralı, kur/tutar ayrımı) düşman gözüyle yeniden
+  taranmadı; kapıların tamamı yeşil ve her değişikliğin kendi testi var.

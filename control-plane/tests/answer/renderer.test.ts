@@ -31,6 +31,8 @@ import {
   tckCandidate,
   yargitayCandidate,
 } from "./fixtures.js";
+import { markEntailmentNotChecked } from "../../src/answer/verifier.js";
+import { renderReason } from "../../src/answer/renderer.js";
 
 const NOW = () => "2026-08-27T00:00:00Z";
 
@@ -239,5 +241,27 @@ describe("evidence bundle export (brief 9.2)", () => {
     // JSON form round-trips.
     const parsed = JSON.parse(renderEvidenceBundleJson(doc)) as { schema: string };
     expect(parsed.schema).toBe("collex.answer.evidence-bundle/v1");
+  });
+});
+
+describe("W21 #22: a claim whose passage support was never judged", () => {
+  it("renders 'denetlenemedi' on the axis, never a measured percentage", async () => {
+    const pack = await buildEvidencePack([tckCandidate()], new MapTextPort(standardTexts()), {
+      asOf: AS_OF,
+      now: NOW,
+    });
+    const drafts = await new RuleBasedDrafter().draftClaims({ question: "soru", pack });
+    const deadJudge = {
+      assess: async () => markEntailmentNotChecked({ entails: false, score: 0, rationale: "denetlenemedi (arıza)" }),
+    };
+    const doc = await verifyAnswer("soru", pack, drafts, deadJudge as never, { now: NOW });
+    expect(doc.claims.length).toBeGreaterThan(0);
+    const md = renderAnswerMarkdown(doc);
+    expect(md).toContain("- Pasaj desteği: denetlenemedi");
+    expect(md).not.toMatch(/- Pasaj desteği: %/u);
+    // Control: a judged claim still shows its percentage.
+    const judged = await verifyAnswer("soru", pack, drafts, new LexicalEntailmentPort(), { now: NOW });
+    expect(renderAnswerMarkdown(judged)).toContain("- Pasaj desteği: %");
+    expect(renderReason("ENTAILMENT_NOT_CHECKED:claim-1")).toContain("denetlenemedi");
   });
 });

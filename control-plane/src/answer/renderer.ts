@@ -28,6 +28,7 @@ import type {
 import { UPLOAD_ONLY_EVIDENCE, type AnswerDocument, type VerifiedClaim } from "./verifier.js";
 import type { QuestionCoverageReport } from "./coverage.js";
 import { CORPUS_UNAVAILABLE_MESSAGE_TR } from "../retrieval/corpusErrors.js";
+import { ENTAILMENT_NOT_CHECKED } from "./verifier.js";
 
 /**
  * Neutralize HTML and Markdown-active syntax in untrusted inline text.
@@ -224,6 +225,27 @@ export const COVERAGE_PARTIAL_TEXT =
   "bulmadı — sorunun kendisi cevaplanmış sayılmaz.";
 
 /**
+ * W21: TIME_BUDGET_EXCEEDED is ONE reason code for two different runs, and the
+ * code must stay as it is (the review-table worker reads it). Noted before
+ * drafting, the drafter was skipped and the answer has no claim; noted after
+ * drafting, the claims were written and the verification step still ran on
+ * them (answerPipeline.ts), each with its own verdict. Only the first may say
+ * that drafting and verification were left incomplete.
+ */
+export const TIME_BUDGET_BEFORE_DRAFT_TR =
+  "Cevap süre bütçesini aştı; tespit yazımı ve doğrulama eksik bırakıldı";
+export const TIME_BUDGET_AFTER_DRAFT_TR =
+  "Cevap süre bütçesini tespitler yazıldıktan sonra aştı; doğrulama adımı yine de çalıştı ve her " +
+  "tespitin sonucu kendi satırında yazıyor, ancak cevap KISMİ sayıldı ve kesinleştirilmedi";
+const TIME_BUDGET_REASON = "TIME_BUDGET_EXCEEDED";
+
+/** What the reason sentence may depend on besides the code itself. */
+export interface ReasonContext {
+  /** The answer carries at least one drafted claim (so drafting did run). */
+  claimsWritten?: boolean;
+}
+
+/**
  * Machine reason codes, explained in Turkish FIRST with the code kept in
  * parentheses (shared dictionary rule: a lawyer reads the sentence, a script
  * greps the code). Unknown codes render as themselves.
@@ -247,23 +269,33 @@ const REASON_TR: Readonly<Record<string, string>> = {
   DRAFTER_DEGRADED:
     "Cevap cümleleri yazılırken bir arıza oldu; aşağıda yalnız bulunan kaynaklar gösteriliyor",
   UPLOAD_ONLY_EVIDENCE: UPLOAD_ONLY_EVIDENCE_TEXT.replace(/\.$/u, ""),
-  TIME_BUDGET_EXCEEDED: "Cevap süre bütçesini aştı; tespit yazımı ve doğrulama eksik bırakıldı",
+  TIME_BUDGET_EXCEEDED: TIME_BUDGET_BEFORE_DRAFT_TR,
   TEMPORAL_COMPARISON_MISSING:
     "Sorulan tarih için hangi metnin uygulanacağı karşılaştırılmadı; cevapta hükmün tek bir sürümü var",
   // W15: eski cümle Türkçe olarak okunmuyordu ("hangi pasajın hangi kısmı
   // taşıdığı") ve avukata hiçbir sonuç bildirmiyordu.
   ENTAILMENT_UNSEGMENTED_CLOUD_CLAIM:
     "Bu tespit birden çok pasaja dayandırıldı, ancak hangi pasajın tespitin hangi bölümünü desteklediği ayrılamadı; destek gücü yalnız en güçlü tek pasaja göre hesaplandı — pasajları tek tek açıp okuyun",
+  // W21 (#22): the judge did not answer — never "fell below the threshold".
+  ENTAILMENT_NOT_CHECKED:
+    "Bu tespitin pasaj desteği denetlenemedi (doğrulama bileşeni yanıt vermedi); tespit kesinleştirilmedi",
   UNUSED_CITATION:
     "Bu atıf, tespide diğer atıfların taşımadığı hiçbir şey eklemiyor",
 };
 
-export function renderReason(reason: string): string {
+export function renderReason(reason: string, context: ReasonContext = {}): string {
   // A machine reason may carry a ":"-separated subject
   // (ENTAILMENT_BELOW_THRESHOLD:claim-7, UNUSED_CITATION:claim-7:ev-2); the
   // Turkish sentence is keyed on the CODE, and the whole reason is still
   // printed verbatim in parentheses so a script can grep it.
-  const explained = REASON_TR[reason] ?? REASON_TR[reason.split(":")[0] as string];
+  const code = reason.split(":")[0] as string;
+  // W21: a budget noted only after the claims were drafted is not "drafting
+  // and verification left incomplete" (see TIME_BUDGET_AFTER_DRAFT_TR). A
+  // claim can only exist if the drafter ran, so its presence decides.
+  const explained =
+    code === TIME_BUDGET_REASON && context.claimsWritten === true
+      ? TIME_BUDGET_AFTER_DRAFT_TR
+      : REASON_TR[reason] ?? REASON_TR[code];
   return explained === undefined
     ? escapeInline(reason)
     : `${explained} (${escapeInline(reason)})`;
@@ -347,11 +379,25 @@ function renderSourceCard(n: number, item: EvidenceItem): string {
   return lines.join("\n");
 }
 
+/**
+ * W21 (#22): the passage-support axis of one claim. A claim no judgement
+ * reached reads "denetlenemedi", never a measured percentage; when part of
+ * it WAS measured short (a segmented claim) the measured value stays, with
+ * the gap named next to it.
+ */
+function entailmentAxis(claim: VerifiedClaim, docReasons: readonly string[], measured: string): string {
+  const reasons = [...claim.reasons, ...docReasons];
+  const id = claim.claim.claimId;
+  if (!reasons.includes(`${ENTAILMENT_NOT_CHECKED}:${id}`)) return measured;
+  return reasons.includes(`ENTAILMENT_BELOW_THRESHOLD:${id}`) ? `${measured} (bir kısmı denetlenemedi)` : "denetlenemedi";
+}
+
 function renderClaim(
   index: number,
   claim: VerifiedClaim,
   numbers: Map<string, number>,
   coverage: QuestionCoverageReport | undefined,
+  docReasons: readonly string[] = [],
 ): string {
   const cites = claim.citationChecks
     .filter((c) => c.ok)
@@ -374,7 +420,7 @@ function renderClaim(
     // (shared dictionary): Kaynak isabeti · Pasaj desteği · Otorite ·
     // Güncellik · Kapsam. English terms live only in technical-detail views.
     `- Kaynak isabeti: ${pct(c.retrieval)}`,
-    `- Pasaj desteği: ${pct(c.entailment)}`,
+    `- Pasaj desteği: ${entailmentAxis(claim, docReasons, pct(c.entailment))}`,
     `- Otorite: ${pct(c.authority)}`,
     // A claim resting only on uploads carries the neutral score; a percentage
     // there would read as a yürürlük verdict nobody made.
@@ -445,7 +491,9 @@ export function renderAnswerMarkdown(doc: AnswerDocument): string {
       // bölümün ne cevapladığını söylüyor. Makine kodları satırların
       // sonundaki parantezde AYNEN duruyor — silinmediler.
       out.push("", "Dayanağın neden bulunamadığı:");
-      for (const reason of doc.reasons) out.push(`- ${renderReason(reason)}`);
+      for (const reason of doc.reasons) {
+        out.push(`- ${renderReason(reason, { claimsWritten: doc.claims.length > 0 })}`);
+      }
     }
     // Honest abstention: NO source cards, no fabricated citations.
     return out.join("\n");
@@ -465,7 +513,7 @@ export function renderAnswerMarkdown(doc: AnswerDocument): string {
 
   out.push("", "## Tespitler");
   doc.claims.forEach((claim, i) => {
-    out.push("", renderClaim(i + 1, claim, numbers, doc.coverage));
+    out.push("", renderClaim(i + 1, claim, numbers, doc.coverage, doc.reasons));
   });
 
   const conflicted = doc.claims.filter((c) => c.verdict === "CONFLICTING_AUTHORITIES");
@@ -498,7 +546,9 @@ export function renderAnswerMarkdown(doc: AnswerDocument): string {
     // W15: makine kodları silinmez, bir katman aşağı iner; başlık artık
     // bölümün ne olduğunu söylüyor (W15-TASARIM, "denetim kaydı" çekmecesi).
     out.push("", "## Uyarılar ve doğrulama gerekçeleri");
-    for (const reason of doc.reasons) out.push(`- ${renderReason(reason)}`);
+    for (const reason of doc.reasons) {
+      out.push(`- ${renderReason(reason, { claimsWritten: doc.claims.length > 0 })}`);
+    }
   }
 
   out.push("", "## Kaynaklar");

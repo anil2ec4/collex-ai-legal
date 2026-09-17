@@ -381,3 +381,34 @@ describe("new tools", () => {
     expect(wrapped).not.toContain("</untrusted_evidence>");
   });
 });
+
+describe("W21 re-check: a self-contradicting cloud judgement is no answer", () => {
+  it("'does not entail' with a score that clears the threshold throws MALFORMED", async () => {
+    const contradicting = fakeAnthropic(() => ({
+      toolInput: { entails: false, score: 0.95, rationale: "desteklemiyor" },
+    }));
+    const error = await makeAdapter(contradicting.fetchImpl)
+      .adapter.assess("iddia", evidence("ev-1", "pasaj"))
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AnthropicApiError);
+    expect((error as AnthropicApiError).code).toBe("MALFORMED");
+    // A consistent low judgement is still a measurement.
+    const low = fakeAnthropic(() => ({ toolInput: { entails: false, score: 0.3, rationale: "kısmen" } }));
+    await expect(makeAdapter(low.fetchImpl).adapter.assess("iddia", evidence("ev-1", "pasaj"))).resolves.toEqual({
+      entails: false,
+      score: 0.3,
+      rationale: "kısmen",
+    });
+  });
+});
+
+describe("W21 closing re-check: a judge tool call with no object input", () => {
+  it("is MALFORMED, never a TypeError", async () => {
+    for (const toolInput of [null, "evet", 7]) {
+      const reply = fakeAnthropic(() => ({ toolInput: toolInput as never }));
+      const error = await makeAdapter(reply.fetchImpl).adapter.assess("iddia", evidence("ev-1", "pasaj")).catch((e: unknown) => e);
+      expect(error, JSON.stringify(toolInput)).toBeInstanceOf(AnthropicApiError);
+      expect((error as AnthropicApiError).code).toBe("MALFORMED");
+    }
+  });
+});

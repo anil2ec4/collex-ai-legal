@@ -62,11 +62,24 @@ import {
   isCorpusUnavailable,
 } from "../retrieval/corpusErrors.js";
 import { renderAnswerMarkdown, renderEvidenceBundle, escapeInline } from "../answer/renderer.js";
-import { verifyAnswer, type AnswerDocument } from "../answer/verifier.js";
+import {
+  markEntailmentNotChecked,
+  verifyAnswer,
+  type AnswerDocument,
+} from "../answer/verifier.js";
 import type { ClaimDraft, EvidenceRef } from "../evidence/types.js";
 import { RuleBasedDrafter } from "../llm/ruleDrafter.js";
 import { LexicalEntailmentPort } from "../llm/lexicalEntailment.js";
 import type { DrafterPort, EntailmentJudgement, EntailmentPort } from "../llm/ports.js";
+import {
+  AI_UNAVAILABLE_MESSAGE_TR,
+  CLOUD_AI_REFUSED_LOCAL_ONLY_MESSAGE_TR,
+  decideProvider,
+  localUnavailableMessageTr,
+  stricterPolicy,
+  type AiPolicy,
+} from "../llm/aiPolicy.js";
+import type { EndpointTrust } from "../llm/endpointTrust.js";
 import {
   analyzeIntake,
   validateResearchIntake,
@@ -145,9 +158,16 @@ export const LIBRARY_CORPUS_NOTICE =
   "kütüphanesine kaydedilmiştir. Kütüphane belgenin alındığı günü bilir, yürürlük tarihini " +
   "bilmez; her dayanağın güncelliğini kaynağından doğrulayın.";
 
-/** Warning text when a request asks for cloud AI on a server that has none configured. */
-export const AI_UNAVAILABLE_MESSAGE_TR =
-  "Bulut yapay zekâ bu sunucuda yapılandırılmamış; kural tabanlı üretimle devam edildi.";
+/**
+ * Warning texts of the model lane (W12/W20). W21: their ONE source is
+ * llm/aiPolicy.ts, whose decision emits them; re-exported here unchanged so
+ * every existing importer keeps working.
+ */
+export {
+  AI_UNAVAILABLE_MESSAGE_TR,
+  CLOUD_AI_REFUSED_LOCAL_ONLY_MESSAGE_TR,
+  LOCAL_AI_UNAVAILABLE_MESSAGE_TR,
+} from "../llm/aiPolicy.js";
 
 /** `result.aiUsed.label` when the rule-based drafter and lexical judge ran. */
 export const RULE_BASED_LABEL_TR = "Kural tabanlı — yerel";
@@ -163,9 +183,23 @@ export const DEFAULT_ANSWER_TIME_BUDGET_MS = 60_000;
 /** Machine reason/warning code when the wall budget was exceeded. */
 export const TIME_BUDGET_EXCEEDED = "TIME_BUDGET_EXCEEDED";
 
-/** Turkish sentence for the budget warning (console dictionary mirrors it). */
+/**
+ * Turkish sentence for the budget warning when the budget ran out BEFORE
+ * drafting: the drafter was skipped, no claim exists (console dictionary
+ * mirrors it; the markdown reason is renderer.ts TIME_BUDGET_BEFORE_DRAFT_TR).
+ */
 export const TIME_BUDGET_EXCEEDED_MESSAGE_TR =
   "Cevap süre bütçesini aştı; tespit yazımı ve doğrulama eksik bırakıldı — bulunan pasajlar gösteriliyor, cevap KISMİ.";
+
+/**
+ * W21: the same code noted AFTER drafting. The claims were written and still
+ * verified, so "tespit yazımı ve doğrulama eksik bırakıldı" would be untrue;
+ * the reason code stays TIME_BUDGET_EXCEEDED (the review-table worker reads
+ * it). The markdown reason is renderer.ts TIME_BUDGET_AFTER_DRAFT_TR.
+ */
+export const TIME_BUDGET_EXCEEDED_AFTER_DRAFT_MESSAGE_TR =
+  "Cevap süre bütçesini tespitler yazıldıktan sonra aştı; doğrulama adımı yine de çalıştı ve her " +
+  "tespitin sonucu kendi satırında yazıyor, ancak cevap KISMİ sayıldı ve kesinleştirilmedi.";
 
 /** Machine warning code when a quote was cut to the cap ("alıntı kısaltıldı"). */
 export const QUOTE_TRUNCATED = "QUOTE_TRUNCATED";
@@ -206,8 +240,20 @@ export interface AnswerPipelineOptions {
    * rule-based drafter (warning LOCAL_DRAFTER_FALLBACK) instead of costing
    * the lawyer the answer; a model-written claim is verified exactly like a
    * cloud-written one (possible paraphrase, conservative aggregation).
+   * W21: with `aiPolicy` wired, the local ports are used by DEFAULT (no
+   * request flag) under LOCAL_PREFERRED and LOCAL_ONLY. `trust` says where
+   * the endpoint runs; an outside endpoint (CLOUD) is then used only for a
+   * request that consents, like the cloud lane.
    */
-  local?: { drafter: DrafterPort; entailment: EntailmentPort; label: string };
+  local?: { drafter: DrafterPort; entailment: EntailmentPort; label: string; trust?: EndpointTrust };
+  /**
+   * W21: the model route table REFUSED a configured endpoint, so `local` is
+   * absent. Facts only, never a port: `trust` CLOUD = an outside service the
+   * policy or the data boundary refused; null = the address failed the trust
+   * rules. A `useLocalAi` answer then says that (the reason health and the
+   * matter capabilities give), never "no local model is configured".
+   */
+  localRefusal?: { trust: EndpointTrust | null };
   /**
    * The data boundary in force (W20). Under LOCAL_ONLY a `useCloudAi`
    * request is refused BEFORE any cloud port is touched (zero cloud calls)
@@ -215,6 +261,17 @@ export interface AnswerPipelineOptions {
    * silent fallback in either direction.
    */
   dataBoundary?: () => "LOCAL_ONLY" | "ALLOW_CLOUD";
+  /**
+   * W21: the application AI policy (llm/aiPolicy.ts), read per answer. When
+   * present, ONE decision (`decideProvider`) picks the drafter of every
+   * request: a configured local model is used without any request flag
+   * under LOCAL_PREFERRED and LOCAL_ONLY, `useCloudAi` stays per-request
+   * consent, and DETERMINISTIC_ONLY never calls a model. The boundary in
+   * force is the stricter of `boundary` here and `dataBoundary()`.
+   * When ABSENT, the W20 flag behaviour is kept exactly (useLocalAi /
+   * useCloudAi only; no flag = rule-based).
+   */
+  aiPolicy?: () => { readonly policy: AiPolicy; readonly boundary: "LOCAL_ONLY" | "ALLOW_CLOUD" };
   /** Retrieval limits forwarded to the corpus port. */
   limits?: CorpusSearchLimits;
   /**
@@ -333,14 +390,33 @@ function safeTextPort(port: CanonicalTextPort, warnings: string[]): CanonicalTex
   };
 }
 
+/** W21 #22: how many judgements a wrapped judge made, and how many calls failed. */
+interface JudgeTally {
+  answered: number;
+  failed: number;
+}
+
 /**
  * An entailment port that cannot break the run. A failed judgement scores 0,
  * which fails the finalization threshold — the safe direction.
+ *
+ * W21 #22: that 0 is marked as NOT a measurement (markEntailmentNotChecked),
+ * so the verifier records ENTAILMENT_NOT_CHECKED for the claim instead of
+ * ENTAILMENT_BELOW_THRESHOLD ("the passages were checked and fell short").
  */
-function safeEntailmentPort(port: EntailmentPort, warnings: string[]): EntailmentPort {
+function safeEntailmentPort(
+  port: EntailmentPort,
+  warnings: string[],
+  tally: JudgeTally = { answered: 0, failed: 0 },
+): EntailmentPort {
   const failed = (error: unknown): EntailmentJudgement => {
-    warnings.push(`ENTAILMENT_PORT_FAILED:${safeMessage(error)}`);
-    return {
+    tally.failed += 1;
+    // One line per distinct failure: a judge that is down fails every
+    // claim/passage pair with the same message, and the reader needs to
+    // know THAT it failed, not how many times.
+    const warning = `ENTAILMENT_PORT_FAILED:${safeMessage(error)}`;
+    if (!warnings.includes(warning)) warnings.push(warning);
+    return markEntailmentNotChecked({
       entails: false,
       score: 0,
       // W15: "Entailment portu" tamamen yazılım terimiydi ve doğrudan cevaba
@@ -348,12 +424,14 @@ function safeEntailmentPort(port: EntailmentPort, warnings: string[]): Entailmen
       rationale:
         "Pasajın bu tespiti destekleyip desteklemediği denetlenemedi (arıza); " +
         "güvenli tarafta kalmak için tespit desteksiz sayıldı.",
-    };
+    });
   };
   return {
     async assess(claimText, evidence): Promise<EntailmentJudgement> {
       try {
-        return await port.assess(claimText, evidence);
+        const judgement = await port.assess(claimText, evidence);
+        tally.answered += 1;
+        return judgement;
       } catch (error) {
         return failed(error);
       }
@@ -368,10 +446,12 @@ function safeEntailmentPort(port: EntailmentPort, warnings: string[]): Entailmen
             evidence: readonly EvidenceRef[],
           ): Promise<EntailmentJudgement> {
             try {
-              return await (port.assessSet as NonNullable<EntailmentPort["assessSet"]>)(
+              const judgement = await (port.assessSet as NonNullable<EntailmentPort["assessSet"]>)(
                 claimText,
                 evidence,
               );
+              tally.answered += 1;
+              return judgement;
             } catch (error) {
               return failed(error);
             }
@@ -384,6 +464,15 @@ function safeEntailmentPort(port: EntailmentPort, warnings: string[]): Entailmen
 function safeMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.length > 300 ? `${message.slice(0, 297)}...` : message;
+}
+
+/** W21: where a model port runs, when it says so (LocalGenerationAdapter does). */
+function trustOf(port: unknown): EndpointTrust | undefined {
+  if (port === null || typeof port !== "object") return undefined;
+  const trust = (port as { trust?: unknown }).trust;
+  return trust === "LOCAL_PROCESS" || trust === "TRUSTED_LOCAL_NETWORK" || trust === "CLOUD"
+    ? trust
+    : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,7 +507,9 @@ export class AnswerPipeline {
   private readonly coverageFloor: number;
   private readonly cloud: AnswerPipelineOptions["cloud"];
   private readonly local: AnswerPipelineOptions["local"];
+  private readonly localRefusal: AnswerPipelineOptions["localRefusal"];
   private readonly dataBoundary: () => "LOCAL_ONLY" | "ALLOW_CLOUD";
+  private readonly aiPolicy: AnswerPipelineOptions["aiPolicy"];
   private readonly limits: CorpusSearchLimits | undefined;
   private readonly timeBudgetMs: number;
   private readonly maxQuoteCodePoints: number;
@@ -441,7 +532,9 @@ export class AnswerPipeline {
     this.coverageFloor = options.coverageFloor ?? DEFAULT_COVERAGE_FLOOR;
     this.cloud = options.cloud;
     this.local = options.local;
+    this.localRefusal = options.localRefusal;
     this.dataBoundary = options.dataBoundary ?? (() => "ALLOW_CLOUD");
+    this.aiPolicy = options.aiPolicy;
     this.limits = options.limits;
     this.timeBudgetMs = options.timeBudgetMs ?? DEFAULT_ANSWER_TIME_BUDGET_MS;
     this.maxQuoteCodePoints = options.maxQuoteCodePoints ?? DEFAULT_MAX_QUOTE_CODE_POINTS;
@@ -1051,26 +1144,67 @@ export class AnswerPipeline {
     // ---- port selection (cloud AI is per-request consent) -----------------
     // `cloud` below means "the model-assisted ports in use for this request",
     // local or cloud; `assistKind` says which.
-    const wantsLocal = request.useLocalAi === true;
-    const wantsCloud = request.useCloudAi === true && !wantsLocal;
     let cloud: { drafter: DrafterPort; entailment: EntailmentPort; label: string } | undefined;
     let assistKind: "cloud" | "local" | undefined;
-    if (wantsLocal) {
-      if (this.local !== undefined) {
+    const policyState = this.aiPolicy?.();
+    let policyNote: string | undefined;
+    if (policyState !== undefined) {
+      // W21: ONE decision for every request (llm/aiPolicy.ts). It is pure
+      // and runs before any port is touched, so a refusal costs zero model
+      // calls. The stricter of the policy's boundary and dataBoundary() holds.
+      const boundary: "LOCAL_ONLY" | "ALLOW_CLOUD" =
+        policyState.boundary === "LOCAL_ONLY" || this.dataBoundary() === "LOCAL_ONLY"
+          ? "LOCAL_ONLY"
+          : "ALLOW_CLOUD";
+      const policy: AiPolicy = stricterPolicy(
+        policyState.policy,
+        boundary === "LOCAL_ONLY" ? "LOCAL_ONLY" : "CLOUD_ALLOWED",
+      );
+      const decision = decideProvider({
+        policy,
+        boundary,
+        localConfigured: this.local !== undefined,
+        localTrust: this.local?.trust ?? trustOf(this.local?.drafter) ?? null,
+        localRefusal: this.local === undefined ? (this.localRefusal ?? null) : null,
+        cloudConfigured: this.cloud !== undefined,
+        requestConsentsCloud: request.useCloudAi === true,
+        requestAsksLocal: request.useLocalAi === true,
+      });
+      for (const warning of decision.warnings) warnings.push(`${warning.code}:${warning.messageTr}`);
+      if (decision.drafter === "local" && this.local !== undefined) {
         cloud = this.local;
         assistKind = "local";
-      } else {
-        warnings.push(`LOCAL_AI_UNAVAILABLE:${LOCAL_AI_UNAVAILABLE_MESSAGE_TR}`);
-      }
-    } else if (wantsCloud) {
-      if (this.dataBoundary() === "LOCAL_ONLY") {
-        // Refused before any cloud port is touched: zero cloud calls.
-        warnings.push(`CLOUD_AI_REFUSED_LOCAL_ONLY:${CLOUD_AI_REFUSED_LOCAL_ONLY_MESSAGE_TR}`);
-      } else if (this.cloud !== undefined) {
+      } else if (decision.drafter === "cloud" && this.cloud !== undefined) {
         cloud = this.cloud;
         assistKind = "cloud";
-      } else {
-        warnings.push(`AI_UNAVAILABLE:${AI_UNAVAILABLE_MESSAGE_TR}`);
+      }
+      policyNote = `aiPolicy=${policy}`;
+    } else {
+      // W20 flag behaviour, kept exactly when no policy is wired.
+      const wantsLocal = request.useLocalAi === true;
+      const wantsCloud = request.useCloudAi === true && !wantsLocal;
+      if (wantsLocal) {
+        if (this.local !== undefined) {
+          cloud = this.local;
+          assistKind = "local";
+        } else {
+          warnings.push(
+            `LOCAL_AI_UNAVAILABLE:${localUnavailableMessageTr({
+              localConfigured: false,
+              localRefusal: this.localRefusal ?? null,
+            })}`,
+          );
+        }
+      } else if (wantsCloud) {
+        if (this.dataBoundary() === "LOCAL_ONLY") {
+          // Refused before any cloud port is touched: zero cloud calls.
+          warnings.push(`CLOUD_AI_REFUSED_LOCAL_ONLY:${CLOUD_AI_REFUSED_LOCAL_ONLY_MESSAGE_TR}`);
+        } else if (this.cloud !== undefined) {
+          cloud = this.cloud;
+          assistKind = "cloud";
+        } else {
+          warnings.push(`AI_UNAVAILABLE:${AI_UNAVAILABLE_MESSAGE_TR}`);
+        }
       }
     }
     const drafter: DrafterPort = cloud?.drafter ?? this.drafter;
@@ -1104,6 +1238,7 @@ export class AnswerPipeline {
       ctx.notes.push(
         `drafter=${drafterFailed && assistKind === "local" ? "rule-based(fallback)" : assistKind ?? "rule-based"}`,
       );
+      if (policyNote !== undefined) ctx.notes.push(policyNote);
       // Citation-first invariant: a drafter may only cite evidence in the pack.
       const known = new Set(admitted.items.map((item) => item.ref.evidenceId));
       const cleaned = produced.map((claim) => {
@@ -1118,10 +1253,18 @@ export class AnswerPipeline {
       return cleaned;
     });
 
+    // W21: a local drafter that failed leaves the rule-based drafter's
+    // claims (the quotes themselves). They are judged by the lexical judge a
+    // rule-based answer always had, not by the same local model that has
+    // just failed (it is usually down or timing out, so every judge call
+    // would fail too). No model contributed to such an answer, so it is
+    // labelled rule-based; LOCAL_DRAFTER_FALLBACK says why.
+    const localFellBack = drafterFailed && assistKind === "local";
+    const judge: EntailmentPort = localFellBack ? this.entailment : entailment;
     const aiUsed: AiUsedView = {
       drafter: cloud !== undefined && !drafterFailed && !budgetExceeded,
-      entailment: cloud !== undefined && !budgetExceeded,
-      label: cloud !== undefined && !budgetExceeded ? cloud.label : RULE_BASED_LABEL_TR,
+      entailment: cloud !== undefined && !budgetExceeded && !localFellBack,
+      label: cloud !== undefined && !budgetExceeded && !localFellBack ? cloud.label : RULE_BASED_LABEL_TR,
     };
 
     // A drafter that ate the budget still hands its claims to the (local)
@@ -1142,12 +1285,13 @@ export class AnswerPipeline {
     );
 
     // ---- stage: verify -----------------------------------------------------
+    const judgeTally: JudgeTally = { answered: 0, failed: 0 };
     const document = await trace.run("verify", async (ctx) => {
       const doc = await verifyAnswer(
         request.question,
         admitted,
         drafts,
-        safeEntailmentPort(entailment, warnings),
+        safeEntailmentPort(judge, warnings, judgeTally),
         {
           now: this.now,
           coverage: coverageReport,
@@ -1175,6 +1319,10 @@ export class AnswerPipeline {
       ctx.notes.push(`status=${doc.status}`);
       return doc;
     });
+    // W21 #22: a judge that failed on every call scored nothing. The answer
+    // must not report that a model judged its claims; ENTAILMENT_PORT_FAILED
+    // and each claim's ENTAILMENT_NOT_CHECKED say what happened instead.
+    if (judgeTally.answered === 0 && judgeTally.failed > 0) aiUsed.entailment = false;
 
     // A corpus we could not fully search is NOT an abstention: downgrade to
     // PARTIAL so the reader knows the difference between "nothing found" and
@@ -1911,12 +2059,3 @@ function renderContrarySection(coverage: ContraryCoverage): string {
 
   return out.join("\n");
 }
-
-/** W20: `useLocalAi` asked for, but no local model is configured. */
-export const LOCAL_AI_UNAVAILABLE_MESSAGE_TR =
-  "Yerel dil modeli yapılandırılmadığı için yanıt kural tabanlı yöntemle hazırlandı.";
-
-/** W20: `useCloudAi` asked for under the LOCAL_ONLY data boundary. */
-export const CLOUD_AI_REFUSED_LOCAL_ONLY_MESSAGE_TR =
-  "Veri sınırı yalnız yerel olduğu için bulut yapay zekâ kullanılmadı;" +
-  " dosya bu bilgisayardan dışarı gönderilmedi.";

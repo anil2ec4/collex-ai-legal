@@ -57,6 +57,7 @@ import {
 } from "../matters/scope.js";
 import {
   ANSWER_STATUSES,
+  answerAiFlags,
   answerRequestSchema,
   boundedAnswerBundle,
   buildAnswerBundle,
@@ -74,6 +75,7 @@ import { guardAnswerForConsole } from "./consoleGuard.js";
 import { fieldIssues } from "./zodIssues.js";
 import { localGuard, type LocalGuardOptions } from "./localGuard.js";
 import { createBackupRouter, type BackupPort } from "../backup/routes.js";
+import { operatorHintsPayload } from "../platform/operatorHints.js";
 import { countCorpus, reportDatabaseHealth, resolveUploadsDir } from "./healthReport.js";
 import {
   MATTER_NOT_FOUND_MESSAGE_TR,
@@ -127,10 +129,15 @@ import type { WorkerModelRoutes } from "../exhaustive/worker.js";
 import type { ModelRouteTable } from "../llm/providerFactory.js";
 import { readTrustedLocalHosts } from "../llm/localGenerationConfig.js";
 import { applyDataBoundaryToEmbedding } from "../retrieval/embeddingConfig.js";
+import { resolveLocalGenerationConfig } from "../llm/localGenerationConfig.js";
 import {
-  resolveDataBoundary,
-  resolveLocalGenerationConfig,
-} from "../llm/localGenerationConfig.js";
+  describeAiPolicy,
+  resolveEffectiveAiPolicy,
+  type AiPolicyHealth,
+  type EffectiveAiPolicy,
+} from "../llm/aiPolicy.js";
+import type { OcrStatus } from "../ocr/ocrStatus.js";
+import type { EndpointTrust } from "../llm/endpointTrust.js";
 import { InMemoryMatterStore, isUuid } from "../matters/store.js";
 import type { MatterStore } from "../matters/types.js";
 import { createSettingsRouter } from "../settings/routes.js";
@@ -369,10 +376,22 @@ export interface ApiDependencies {
    * answer pipeline use its roles.
    */
   modelRoutes?: ModelRouteTable;
+  /**
+   * W21: the effective AI policy (llm/aiPolicy.ts), resolved ONCE by
+   * serve.mjs. Absent -> read from the environment per call, the way the
+   * data boundary always was. Health reports it as `aiPolicy`; the /v1/ai/*
+   * gate and the embedding gate use its (effective) boundary.
+   */
+  aiPolicy?: () => EffectiveAiPolicy;
   /** Durable exhaustive analysis: store + worker (serve.mjs starts it). */
   exhaustive?: { store?: DurableAnalysisStore; worker?: { kick(): void } };
   /** Dense lane health (W20 phase E), when a local embedding lane is wired. */
   denseHealth?: () => Promise<Record<string, unknown>>;
+  /**
+   * W21: the local OCR capability (`python -m intake.ocr --status`), probed
+   * once per process. Health never waits for the first probe.
+   */
+  ocrStatus?: () => Promise<OcrStatus>;
   /** The persisted review grid: store + worker (serve.mjs starts it). */
   reviewTables?: { store?: PgReviewTableStore; worker?: { kick(): void } };
 }
@@ -548,6 +567,9 @@ function toSearchHits(data: unknown): SearchHit[] {
 }
 
 /** The two exhaustive-analysis roles of a resolved model route table. */
+/** How long health waits for the OCR probe before saying "not known yet" (null). */
+const OCR_HEALTH_WAIT_MS = 250;
+
 function workerRoutes(table: ModelRouteTable | undefined): WorkerModelRoutes {
   if (table === undefined) return {};
   return {
@@ -558,6 +580,9 @@ function workerRoutes(table: ModelRouteTable | undefined): WorkerModelRoutes {
 
 export function createApp(deps: ApiDependencies): Hono {
   const app = new Hono();
+  // W21: the ONE AI policy. serve.mjs resolves it once; an in-process app
+  // that was not given one reads the environment per call.
+  const aiPolicyState = (): EffectiveAiPolicy => deps.aiPolicy?.() ?? resolveEffectiveAiPolicy();
 
   // ---- B-04: loopback guard, BEFORE every other middleware and route -------
   // Host allow-list (DNS rebinding -> read), Origin/Sec-Fetch-Site check on
@@ -887,8 +912,16 @@ export function createApp(deps: ApiDependencies): Hono {
           : { state: "DISABLED", reasonTr: "Anlamsal arama şeridi yapılandırılmadı." },
       // The data boundary in force. LOCAL_ONLY means a cloud provider is
       // refused even when one is configured — the console shows this so a
-      // lawyer can see where their file is allowed to go.
-      dataBoundary: resolveDataBoundary(),
+      // lawyer can see where their file is allowed to go. W21: the EFFECTIVE
+      // boundary (an AI policy of LOCAL_ONLY or DETERMINISTIC_ONLY forces it).
+      dataBoundary: aiPolicyState().boundary,
+      // Additive (W21): the application AI policy and what it lets each lane
+      // do. A NEW key on purpose: `ai` above is a pinned contract shape.
+      aiPolicy: aiPolicyHealth(),
+      // Additive (W21): can THIS computer read scanned pages (tesseract +
+      // Turkish data + a rasterizer)? null = not probed yet or no probe
+      // wired. Only OCR_READY means a scanned page can be read at all.
+      ocr: await ocrHealth(),
       demoCorpus: deps.demoCorpus ?? dbName === "collex_demo",
       corpus: database.corpus,
       // Additive (W14 M-SRV IR-1, raised by C-UI): the ABSOLUTE folder the
@@ -901,6 +934,10 @@ export function createApp(deps: ApiDependencies): Hono {
       templates: DRAFT_TEMPLATES.length,
       deadlineRules: DEADLINE_RULES.length,
       version: API_VERSION,
+      // Additive (W21 round two, R2-36): the platform this server RUNS on
+      // and its launcher/backup/restore names, so the console's operator
+      // lines name the Mac scripts on the Mac mini, never a Windows .cmd.
+      ...operatorHintsPayload(),
     });
   });
 
@@ -956,6 +993,36 @@ export function createApp(deps: ApiDependencies): Hono {
       // Never measured from here. A number nobody measured is not a number.
       liveTested: false,
     };
+  }
+
+  /** W21: the OCR probe's answer, or null while the first probe runs (health never blocks on it). */
+  async function ocrHealth(): Promise<OcrStatus | null> {
+    if (deps.ocrStatus === undefined) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), OCR_HEALTH_WAIT_MS);
+    });
+    try {
+      return await Promise.race([deps.ocrStatus().catch(() => null), late]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  /** W21: health's view of the AI policy (the top-level `aiPolicy` key). */
+  function aiPolicyHealth(): AiPolicyHealth {
+    const local = localGenerationHealth();
+    return describeAiPolicy(
+      aiPolicyState(),
+      {
+        status: local.state,
+        model: local.model,
+        trust: local.trust as EndpointTrust | null,
+        reason: local.reason,
+        routes: workerRoutes(deps.modelRoutes),
+      },
+      deps.ai !== undefined && deps.ai !== null,
+    );
   }
 
   app.post("/v1/search", async (c) => {
@@ -1122,7 +1189,8 @@ export function createApp(deps: ApiDependencies): Hono {
         question: parsed.data.question,
         ...(parsed.data.asOf !== undefined ? { asOf: parsed.data.asOf } : {}),
         ...(scoped.filters !== undefined ? { filters: scoped.filters } : {}),
-        ...(parsed.data.useCloudAi !== undefined ? { useCloudAi: parsed.data.useCloudAi } : {}),
+        // W21: BOTH flags, as sent (useLocalAi used to be dropped here).
+        ...answerAiFlags(parsed.data),
         limits,
       });
       return {
@@ -1692,6 +1760,16 @@ export function createApp(deps: ApiDependencies): Hono {
         matters: matterStore,
         worker: deps.exhaustive?.worker,
         models: () => workerRoutes(deps.modelRoutes),
+        // W21: the ONE AI policy decides whether the model tasks may run,
+        // and an outside endpoint is named as such (not "no model").
+        aiPolicy: () => aiPolicyState().policy,
+        localTrust: () => localGenerationHealth().trust as EndpointTrust | null,
+        // The refusal reason of the SAME resolved route table health reports
+        // (an unlisted LAN host is named, not reported as "no model").
+        localRefusedReason: () => {
+          const local = localGenerationHealth();
+          return local.state === "refused" ? local.reason : null;
+        },
       }),
     );
   }
@@ -1729,7 +1807,8 @@ export function createApp(deps: ApiDependencies): Hono {
     "/",
     createAiRouter({
       config: deps.ai ?? null,
-      dataBoundary: () => resolveDataBoundary(),
+      // W21: the EFFECTIVE boundary (the AI policy can only narrow it).
+      dataBoundary: () => aiPolicyState().boundary,
       ...(filesStore !== undefined ? { files: filesStore } : {}),
       drafts: draftStore,
       revise,
@@ -1793,7 +1872,7 @@ export function createApp(deps: ApiDependencies): Hono {
         ? {
             embedding: applyDataBoundaryToEmbedding(
               deps.sourcesEmbedding,
-              resolveDataBoundary(),
+              aiPolicyState().boundary,
               readTrustedLocalHosts(),
             ),
           }

@@ -72,20 +72,24 @@ import {
 } from "./ocr.js";
 import {
   ENTAILMENT_THRESHOLD,
-  NOTE_AI_KAYNAKLI,
-  NOTE_AI_KAYNAKSIZ,
-  WARNING_AI_PARAGRAPH,
+  NOTE_AI_KAYNAKSIZ_DUZENLEYICI,
+  aiParagraphDraftWarnings,
+  aiParagraphNote,
+  aiRevisionNote,
   buildParagraphPatch,
-  findParagraph,
   judgeRow,
+  locateRevisedParagraph,
   newParagraphId,
+  paragraphIds,
   pickRole,
   recountUnsupported,
   toEvidenceRef,
+  uncheckedRow,
   type EntailmentRow,
 } from "./paragraph.js";
 import type {
   AiDraftLike,
+  AiDraftParagraph,
   AiDraftStore,
   AiFilesPort,
   DraftPatchParagraph,
@@ -940,12 +944,34 @@ export function createAiRouter(deps: AiRouterDeps): Hono {
       for (const evidenceId of written.value.evidenceIds) {
         const entry = evidenceById.get(evidenceId);
         if (entry === undefined) continue; // adapter already filtered; defense in depth
-        const judgement = await ai.assess(text, toEvidenceRef(entry, retrievedAt));
+        let judgement: Awaited<ReturnType<typeof ai.assess>>;
+        try {
+          judgement = await ai.assess(text, toEvidenceRef(entry, retrievedAt));
+        } catch (error) {
+          // W21 R2-29: one unreadable or self-contradicting judgement (the
+          // adapter throws MALFORMED) is a binding the judge did not check,
+          // not a reason to throw away the paid paragraph and every other
+          // id's valid judgement with a 502. That binding is not kept and
+          // the answer says it was not checked. Transport failures still
+          // fail the request as before.
+          if (error instanceof AnthropicApiError && error.code === "MALFORMED") {
+            rows.push(uncheckedRow(evidenceId));
+            continue;
+          }
+          throw error;
+        }
         rows.push(judgeRow(evidenceId, judgement));
       }
       usage = ai.usage; // running total includes the judge calls
       const kept = rows.filter((row) => row.kept);
-      const stripped = rows.filter((row) => !row.kept);
+      const unchecked = rows.filter((row) => row.checked === false);
+      const stripped = rows.filter((row) => !row.kept && row.checked !== false);
+      if (unchecked.length > 0) {
+        warnings.push(
+          `${unchecked.length} kanıt bağı denetlenemedi (hakemin yanıtı okunamadı ya da kendi içinde ` +
+            `çelişkiliydi) ve paragrafa yazılmadı: ${unchecked.map((r) => r.evidenceId).join(", ")}.`,
+        );
+      }
       if (stripped.length > 0) {
         warnings.push(
           `${stripped.length} kanıt bağı entailment eşiğinin (≥%${Math.round(ENTAILMENT_THRESHOLD * 100)}) ` +
@@ -956,7 +982,9 @@ export function createAiRouter(deps: AiRouterDeps): Hono {
         warnings.push("Model verilen kanıtlardan hiçbirine dayanmadı; paragraf KAYNAKSIZ işaretlendi.");
       }
       const kaynakli = kept.length > 0;
-      const note = kaynakli ? NOTE_AI_KAYNAKLI : NOTE_AI_KAYNAKSIZ;
+      // R2-29: with nothing kept, an unchecked binding gets the "denetlenemedi"
+      // note, never the measured-shortfall NOTE_AI_KAYNAKSIZ.
+      const note = aiParagraphNote(rows);
       const paragraphId = request.paragraphId ?? newParagraphId(section.id);
       const patchParagraph: DraftPatchParagraph = {
         id: paragraphId,
@@ -983,33 +1011,83 @@ export function createAiRouter(deps: AiRouterDeps): Hono {
           ...(request.insertAfter !== undefined ? { insertAfter: request.insertAfter } : {}),
         },
         patchParagraph,
-        `AI paragraf (${config.model}) — ${kaynakli ? "kaynaklı" : "KAYNAKSIZ"}`,
+        aiRevisionNote(config.model, kaynakli),
       );
       if (built.patch === undefined) {
         return invalid(c, "Paragraf hedefi bulunamadı.", built.issues);
       }
 
+      const idsBefore = paragraphIds(draft);
       const revised = deps.revise(draft, built.patch, { trustEntailment: true, now });
       const result = revised.draft;
       // Post-condition: the AI paragraph carries the AI note; a stricter
       // verdict from the reviser (supported:false despite kept evidence) is
       // never overridden — it is surfaced instead.
-      const located = findParagraph(result, paragraphId);
+      // W21: located by id OR, on append/insertAfter, as the new paragraph the
+      // product reviser renamed (drafting/revise.ts gives an id it does not
+      // know a fresh one); the old id-only lookup missed it and reported the
+      // judge's verdict for a paragraph saved as KAYNAKSIZ.
+      const located = locateRevisedParagraph(result, idsBefore, {
+        sectionId: request.sectionId,
+        paragraphId,
+        text,
+      });
+      // W21: the response's `kaynakli` is the SAVED paragraph's state: true
+      // only when a binding the judge kept is attached to the paragraph the
+      // reviser saved as supported (the console reads it as "kaynaklı sayıldı").
+      let sourced = false;
+      let responseParagraph: AiDraftParagraph | DraftPatchParagraph;
       if (located !== undefined) {
-        if (kaynakli && located.paragraph.supported === false) {
-          located.paragraph.note = NOTE_AI_KAYNAKSIZ;
+        responseParagraph = located.paragraph;
+        const keptIds = new Set(kept.map((row) => row.evidenceId));
+        const attachedKept = located.paragraph.evidenceIds.filter((id) => keptIds.has(id));
+        if (kaynakli && (located.paragraph.supported === false || attachedKept.length === 0)) {
+          // W21: not NOTE_AI_KAYNAKSIZ ("hiçbir kanıt eşiği geçmedi"): a
+          // binding did pass the judge; the reviser's rules rejected it.
+          located.paragraph.note = NOTE_AI_KAYNAKSIZ_DUZENLEYICI;
+          if (located.paragraph.supported !== false) {
+            located.paragraph.supported = false;
+            result.unsupportedCount = recountUnsupported(result);
+          }
           warnings.push("Düzenleyici paragrafın kanıt bağını kabul etmedi; paragraf KAYNAKSIZ işaretlendi.");
         } else if (!kaynakli && located.paragraph.supported !== false) {
           located.paragraph.supported = false;
-          located.paragraph.note = NOTE_AI_KAYNAKSIZ;
+          located.paragraph.note = note;
           result.unsupportedCount = recountUnsupported(result);
         } else {
           located.paragraph.note = note;
+          sourced = kaynakli;
+          // W21: a kept binding the reviser dropped while keeping another is
+          // named, so no reader takes every judge-kept row as written.
+          const dropped = kept.filter((row) => !located.paragraph.evidenceIds.includes(row.evidenceId));
+          if (sourced && dropped.length > 0) {
+            warnings.push(
+              `${dropped.length} kanıt bağı entailment denetimini geçti, ancak taslağın dayanak kurallarınca ` +
+                `kabul edilmedi ve paragrafa yazılmadı: ${dropped.map((row) => row.evidenceId).join(", ")}.`,
+            );
+          }
         }
       } else {
-        warnings.push("Düzenleyici yeni paragrafı taslakta bırakmadı; taslak yine de kaydedildi.");
+        // Fail closed: a paragraph that cannot be found in the saved draft is
+        // not reported as sourced, whatever the judge said.
+        responseParagraph = { ...patchParagraph, supported: false };
+        warnings.push(
+          "Düzenleyici yeni paragrafı kaydedilen taslakta bırakmadı ya da paragraf orada bulunamadı; " +
+            "paragraf kaynaklı sayılmadı. Taslak yine de kaydedildi; taslağı açıp denetleyin.",
+        );
       }
-      if (!result.warnings.includes(WARNING_AI_PARAGRAPH)) result.warnings.push(WARNING_AI_PARAGRAPH);
+      if (kaynakli && !sourced) {
+        // W21: the reviser copied the judge-time note ("— kaynaklı") into the
+        // draft's warnings; the saved paragraph is KAYNAKSIZ, so the line is too.
+        const judgedLine = revisionNoteWarning(aiRevisionNote(config.model, true));
+        const finalLine = revisionNoteWarning(aiRevisionNote(config.model, false));
+        result.warnings = result.warnings.map((line) => (line === judgedLine ? finalLine : line));
+      }
+      // R2-29: "kaynak bağları entailment ile doğrulandı" is not written for a
+      // paragraph whose only bindings were never checked.
+      for (const line of aiParagraphDraftWarnings(rows)) {
+        if (!result.warnings.includes(line)) result.warnings.push(line);
+      }
       deps.drafts.put(result);
       // W12-FIX: a paid paragraph that did not reach the database is said so.
       const persisted = deps.drafts.persisted === undefined ? true : await deps.drafts.persisted(result.draftId);
@@ -1019,16 +1097,18 @@ export function createAiRouter(deps: AiRouterDeps): Hono {
         {
           draft: { ...result, persisted },
           persisted,
-          paragraph: located?.paragraph ?? { ...patchParagraph },
+          paragraph: responseParagraph,
           entailment: rows.map((row) => ({
             evidenceId: row.evidenceId,
             score: row.score,
             entails: row.entails,
             kept: row.kept,
             rationale: row.rationale,
+            // R2-29: only on a binding the judge could not check.
+            ...(row.checked === false ? { checked: false } : {}),
           })),
           threshold: ENTAILMENT_THRESHOLD,
-          kaynakli,
+          kaynakli: sourced,
           warnings,
           issues: revised.issues,
           model: config.model,
@@ -1044,6 +1124,14 @@ export function createAiRouter(deps: AiRouterDeps): Hono {
   });
 
   return app;
+}
+
+/**
+ * The draft warning drafting/revise.ts writes for a revision note (mirrors its
+ * "Düzenleme notu: " line, sanitized and flattened the same way).
+ */
+function revisionNoteWarning(note: string): string {
+  return `Düzenleme notu: ${sanitizeMarkdown(note).replace(/\s*\n+\s*/g, " ").trim()}`;
 }
 
 /** Re-exported for the integration lane (type of the mounted draft-store dep). */

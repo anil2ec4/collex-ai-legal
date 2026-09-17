@@ -84,8 +84,16 @@ const IPV4_MAPPED_DOTTED = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/u;
  */
 const IPV4_MAPPED_HEX = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/u;
 
-/** Hostnames that always mean "this machine", regardless of DNS. */
-const LOOPBACK_NAMES = new Set(["localhost", "localhost.localdomain"]);
+/**
+ * Hostnames that mean "this machine" without asking a DNS server: only
+ * `localhost` (reserved by RFC 6761 and answered by the OS resolver from its
+ * own table). W21: `localhost.localdomain` is NOT here any more. It is not a
+ * reserved name, has no built-in loopback mapping on the target systems and
+ * goes to the network resolver, so trusting it as LOCAL_PROCESS let whatever
+ * DNS answered decide where a privileged prompt went. It is now a DNS name
+ * like any other (CLOUD); use `localhost` or a loopback IP instead.
+ */
+const LOOPBACK_NAMES = new Set(["localhost"]);
 
 type Placement = "loopback" | "private" | "metadata" | "public";
 
@@ -124,7 +132,13 @@ function placeHost(hostname: string): Placement {
     // Cloud instance metadata is never an inference endpoint; it is a
     // credential oracle. Refused by name before any range test.
     if (lower === "169.254.169.254") return "metadata";
-    if (a === 127 || a === 0) return "loopback";
+    // W21 R2-31: loopback is 127/8 and the exact "this host" address
+    // 0.0.0.0. The rest of 0.0.0.0/8 is "this network" (RFC 1122 / RFC
+    // 6890), not loopback; Linux 5.3+ routes it as ordinary unicast, so a
+    // prompt sent to 0.1.2.3 can leave through the default gateway. It is
+    // placed "public" (LOCAL_ONLY refuses it), never LOCAL_PROCESS. The
+    // IPv4-mapped IPv6 branch reuses this test, so [::ffff:0.8.8.8] follows.
+    if (a === 127 || lower === "0.0.0.0") return "loopback";
     if (a === 10) return "private";
     if (a === 172 && b >= 16 && b <= 31) return "private";
     if (a === 192 && b === 168) return "private";

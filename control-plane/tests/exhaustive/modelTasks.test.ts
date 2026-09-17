@@ -20,7 +20,7 @@ import type { Sql } from "../../src/store/db.js";
 import { createExhaustiveRouter } from "../../src/exhaustive/routes.js";
 import { PgDurableAnalysisStore } from "../../src/exhaustive/durableStore.js";
 import { AnalysisWorker } from "../../src/exhaustive/worker.js";
-import { locateQuote, validateExtraction } from "../../src/exhaustive/modelExtractor.js";
+import { locateQuote, MODEL_EXTRACTOR_VERSION, validateExtraction } from "../../src/exhaustive/modelExtractor.js";
 import { TASK_SPECS } from "../../src/exhaustive/tasks.js";
 import { PgMatterStore } from "../../src/matters/store.js";
 import type { MatterStore } from "../../src/matters/types.js";
@@ -31,7 +31,7 @@ import {
   resetScratchDatabase,
   scratchDatabase,
 } from "../store/testDb.js";
-import { get, insertUpload, linkFiles, paragraphs, post, ScriptedModel } from "./durableFixtures.js";
+import { get, insertUpload, isWeighRequest, linkFiles, paragraphs, post, ScriptedModel } from "./durableFixtures.js";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
@@ -72,6 +72,7 @@ async function runTask(
   model: ScriptedModel | undefined,
   task: string,
   extra: Record<string, unknown> = {},
+  workerOptions: Partial<ConstructorParameters<typeof AnalysisWorker>[0]> = {},
 ): Promise<{ findings: any; runId: string; matterId: string }> {
   const app = routerWith(model);
   const matter = await matters.create({ title: `Görev ${task}` });
@@ -83,6 +84,7 @@ async function runTask(
     retryBackoffMs: 0,
     stageBackoffMs: 0,
     models: () => (model === undefined ? {} : { extraction: model, synthesis: model }),
+    ...workerOptions,
   }).drain();
   const findings = await get(app, `/v1/matters/${matter.id}/analysis/${started.body.runId}/findings`);
   expect(findings.status).toBe(200);
@@ -253,7 +255,8 @@ describe("J: model provenance", () => {
     for (const row of rows) {
       expect(String(row["slice"])).toBe(String(row["quote"]));
       expect(row["model_id"]).toBe("scripted-e");
-      expect(row["model_schema_version"]).toBe("mx-v2");
+      // mx-v3 since the repair-binding rule changed (W21 review #10); read from the code, not a literal.
+      expect(row["model_schema_version"]).toBe(MODEL_EXTRACTOR_VERSION);
     }
   });
 
@@ -313,26 +316,194 @@ describe("J: model provenance", () => {
 });
 
 describe("a model outage never fakes completeness", () => {
+  // W21 round two (R2-19): a transport failure is waited out for the outage
+  // window without spending attempts (w21WorkerRecovery.test.ts). A window of
+  // 0 is an outage that has already lasted too long: the model stays
+  // unreachable, every attempt is spent, and the run must say so.
+  const OUTAGE_SPENT = { modelOutageWindowMs: 0 };
+
   it("extraction failing every attempt leaves the run incomplete, with the units named", async () => {
     const model = new ScriptedModel("scripted-f", {
       failWhen: (request) => request.instruction.includes("şu türdeki öğeleri çıkar"),
+      failCode: "UNREACHABLE",
     });
-    const { findings } = await runTask(model, "claim_evidence");
+    const { findings } = await runTask(model, "claim_evidence", {}, OUTAGE_SPENT);
     expect(findings.processingCoverage.complete).toBe(false);
     expect(findings.processingCoverage.analysisUnitsFailed).toBe(findings.processingCoverage.analysisUnitsTotal);
     expect(findings.exhaustiveClaimRefusedBecause).not.toBeNull();
   });
 
-  it("synthesis failing its whole retry budget keeps the findings but refuses completeness", async () => {
+  it("weighing failing its whole retry budget keeps the findings but refuses analytical completeness", async () => {
+    // W21: processing coverage answers ONLY "was the source read?" — every
+    // unit was read here, so it is complete. That the claim/evidence
+    // comparison failed is an INTELLIGENCE gap (W20 put a SYNTHESIS_FAILED
+    // gap into processing coverage; the three layers are now separate).
     const model = new ScriptedModel("scripted-g", {
-      failWhen: (request) => request.instruction.startsWith("İDDİA:"),
+      failWhen: (request) => isWeighRequest(request),
+      failCode: "UNREACHABLE",
     });
-    const { findings } = await runTask(model, "claim_evidence");
-    expect(findings.summary.synthesis.failed).toBe(true);
-    expect(findings.processingCoverage.complete).toBe(false);
-    expect(findings.processingCoverage.gaps).toContainEqual(
-      expect.objectContaining({ reason: "SYNTHESIS_FAILED" }),
-    );
+    const { findings } = await runTask(model, "claim_evidence", {}, OUTAGE_SPENT);
+    expect(findings.processingCoverage.complete).toBe(true);
+    expect(findings.intelligenceCoverage.complete).toBe(false);
+    expect(findings.intelligenceCoverage.failedStages).toContain("claim_weighing");
+    expect(findings.intelligenceCoverage.claimsWeighed).toBe(0);
+    expect(findings.analysisCompleteness.complete).toBe(false);
+    expect(findings.analysisCompleteness.refusedBecause).toContain("analiz aşamaları tamamlanmadı");
+    // W21 hostile review: every page read, weighing failed — the exhaustive
+    // claim is still refused (the field no longer follows the source alone).
+    expect(findings.exhaustiveClaimRefusedBecause).not.toBeNull();
     expect(kinds(findings).has("claim")).toBe(true);
+    // No claim may be called unsupported on the strength of a failed search.
+    for (const item of findings.items.filter((entry: { kind: string }) => entry.kind === "claim")) {
+      expect(item.supportStatus).toBe("search_incomplete");
+    }
+  });
+});
+
+describe("W21: the AI policy decides whether the model tasks may run", () => {
+  it("DETERMINISTIC_ONLY refuses the model tasks even with a model configured, and says why", async () => {
+    const model = new ScriptedModel("scripted-test-model", {});
+    const app = createExhaustiveRouter({
+      store,
+      matters,
+      models: () => ({ extraction: model, synthesis: model }),
+      aiPolicy: () => "DETERMINISTIC_ONLY",
+    });
+    const matter = await matters.create({ title: "İlke: yapay zekâ kapalı" });
+    await linkFiles(matters, matter.id, ["mt-petition"]);
+    const caps = await get(app, `/v1/matters/${matter.id}/analysis/capabilities`);
+    expect(caps.body.model).toEqual(
+      expect.objectContaining({ configured: true, usable: false, code: "AI_POLICY_DETERMINISTIC" }),
+    );
+    const full = caps.body.tasks.find((t: { task: string }) => t.task === "full_review");
+    expect(full.available).toBe(false);
+    expect(full.messageTr).toContain("Yapay zekâ kullanımı kapalı");
+    const refused = await post(app, `/v1/matters/${matter.id}/analysis`, { task: "full_review" });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.kind).toBe("MODEL_REQUIRED");
+    // The deterministic tasks are unaffected by the model decision.
+    const contradictions = await post(app, `/v1/matters/${matter.id}/analysis`, { task: "contradictions" });
+    expect(contradictions.status).toBe(202);
+    const runs = await sql`
+      select count(*)::int as n from app_private.matter_analysis_runs
+      where matter_id = ${matter.id}::uuid`;
+    expect(Number(runs[0]!["n"])).toBe(1);
+  });
+
+  it("an outside endpoint is named MODEL_OFF_MACHINE, not 'no model'", async () => {
+    const app = createExhaustiveRouter({
+      store,
+      matters,
+      models: () => ({}),
+      aiPolicy: () => "LOCAL_PREFERRED",
+      localTrust: () => "CLOUD",
+    });
+    const matter = await matters.create({ title: "Dışarıdaki model" });
+    const caps = await get(app, `/v1/matters/${matter.id}/analysis/capabilities`);
+    expect(caps.body.model).toEqual(expect.objectContaining({ configured: false, usable: false, code: "MODEL_OFF_MACHINE" }));
+    const full = caps.body.tasks.find((t: { task: string }) => t.task === "full_review");
+    expect(full.messageTr).toContain("kendi ağınızda değil");
+  });
+
+  it("LOCAL_PREFERRED with an on-machine model: usable, code OK", async () => {
+    const model = new ScriptedModel("scripted-test-model", {});
+    const app = createExhaustiveRouter({
+      store,
+      matters,
+      models: () => ({ extraction: model, synthesis: model }),
+      aiPolicy: () => "LOCAL_PREFERRED",
+    });
+    const matter = await matters.create({ title: "Yerel model" });
+    const caps = await get(app, `/v1/matters/${matter.id}/analysis/capabilities`);
+    expect(caps.body.model).toEqual(expect.objectContaining({ configured: true, usable: true, code: "OK" }));
+  });
+});
+
+// W21 (from lane C): an address that IS set but that the trust rules refuse —
+// an unlisted LAN host such as http://192.168.1.20:11434 without
+// COLLEX_TRUSTED_LOCAL_HOSTS — was reported as "no model is configured",
+// because the route never passed the refusal on and suppressed every
+// MODEL_UNAVAILABLE reason.
+describe("W21: a configured but refused model address is named, not reported missing", () => {
+  const LAN_REFUSAL = "Bu adres kendi ağınızda görünüyor ama güvenilir olarak tanımlanmamış.";
+  const ENV_KEYS = ["COLLEX_LOCAL_LLM_BASE_URL", "COLLEX_LOCAL_LLM_MODEL", "COLLEX_TRUSTED_LOCAL_HOSTS"] as const;
+
+  async function withEnv<T>(values: Partial<Record<(typeof ENV_KEYS)[number], string>>, body: () => Promise<T>): Promise<T> {
+    const saved = ENV_KEYS.map((key) => [key, process.env[key]] as const);
+    for (const key of ENV_KEYS) {
+      if (values[key] === undefined) delete process.env[key];
+      else process.env[key] = values[key];
+    }
+    try {
+      return await body();
+    } finally {
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  async function refusalSurface(app: ReturnType<typeof createExhaustiveRouter>, title: string) {
+    const matter = await matters.create({ title });
+    await linkFiles(matters, matter.id, ["mt-petition"]);
+    const caps = await get(app, `/v1/matters/${matter.id}/analysis/capabilities`);
+    const full = caps.body.tasks.find((t: { task: string }) => t.task === "full_review");
+    const refused = await post(app, `/v1/matters/${matter.id}/analysis`, { task: "full_review" });
+    return { model: caps.body.model, full, refused };
+  }
+
+  it("the route's refusal reaches capabilities and the 409 message", async () => {
+    const app = createExhaustiveRouter({
+      store,
+      matters,
+      models: () => ({}),
+      aiPolicy: () => "LOCAL_PREFERRED",
+      localTrust: () => null,
+      localRefusedReason: () => LAN_REFUSAL,
+    });
+    const { model, full, refused } = await refusalSurface(app, "Reddedilen yerel ağ adresi");
+    expect(model).toEqual(expect.objectContaining({ configured: false, usable: false, code: "MODEL_UNAVAILABLE" }));
+    expect(model.reasonTr).toContain(LAN_REFUSAL);
+    expect(model.reasonTr).not.toContain("ayarlı bir yerel model yok");
+    expect(full.available).toBe(false);
+    expect(full.messageTr).toContain(LAN_REFUSAL);
+    expect(full.messageTr).not.toContain("şu an yapılandırılmış");
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.kind).toBe("MODEL_REQUIRED");
+    expect(refused.body.error.message).toContain(LAN_REFUSAL);
+  });
+
+  it("without an injected reason, an unlisted LAN address in the environment is named the same way", async () => {
+    await withEnv(
+      { COLLEX_LOCAL_LLM_BASE_URL: "http://192.168.1.20:11434", COLLEX_LOCAL_LLM_MODEL: "qwen2.5:7b" },
+      async () => {
+        const app = createExhaustiveRouter({
+          store,
+          matters,
+          models: () => ({}),
+          aiPolicy: () => "LOCAL_PREFERRED",
+          localTrust: () => null,
+        });
+        const { model, full, refused } = await refusalSurface(app, "Ortamda reddedilen adres");
+        expect(model.code).toBe("MODEL_UNAVAILABLE");
+        expect(model.reasonTr).toContain("güvenilir olarak tanımlanmamış");
+        expect(full.messageTr).toContain("güvenilir olarak tanımlanmamış");
+        expect(refused.status).toBe(409);
+        expect(refused.body.error.message).toContain("güvenilir olarak tanımlanmamış");
+      },
+    );
+  });
+
+  it("positive control: with no address at all, the plain 'not configured' sentence stays", async () => {
+    await withEnv({}, async () => {
+      const app = createExhaustiveRouter({ store, matters, models: () => ({}), aiPolicy: () => "LOCAL_PREFERRED" });
+      const { model, full, refused } = await refusalSurface(app, "Adres yok");
+      expect(model.code).toBe("MODEL_UNAVAILABLE");
+      expect(model.reasonTr).toContain("ayarlı bir yerel model yok");
+      expect(full.messageTr).toContain("şu an yapılandırılmış");
+      expect(refused.status).toBe(409);
+      expect(refused.body.error.message).not.toContain("güvenilir olarak tanımlanmamış");
+    });
   });
 });

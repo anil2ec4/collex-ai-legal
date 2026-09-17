@@ -246,3 +246,4 @@ control-plane/dist/
 
 # W20 bake-off: lawyer-annotated gold cases may contain client material; never tracked.
 evals/bakeoff/cases.lawyer.jsonl
+evals/**/*.lawyer.*

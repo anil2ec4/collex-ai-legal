@@ -6,7 +6,8 @@
  * Exact cosine search over the fresh chunk vectors of the caller's selected
  * uploads. The query is embedded locally (E5 `query:` prefix), vectors are
  * read from `app_private.chunk_vectors` pre-filtered by tenant + current
- * version + the caller's file scope, and ranked by dot product (vectors are
+ * version (or, under a W21 version pin, exactly the pinned versions) + the
+ * caller's file scope, and ranked by dot product (vectors are
  * unit length). At Matter scale — hundreds to a few thousand chunks — this is
  * milliseconds and exact; no ANN index is involved or claimed.
  *
@@ -114,10 +115,18 @@ export class ExactCosineDenseLane implements DenseLane {
     // Only private uploads have vectors here; without a file scope there is
     // nothing this lane can honestly rank.
     if (fileIds.length === 0 || options.limit <= 0) return [];
+    // W21 version pin: only the pinned versions' fresh vectors are ranked.
+    // A superseded version that was never embedded contributes nothing —
+    // never the current version's vectors — and an empty pin matches nothing.
+    const pins = options.filters?.documentVersionIds;
+    if (pins !== undefined && pins.length === 0) return [];
     const query = await this.embedQuery(queryText);
     if (query === undefined) return [];
     const { profile, store } = this.options;
-    const candidates = await store.scopedVectors(profile, fileIds);
+    const candidates =
+      pins === undefined
+        ? await store.scopedVectors(profile, fileIds)
+        : await store.scopedVectors(profile, fileIds, pins);
     const scored: Array<{ id: string; score: number }> = [];
     for (const candidate of candidates) {
       const vector = decodeVector(candidate.embedding, profile.dimensions);

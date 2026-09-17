@@ -20,12 +20,14 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { readFile } from "node:fs/promises";
 import net from "node:net";
 import { createServer } from "node:http";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { databaseDownStartupTr, operatorHints } from "../../src/platform/operatorHints.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const SERVE = join(REPO_ROOT, "control-plane", "scripts", "serve.mjs");
@@ -105,9 +107,17 @@ interface Spawned {
   exited: Promise<number | null>;
 }
 
+/**
+ * serve.mjs writes collex.pid and removes collex.stop in its DATA directory.
+ * The probes get their own, so a product server using the repository's
+ * `var/` never has its pid file overwritten or removed by a test.
+ */
+const PROBE_DATA_DIR = mkdtempSync(join(tmpdir(), "collex-serve-test-"));
+
 function spawnServe(args: string[]): Spawned {
   const child = spawn(process.execPath, [SERVE, ...args], {
     cwd: REPO_ROOT,
+    env: { ...process.env, COLLEX_DATA_DIR: PROBE_DATA_DIR },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -179,7 +189,15 @@ describe.skipIf(!venvPresent)("scripts/serve.mjs lifecycle", () => {
       const elapsed = Date.now() - started;
       expect(code, spawned.output()).toBe(1);
       expect(elapsed).toBeLessThan(8_000);
-      expect(spawned.output()).toContain("veritabanı: ÇALIŞMIYOR — ColleX-Baslat.cmd ile başlatın");
+      // W21 round two (R2-36): the launcher is the RUNNING platform's (on
+      // Windows still "ColleX-Baslat.cmd ile başlatın"; on the Mac the
+      // deploy/macos script), never a hard-coded .cmd.
+      expect(spawned.output()).toContain(databaseDownStartupTr("collex_intake_test"));
+      if (process.platform === "win32") {
+        expect(spawned.output()).toContain("veritabanı: ÇALIŞMIYOR — ColleX-Baslat.cmd ile başlatın");
+      } else {
+        expect(spawned.output()).not.toContain(".cmd");
+      }
       // The HTTP port was never bound.
       expect(await tcpListening(`127.0.0.1:${HEALTH_PORT}`)).toBe(false);
     },
@@ -289,7 +307,8 @@ describe.skipIf(!venvPresent)("scripts/serve.mjs lifecycle", () => {
         ]);
         expect(code, spawned.output()).toBe(1);
         expect(spawned.output()).toContain(`${BUSY_PORT} portu kullanımda`);
-        expect(spawned.output()).toContain("ColleX-Durdur.cmd");
+        // R2-36: the stop script of the running platform (Windows: ColleX-Durdur.cmd).
+        expect(spawned.output()).toContain(operatorHints().stop);
       } finally {
         await new Promise<void>((resolvePromise) => blocker.close(() => resolvePromise()));
       }

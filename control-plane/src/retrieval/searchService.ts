@@ -119,6 +119,12 @@ export const searchRequestSchema = z
          */
         fileIds: z.array(z.string().min(1).max(200)).max(50).optional(),
         includeCorpus: z.boolean().optional(),
+        /**
+         * Additive (W21, review-table version pin): read EXACTLY these
+         * uploaded versions instead of the current ones. See
+         * chunkStore.StoreSearchFilters.documentVersionIds.
+         */
+        documentVersionIds: z.array(z.string().uuid()).max(50).optional(),
       })
       .strict()
       .optional(),
@@ -336,6 +342,26 @@ function applyCourtDateFilters(
 // Service
 // --------------------------------------------------------------------------
 
+/**
+ * Backstop for the version pin (W21). Every lane already selects pinned rows
+ * in SQL (chunkStore.visibilityFilter, chunkVectorStore.scopedVectors); this
+ * drops any non-public hit whose version is not pinned, so a lane that ever
+ * failed to honour the pin contributes NOTHING rather than a passage from
+ * another version of the document.
+ */
+function keepPinnedVersions(
+  hits: RankedHit[],
+  pins: readonly string[] | undefined,
+): RankedHit[] {
+  if (pins === undefined) return hits;
+  const allowed = new Set(pins.map((id) => id.toLowerCase()));
+  return hits.filter(
+    (hit) =>
+      hit.provenance.scope === "public" ||
+      allowed.has(hit.documentVersionId.toLowerCase()),
+  );
+}
+
 /** Lanes that can actually produce hits (dense is a noop until pgvector). */
 const CORE_LANES: readonly LaneName[] = ["exact", "lexical", "trigram"];
 
@@ -390,7 +416,10 @@ export async function searchLegalCorpus(
   // Court/date narrowing (contract D) is a deterministic post-filter over
   // the ranked hits; when the request carries none of the three fields this
   // is the identity function and nothing changes.
-  const hits = applyCourtDateFilters(result.hits, request.filters);
+  const hits = keepPinnedVersions(
+    applyCourtDateFilters(result.hits, request.filters),
+    request.filters?.documentVersionIds,
+  );
 
   if (result.laneFailures.length === 0) {
     // Normalizer drift is a data-quality warning, not a lane failure: every

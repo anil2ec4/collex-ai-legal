@@ -60,6 +60,36 @@ export type EntailmentAggregation = "segments" | "set" | "max" | "none";
 export const ENTAILMENT_UNSEGMENTED_CLOUD_CLAIM = "ENTAILMENT_UNSEGMENTED_CLOUD_CLAIM";
 
 /**
+ * Additive (W21 #22): the judge never answered for this claim. The port
+ * failed (unreachable, timed out, HTTP error, unreadable reply) and the
+ * pipeline's safe wrapper scored the pair 0 so that nothing finalizes. That
+ * zero is NOT a measurement, so the claim carries this reason INSTEAD of
+ * ENTAILMENT_BELOW_THRESHOLD, which tells the reader the passages were checked
+ * and fell short. ENTAILMENT_BELOW_THRESHOLD is still recorded next to it only
+ * when a judgement that DID happen already puts the claim below the threshold
+ * on its own (one segment measured short, another one not checked).
+ */
+export const ENTAILMENT_NOT_CHECKED = "ENTAILMENT_NOT_CHECKED";
+
+/**
+ * Judgements the judge never made. Identity-based on purpose: the mark cannot
+ * be forged by a model reply or a parsed payload, only set by the code that
+ * turned a port failure into the conservative score.
+ */
+const notCheckedJudgements = new WeakSet<EntailmentJudgement>();
+
+/** Mark a judgement that stands in for a failed judge call (score 0, not a measurement). */
+export function markEntailmentNotChecked<T extends EntailmentJudgement>(judgement: T): T {
+  notCheckedJudgements.add(judgement);
+  return judgement;
+}
+
+/** True for a judgement produced by `markEntailmentNotChecked`. */
+export function isEntailmentNotChecked(judgement: EntailmentJudgement): boolean {
+  return notCheckedJudgements.has(judgement);
+}
+
+/**
  * Additive (W14 B-09): the question asked which text applied on a date and the
  * answer does not put two versions of the provision side by side. Such an
  * answer can never be COMPLETE — the reader asked a comparison question and
@@ -109,6 +139,8 @@ export interface VerifiedClaim {
    * the axis is then a tautology and must be shown as
    * "— (kural tabanlı üretimde ölçülmez)", never as a percentage. True when a
    * cloud judge scored a paraphrase, i.e. when the number means something.
+   * W21 #22: also false when the judge never answered for this claim
+   * (ENTAILMENT_NOT_CHECKED) — its 0 is the safe default, not a measurement.
    */
   entailmentMeasured: boolean;
 }
@@ -269,6 +301,59 @@ function addressesSameIssue(
 }
 
 /**
+ * One or more judgements folded into one score (W21 #22), with what is known
+ * about how that score came about.
+ */
+interface JudgedScore {
+  score: number;
+  /**
+   * A judgement that could have decided this score never happened (the port
+   * failed). Only set when the score is below the threshold: a judgement that
+   * did happen and clears it settles the score whatever the missing one says.
+   */
+  notChecked: boolean;
+  /** A judgement that DID happen already puts this score below the threshold. */
+  belowMeasured: boolean;
+}
+
+function clearsEntailmentThreshold(score: number): boolean {
+  return isValidConfidenceValue(score) && score >= ENTAILMENT_THRESHOLD;
+}
+
+/** One judgement, taken as it is. */
+function judgedOne(judgement: EntailmentJudgement): JudgedScore {
+  const notChecked = isEntailmentNotChecked(judgement);
+  const below = !clearsEntailmentThreshold(judgement.score);
+  return { score: judgement.score, notChecked: notChecked && below, belowMeasured: !notChecked && below };
+}
+
+/**
+ * The largest of several judgements. A judgement that never happened could
+ * have been the one that clears the threshold, so "below" counts as measured
+ * only when every judgement happened.
+ */
+function judgedLargest(judgements: readonly EntailmentJudgement[]): JudgedScore {
+  if (judgements.length === 0) return { score: 0, notChecked: false, belowMeasured: false };
+  const score = Math.max(...judgements.map((judgement) => judgement.score));
+  const anyMissing = judgements.some((judgement) => isEntailmentNotChecked(judgement));
+  const below = !clearsEntailmentThreshold(score);
+  return { score, notChecked: anyMissing && below, belowMeasured: !anyMissing && below };
+}
+
+/**
+ * The smallest of several parts (segments). One part measured short is a
+ * measured shortfall; one part not checked is a gap. Both can be true.
+ */
+function judgedSmallest(parts: readonly JudgedScore[]): JudgedScore {
+  if (parts.length === 0) return { score: 0, notChecked: false, belowMeasured: false };
+  return {
+    score: Math.min(...parts.map((part) => part.score)),
+    notChecked: parts.some((part) => part.notChecked),
+    belowMeasured: parts.some((part) => part.belowMeasured),
+  };
+}
+
+/**
  * Aggregate `confidence.entailment` for one claim (W14 B-31, ARCH §4.3).
  *
  * `max()` over per-passage scores asks "does SOME passage carry EVERYTHING",
@@ -283,23 +368,29 @@ async function aggregateEntailment(
   perItem: readonly EvidenceEntailment[],
   port: EntailmentPort,
   drafter: "rule-based" | "cloud" | "local",
-): Promise<{
-  score: number;
-  aggregation: EntailmentAggregation;
-  reasons: string[];
-  unusedEvidenceIds: string[];
-}> {
+): Promise<
+  JudgedScore & {
+    aggregation: EntailmentAggregation;
+    reasons: string[];
+    unusedEvidenceIds: string[];
+  }
+> {
   const reasons: string[] = [];
   const byId = new Map(validItems.map((item) => [item.ref.evidenceId, item]));
-  const max = (values: number[]): number =>
-    values.length === 0 ? 0 : Math.max(...values);
-  const maxScore = max(perItem.map((entry) => entry.judgement.score));
+  const largestPerItem = judgedLargest(perItem.map((entry) => entry.judgement));
 
   if (validItems.length === 0) {
-    return { score: 0, aggregation: "none", reasons, unusedEvidenceIds: [] };
+    return {
+      score: 0,
+      notChecked: false,
+      belowMeasured: false,
+      aggregation: "none",
+      reasons,
+      unusedEvidenceIds: [],
+    };
   }
   if (validItems.length === 1) {
-    return { score: maxScore, aggregation: "max", reasons, unusedEvidenceIds: [] };
+    return { ...largestPerItem, aggregation: "max", reasons, unusedEvidenceIds: [] };
   }
 
   // --- segments: every part judged against the passages cited for it -------
@@ -312,21 +403,21 @@ async function aggregateEntailment(
         segment.evidenceIds.every((id) => byId.has(id)),
     );
   if (usable) {
-    const scores: number[] = [];
+    const parts: JudgedScore[] = [];
     for (const segment of segments) {
       const refs = segment.evidenceIds.map(
         (id) => (byId.get(id) as EvidenceItem).ref,
       );
       if (refs.length === 1) {
         const judgement = await port.assess(segment.text, refs[0] as (typeof refs)[number]);
-        scores.push(judgement.score);
+        parts.push(judgedOne(judgement));
       } else if (port.assessSet !== undefined) {
         const judgement = await port.assessSet(segment.text, refs);
-        scores.push(judgement.score);
+        parts.push(judgedOne(judgement));
       } else {
-        const partial: number[] = [];
-        for (const ref of refs) partial.push((await port.assess(segment.text, ref)).score);
-        scores.push(max(partial));
+        const partial: EntailmentJudgement[] = [];
+        for (const ref of refs) partial.push(await port.assess(segment.text, ref));
+        parts.push(judgedLargest(partial));
       }
     }
     // ANTI-PADDING: a validated citation no segment claims carries nothing.
@@ -338,7 +429,7 @@ async function aggregateEntailment(
       reasons.push(`UNUSED_CITATION:${draft.claimId}:${id}`);
     }
     return {
-      score: scores.length === 0 ? 0 : Math.min(...scores),
+      ...judgedSmallest(parts),
       aggregation: "segments",
       reasons,
       unusedEvidenceIds,
@@ -352,7 +443,7 @@ async function aggregateEntailment(
     if (drafter !== "rule-based") {
       reasons.push(`${ENTAILMENT_UNSEGMENTED_CLOUD_CLAIM}:${draft.claimId}`);
     }
-    return { score: maxScore, aggregation: "max", reasons, unusedEvidenceIds: [] };
+    return { ...largestPerItem, aggregation: "max", reasons, unusedEvidenceIds: [] };
   }
 
   const judgement = await port.assessSet(
@@ -378,7 +469,7 @@ async function aggregateEntailment(
       reasons.push(`UNUSED_CITATION:${draft.claimId}:${entry.id}`);
     }
   }
-  return { score: judgement.score, aggregation: "set", reasons, unusedEvidenceIds };
+  return { ...judgedOne(judgement), aggregation: "set", reasons, unusedEvidenceIds };
 }
 
 export async function verifyAnswer(
@@ -507,14 +598,18 @@ export async function verifyAnswer(
     // KESİNLEŞTİRİLEMEZ with no reason naming the threshold that blocked it
     // (measured: 4 of the 9 PARTIAL rows of the answer-level eval). A reader
     // told to "read the reasons before relying on this" must find one.
-    if (
-      supportingValid.length > 0 &&
-      !(
-        isValidConfidenceValue(confidence.entailment) &&
-        confidence.entailment >= ENTAILMENT_THRESHOLD
-      )
-    ) {
-      reasons.push(`ENTAILMENT_BELOW_THRESHOLD:${draft.claimId}`);
+    //
+    // W21 #22: the reason must also say WHICH kind of block it was. A judge
+    // that never answered is not a passage that fell short: that claim carries
+    // ENTAILMENT_NOT_CHECKED, and ENTAILMENT_BELOW_THRESHOLD only when a
+    // judgement that did happen already measured the shortfall.
+    if (supportingValid.length > 0 && !clearsEntailmentThreshold(confidence.entailment)) {
+      if (aggregate.notChecked) {
+        reasons.push(`${ENTAILMENT_NOT_CHECKED}:${draft.claimId}`);
+      }
+      if (aggregate.belowMeasured || !aggregate.notChecked) {
+        reasons.push(`ENTAILMENT_BELOW_THRESHOLD:${draft.claimId}`);
+      }
     }
 
     verified.push({
@@ -528,8 +623,9 @@ export async function verifyAnswer(
       entailmentAggregation: aggregate.aggregation,
       // The rule-based drafter's claim text IS the quotes, so the axis is a
       // tautology in the default mode (ARCH W2, measured: a single-passage
-      // claim scores exactly 1.000). Only a cloud judge measures anything.
-      entailmentMeasured: drafterKind !== "rule-based",
+      // claim scores exactly 1.000). Only a cloud judge measures anything —
+      // and only when it answered (W21 #22).
+      entailmentMeasured: drafterKind !== "rule-based" && !aggregate.notChecked,
     });
     overallReasons.push(...reasons);
   }

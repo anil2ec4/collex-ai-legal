@@ -1,0 +1,692 @@
+{
+  "schema": "collex.embedding.report/v1",
+  "kind": "measurement",
+  "label": "measurement",
+  "startedAt": "2026-09-11T16:17:12.866Z",
+  "caseSources": {
+    "synthetic": 22
+  },
+  "casesTotal": 22,
+  "casesWithSemanticOnlyPassages": 22,
+  "disputedCases": 0,
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "node": "v24.15.0",
+    "cpu": "AMD Ryzen 5 5500",
+    "logicalCpus": "12",
+    "totalMemoryGiB": "15.8"
+  },
+  "providers": [
+    {
+      "provider": "local-e5",
+      "model": "intfloat/multilingual-e5-small:onnx-qint8",
+      "promptStyle": "e5",
+      "dimension": 384,
+      "cases": 22,
+      "casesScored": 22,
+      "failedCases": 0,
+      "failureRate": 0,
+      "calls": 44,
+      "failedCalls": 0,
+      "callFailureRate": 0,
+      "errors": {},
+      "metrics": {
+        "recallAt1": 0.3788,
+        "recallAt3": 0.8636,
+        "recallAt5": 1,
+        "recallAt10": 1,
+        "mrr": 0.8902,
+        "ndcgAt10": 0.7032,
+        "semanticOnlyRecallAt1": 0.1364,
+        "semanticOnlyRecallAt3": 0.7955,
+        "semanticOnlyRecallAt5": 1,
+        "semanticOnlyRecallAt10": 1
+      },
+      "semanticOnlyCasesScored": 22,
+      "latencyMsP50": 19.3,
+      "latencyMsP95": 36.4,
+      "queryLatencyMsP50": 7.2,
+      "queryLatencyMsP95": 12.5,
+      "startupMs": 2662.0725,
+      "memory": {
+        "before": {
+          "rssBytes": 500621312,
+          "peakBytes": null,
+          "method": "Windows çalışma kümesi (tasklist)"
+        },
+        "after": {
+          "rssBytes": 507756544,
+          "peakBytes": null,
+          "method": "Windows çalışma kümesi (tasklist)"
+        },
+        "deltaBytes": 7135232
+      },
+      "memoryNoteTr": null
+    }
+  ],
+  "results": [
+    {
+      "caseId": "emb-01",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p1",
+        "p4",
+        "p5",
+        "p3",
+        "p2"
+      ],
+      "recallAt": {
+        "1": 1,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 1,
+      "semanticOnlyRecallAt": {
+        "1": 1,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 1,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-02",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p2",
+        "p4",
+        "p1",
+        "p3",
+        "p5"
+      ],
+      "recallAt": {
+        "1": 0.3333333333333333,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.7591919243197319,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 3,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-03",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p4",
+        "p2",
+        "p1",
+        "p5",
+        "p3"
+      ],
+      "recallAt": {
+        "1": 0.3333333333333333,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.7591919243197319,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 3,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-04",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p2",
+        "p1",
+        "p4",
+        "p5"
+      ],
+      "recallAt": {
+        "1": 0.3333333333333333,
+        "3": 0.6666666666666666,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.6166463990037038,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 0.5,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 3,
+      "semanticOnlyPassages": 2
+    },
+    {
+      "caseId": "emb-05",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p2",
+        "p3",
+        "p1",
+        "p4",
+        "p5"
+      ],
+      "recallAt": {
+        "1": 0.3333333333333333,
+        "3": 0.6666666666666666,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.6026493584157245,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 0.5,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 3,
+      "semanticOnlyPassages": 2
+    },
+    {
+      "caseId": "emb-06",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p2",
+        "p5",
+        "p1",
+        "p3",
+        "p4"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.7309292742059024,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-07",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p4",
+        "p3",
+        "p1",
+        "p2",
+        "p5"
+      ],
+      "recallAt": {
+        "1": 0.3333333333333333,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.6806060567602009,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 3,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-08",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p1",
+        "p3",
+        "p4",
+        "p2",
+        "p5"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.95583058934618,
+      "semanticOnlyRecallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 2
+    },
+    {
+      "caseId": "emb-09",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p5",
+        "p4",
+        "p2",
+        "p1"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 0.5,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.641864940605065,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 0,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-10",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p4",
+        "p1",
+        "p2",
+        "p5"
+      ],
+      "recallAt": {
+        "1": 0.3333333333333333,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.6806060567602009,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 3,
+      "semanticOnlyPassages": 2
+    },
+    {
+      "caseId": "emb-11",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p5",
+        "p3",
+        "p1",
+        "p4",
+        "p2"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.7309292742059024,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-12",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p5",
+        "p1",
+        "p4",
+        "p2"
+      ],
+      "recallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 0.5,
+      "ndcgAt10": 0.606422698504514,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-13",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p5",
+        "p1",
+        "p2",
+        "p4"
+      ],
+      "recallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 0.5,
+      "ndcgAt10": 0.606422698504514,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 2
+    },
+    {
+      "caseId": "emb-14",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p1",
+        "p2",
+        "p5",
+        "p4"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.7098097413968655,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-15",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p1",
+        "p5",
+        "p4",
+        "p2"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.7098097413968655,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-16",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p5",
+        "p4",
+        "p1",
+        "p2"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 0.5,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.5261135977086879,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 0,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-17",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p4",
+        "p5",
+        "p2",
+        "p1"
+      ],
+      "recallAt": {
+        "1": 0.3333333333333333,
+        "3": 0.6666666666666666,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.55446465433056,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 0.5,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 3,
+      "semanticOnlyPassages": 2
+    },
+    {
+      "caseId": "emb-18",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p3",
+        "p4",
+        "p2",
+        "p5",
+        "p1"
+      ],
+      "recallAt": {
+        "1": 0,
+        "3": 0,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 0.25,
+      "ndcgAt10": 0.4113058709846232,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 0,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 2
+    },
+    {
+      "caseId": "emb-19",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p1",
+        "p3",
+        "p5",
+        "p2",
+        "p4"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 1,
+      "semanticOnlyRecallAt": {
+        "1": 1,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-20",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p1",
+        "p3",
+        "p4",
+        "p5",
+        "p2"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.95583058934618,
+      "semanticOnlyRecallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 2
+    },
+    {
+      "caseId": "emb-21",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p4",
+        "p3",
+        "p1",
+        "p5",
+        "p2"
+      ],
+      "recallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 0.3333333333333333,
+      "ndcgAt10": 0.5,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 1,
+      "semanticOnlyPassages": 1
+    },
+    {
+      "caseId": "emb-22",
+      "provider": "local-e5",
+      "failed": false,
+      "rankedPassageIds": [
+        "p5",
+        "p3",
+        "p1",
+        "p2",
+        "p4"
+      ],
+      "recallAt": {
+        "1": 0.5,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "reciprocalRank": 1,
+      "ndcgAt10": 0.7309292742059024,
+      "semanticOnlyRecallAt": {
+        "1": 0,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "relevantPassages": 2,
+      "semanticOnlyPassages": 1
+    }
+  ],
+  "lexicalFlagWarnings": [],
+  "noticesTr": [
+    "Vakaların tamamı sentetiktir; arama kalitesi hakkında hüküm için avukat onaylı vakalar gerekir (evals/embeddings/CASE_FORMAT.md).",
+    "22 vakada en çok 10 pasaj var: bu vakalarda R@10 kendiliğinden 1 olur (pasaj sayısı K'yı geçmeyen her R@K için de aynısı geçerlidir); sıralama kalitesi için R@1, R@3, MRR ve nDCG@10'a bakın.",
+    "Rapor kazanan seçmez; her ölçüt ayrı gösterilir ve karar bu ölçümlere bakan kişinindir."
+  ]
+}

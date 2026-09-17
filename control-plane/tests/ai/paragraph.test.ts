@@ -8,9 +8,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   ENTAILMENT_THRESHOLD,
+  NOTE_AI_KAYNAKLI,
+  NOTE_AI_KAYNAKSIZ,
+  NOTE_AI_KAYNAKSIZ_DENETLENEMEDI,
   NOTE_KAYNAKSIZ,
+  WARNING_AI_PARAGRAPH,
+  WARNING_AI_PARAGRAPH_UNCHECKED,
+  aiParagraphDraftWarnings,
+  aiParagraphNote,
   buildParagraphPatch,
   judgeRow,
+  uncheckedRow,
   pickRole,
   recountUnsupported,
   toEvidenceRef,
@@ -72,6 +80,41 @@ describe("judgeRow fails closed", () => {
     expect(judgeRow("e", { score: Number.NaN, entails: true, rationale: "" }).kept).toBe(false);
     expect(judgeRow("e", { score: Number.POSITIVE_INFINITY, entails: true, rationale: "" }).kept).toBe(false);
     expect(judgeRow("e", { score: 1.5, entails: true, rationale: "" }).kept).toBe(false);
+  });
+});
+
+/* W21 R2-29 (round 3): a paragraph left without a citation because the
+   judge gave no usable answer must not be recorded as "no evidence passed the
+   threshold", and the draft must not say its bindings were entailment-checked. */
+describe("AI paragraph note and draft warnings never turn 'not checked' into a measurement", () => {
+  const passed = judgeRow("ev-1", { score: 0.92, entails: true, rationale: "" });
+  const short = judgeRow("ev-2", { score: 0.4, entails: false, rationale: "" });
+  const unread = uncheckedRow("ev-3");
+
+  it("picks the note from the rows", () => {
+    expect(aiParagraphNote([passed, unread])).toBe(NOTE_AI_KAYNAKLI);
+    expect(aiParagraphNote([short])).toBe(NOTE_AI_KAYNAKSIZ);
+    expect(aiParagraphNote([])).toBe(NOTE_AI_KAYNAKSIZ);
+    expect(aiParagraphNote([unread])).toBe(NOTE_AI_KAYNAKSIZ_DENETLENEMEDI);
+    expect(aiParagraphNote([short, unread])).toBe(NOTE_AI_KAYNAKSIZ_DENETLENEMEDI);
+    expect(NOTE_AI_KAYNAKSIZ_DENETLENEMEDI.startsWith("KAYNAKSIZ")).toBe(true);
+    expect(NOTE_AI_KAYNAKSIZ_DENETLENEMEDI).toContain("denetlenemedi");
+    // No measured-shortfall wording for a binding nobody measured.
+    expect(NOTE_AI_KAYNAKSIZ_DENETLENEMEDI).not.toMatch(/eşi(ği|ğini)|geçmedi|doğrulandı/);
+  });
+
+  it("drops the 'entailment ile doğrulandı' draft warning when nothing was kept and a binding went unchecked", () => {
+    expect(aiParagraphDraftWarnings([passed, short])).toEqual([WARNING_AI_PARAGRAPH]);
+    expect(aiParagraphDraftWarnings([short])).toEqual([WARNING_AI_PARAGRAPH]);
+    expect(aiParagraphDraftWarnings([])).toEqual([WARNING_AI_PARAGRAPH]);
+    expect(aiParagraphDraftWarnings([passed, unread])).toEqual([
+      WARNING_AI_PARAGRAPH,
+      WARNING_AI_PARAGRAPH_UNCHECKED,
+    ]);
+    expect(aiParagraphDraftWarnings([unread])).toEqual([WARNING_AI_PARAGRAPH_UNCHECKED]);
+    expect(aiParagraphDraftWarnings([short, unread])).toEqual([WARNING_AI_PARAGRAPH_UNCHECKED]);
+    expect(WARNING_AI_PARAGRAPH_UNCHECKED).toContain("denetlenemeyen");
+    expect(WARNING_AI_PARAGRAPH_UNCHECKED).not.toContain("entailment ile doğrulandı");
   });
 });
 

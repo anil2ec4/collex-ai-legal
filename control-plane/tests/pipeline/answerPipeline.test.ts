@@ -702,6 +702,27 @@ describe("a store failure degrades instead of throwing", () => {
     expect(result.status).not.toBe("COMPLETE");
     for (const claim of result.claims) expect(claim.confidence.entailment).toBe(0);
   });
+
+  it("W21 #22: a failing judge leaves every claim 'not checked', never a measured shortfall", async () => {
+    const pipeline = new AnswerPipeline({
+      retrieval: new StubCorpus(() => ok([hitTck("v1")])),
+      texts: standardTexts(),
+      versionFacts: factsPort(STANDARD_FACTS),
+      entailment: { assess: () => Promise.reject(new Error("judge unavailable")) },
+      ...deterministicOptions(),
+    });
+    const { result } = await pipeline.answer({ question: Q_NORM_CONTENT, asOf: "2025-06-01" });
+
+    expect(result.claims.length).toBeGreaterThan(0);
+    for (const claim of result.claims) {
+      expect(claim.reasons).toContain(`ENTAILMENT_NOT_CHECKED:${claim.claimId}`);
+      expect(claim.reasons.join(" ")).not.toContain("ENTAILMENT_BELOW_THRESHOLD");
+      for (const entailment of claim.entailments) expect(entailment.rationale).toContain("denetlenemedi");
+    }
+    expect(result.reasons.join(" ")).not.toContain("ENTAILMENT_BELOW_THRESHOLD");
+    expect(result.markdown).not.toContain("ENTAILMENT_BELOW_THRESHOLD");
+    expect(result.finalizable).toBe(false);
+  });
 });
 
 describe("request contract", () => {

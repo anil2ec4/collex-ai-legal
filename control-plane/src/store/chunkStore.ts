@@ -235,6 +235,18 @@ export interface StoreSearchFilters {
    * document plus whatever the corpus says".
    */
   includeCorpus?: boolean;
+  /**
+   * VERSION PIN (W21, review tables). When present, the caller's uploaded
+   * (tenant) rows are restricted to EXACTLY these document version ids, and
+   * the pin REPLACES the as-of/current-version test for them: an upload is
+   * undated, so a superseded upload version fails `upper_inf(system_period)`
+   * and could never be read otherwise. It never widens — the fileIds and
+   * tenant tests still apply, public rows follow `includeCorpus` with their
+   * usual as-of test, and a list with no well-formed id matches no uploaded
+   * row. Every lane that uses `visibilityFilter` honours it; the dense
+   * pre-filter honours it in chunkVectorStore.scopedVectors.
+   */
+  documentVersionIds?: string[];
 }
 
 /**
@@ -346,29 +358,16 @@ function visibilityFilter(
   // the upload's fileId; the tenant test stays so a fileId can never reach
   // another tenant's row even on an RLS-bypassing connection.
   const fileIds = filters?.fileIds ?? [];
-  const scopeTest =
-    fileIds.length > 0
-      ? sql`
+  // VERSION PIN (W21). With `documentVersionIds`, the caller's uploaded rows
+  // are EXACTLY those versions: the pin REPLACES the as-of test for them
+  // instead of being ANDed onto it (an undated, superseded upload version
+  // fails `upper_inf(system_period)`, so an ANDed pin would read nothing).
+  // The scope tests are the same ones, so a pin never widens; public rows
+  // keep the as-of test; a pin list with no well-formed id matches no
+  // uploaded row. Fragments are built lazily so an unused one is never made.
+  const pins = filters?.documentVersionIds?.filter((id) => UUID_RE.test(id));
+  const temporalTest = () => sql`
     (
-      (
-        d.scope = 'tenant'
-        and d.tenant_id = coalesce(
-          (select app_private.current_tenant_id()),
-          ${LOCAL_TENANT_ID}::uuid
-        )
-        and d.external_id = any(${fileIds}::text[])
-      )
-      ${filters?.includeCorpus === true ? sql`or d.scope = 'public'` : sql``}
-    )`
-      : sql`
-    (
-      d.scope = 'public'
-      or d.tenant_id = (select app_private.current_tenant_id())
-    )`;
-  return sql`
-    ${scopeTest}
-    and v.status = 'published'
-    and (
       v.effective_period @> ${asOf}::date
       or (
         v.effective_period is null
@@ -381,9 +380,57 @@ function visibilityFilter(
             and vx.effective_period @> ${asOf}::date
         )
       )
-    )
+    )`;
+  const fileScopeTenant = () => sql`
+        d.scope = 'tenant'
+        and d.tenant_id = coalesce(
+          (select app_private.current_tenant_id()),
+          ${LOCAL_TENANT_ID}::uuid
+        )
+        and d.external_id = any(${fileIds}::text[])`;
+  const narrowing = () => sql`
     ${sources !== undefined && sources.length > 0 ? sql`and d.source = any(${sources})` : sql``}
     ${documentTypes !== undefined && documentTypes.length > 0 ? sql`and d.document_type = any(${documentTypes})` : sql``}`;
+  if (pins !== undefined) {
+    const pinTest = pins.length > 0 ? sql`v.id = any(${pins}::uuid[])` : sql`false`;
+    const pinnedScope =
+      fileIds.length > 0
+        ? sql`
+    (
+      (${fileScopeTenant()} and ${pinTest})
+      ${filters?.includeCorpus === true ? sql`or (d.scope = 'public' and ${temporalTest()})` : sql``}
+    )`
+        : sql`
+    (
+      (d.scope = 'public' and ${temporalTest()})
+      or (
+        d.scope = 'tenant'
+        and d.tenant_id = (select app_private.current_tenant_id())
+        and ${pinTest}
+      )
+    )`;
+    return sql`
+    ${pinnedScope}
+    and v.status = 'published'
+    ${narrowing()}`;
+  }
+  const scopeTest =
+    fileIds.length > 0
+      ? sql`
+    (
+      (${fileScopeTenant()})
+      ${filters?.includeCorpus === true ? sql`or d.scope = 'public'` : sql``}
+    )`
+      : sql`
+    (
+      d.scope = 'public'
+      or d.tenant_id = (select app_private.current_tenant_id())
+    )`;
+  return sql`
+    ${scopeTest}
+    and v.status = 'published'
+    and ${temporalTest()}
+    ${narrowing()}`;
 }
 
 /**

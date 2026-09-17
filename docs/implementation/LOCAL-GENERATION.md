@@ -30,7 +30,48 @@ doğrulayıcıya gider ve `CITATION_INVALID` kaydı düşer — sessizce silmek,
 modelin atıf uydurduğunu gizlerdi. Her iddia mevcut doğrulayıcıdan
 muhafazakâr birleştirmeyle geçer. Yerel taslakçı hata verirse kural tabanlı
 taslakçıya dönülür (`LOCAL_DRAFTER_FALLBACK`); **buluta asla dönülmez**.
-Yanıt veremeyen bir yargıç hâlâ **"desteklemiyor"** der — muhafazakâr yön.
+**W21: yanıt veremeyen yargıç puan uydurmaz.** Yerel yargıca ulaşılamazsa,
+süre dolarsa ya da yanıtı okunamazsa bu bir **arıza** olarak kaydedilir:
+cevaba `ENTAILMENT_PORT_FAILED` uyarısı düşer (bulut yargıcıyla aynı yol)
+ve tespit yine güvenli tarafta desteksiz sayılır (kesinleştirilemez). Eskiden
+bu durum sessizce 0 puana dönüşüyordu ve cevap "pasajlar denetlendi, destek
+eşiğin altında kaldı" gibi okunuyordu; oysa hiçbir denetim yapılmamıştı.
+Denetlenemeyen tespitin gerekçesi artık `ENTAILMENT_NOT_CHECKED:<tespit>`'tir,
+`ENTAILMENT_BELOW_THRESHOLD` değil. `ENTAILMENT_BELOW_THRESHOLD` yalnız
+gerçekten yapılmış bir değerlendirme eşiğin altını ölçtüğünde kalır (ör. bir
+bölüm ölçülüp kısa kaldı, öteki denetlenemedi: ikisi birlikte yazılır). Tek
+değerlendirme bile yapılamadıysa `aiUsed.entailment` `false` olur; tespitin
+`entailmentMeasured` alanı da `false`'tur. Eşik (0,85) değişmedi.
+**W21 (R2-27):** 0 ile 1 dışındaki bir puan (10 üzerinden "7", 100 üzerinden
+"95") ve "desteklemiyor" deyip eşiği geçen puan veren yanıt, bulut
+yargıcında da (`AnthropicAnswerAdapter.assess`) yanıt sayılmaz. Bulut
+yargıcı böyle bir puanı eskiden 1'e kırpıyordu; yargıcın %70 verdiği tespit
+böylece kesinleşebiliyordu. Artık iki yargıç da aynı kuralı uygular.
+**Açık kalan:** dışa aktarılan belgede ve ekranda bu gerekçe kodu henüz
+Türkçe bir cümleyle açıklanmıyor (kod olduğu gibi görünür) ve belgedeki
+"Pasaj desteği" satırı bu tespit için hâlâ `%0` yazar; bu iki yüzey
+(`src/answer/renderer.ts`, `public/console.html`) bu işin dışında kaldı.
+Yerel taslakçı düştüğünde (`LOCAL_DRAFTER_FALLBACK`) kural tabanlı iddialar,
+az önce düşen aynı modele değil, kural tabanlı cevabın her zamanki
+sözcüksel yargıcına gider; cevap etiketi de "kural tabanlı" olur.
+
+**W21: iddia metni de veri bloğunun içindedir.** Yargıca giden istekte
+talimat kısmı sabittir; iddia (`[İDDİA]`) ve pasaj (`[PASAJ]`) ikisi birlikte
+güvenilmeyen veri çitinin içinde gönderilir. İddia metni bir modelin ya da
+belgenin ürünüdür, talimat yerine geçemez. Yükün içindeki sahte `[İDDİA]` /
+`[PASAJ]` etiketleri parantezle etkisizleştirilir. Karşılaştırmadan önce bir
+modelin aynı etiket gibi okuyacağı biçimler katlanır: büyük-küçük harf ve
+Türkçe I biçimleri, köşeli parantez içindeki boşluk, noktalama ve numara
+(`[PASAJ 2]`), görünmez karakterler (sıfır genişlikli boşluk, yumuşak tire,
+yön denetim karakterleri — yükün tamamından, çit bunları silmeden **önce**
+atılır; eskiden `[PA<sıfır genişlikli boşluk>SAJ]` denetimden geçip çitte
+gerçek `[PASAJ]` oluyordu), tam genişlikli harf ve parantezler, parantez
+benzerleri (`【PASAJ】`), başka alfabelerden aynı görünen harfler (Kiril Р, А
+vb.) ve iç içe parantez (`[[PASAJ]`). Kanıt kimlikleri (`[e1]`) ve olağan
+köşeli parantezli metin olduğu gibi kalır. **Sınır:** bu bir yapı yardımıdır,
+güvenlik sınırı değildir. Sınır, bloğun çevresindeki çit ve iki kısmın da veri
+olduğunu söyleyen sistem cümlesidir; yükün parantezsiz yazdığı bir başlık
+yeniden yazılmaz.
 
 ## Model bağımsızdır
 
@@ -52,7 +93,20 @@ ayar alanını istek sahteciliği aracına çevirir: ayarı etkileyebilen biri
 `10.0.0.5` yazar ve ürün müvekkil dosyasını oraya gönderir. Loopback'in
 listeye ihtiyacı yoktur, çünkü makineden çıkamaz. **Bir DNS adı asla yerel
 sayılmaz**, bugün özel bir adrese çözülse bile: DNS çözmüyoruz ve adresi
-değişebilen bir ad güven sınırı değildir.
+değişebilen bir ad güven sınırı değildir. **W21:** `localhost.localdomain`
+da artık yerel sayılmaz: ayrılmış bir ad değildir ve hedef sistemlerde ağdaki
+DNS sunucusuna sorulur, yani adresi o sunucu belirler. Yalnız `localhost` ve
+loopback IP adresleri (`127.0.0.0/8`, `[::1]`, tam olarak `0.0.0.0`)
+`LOCAL_PROCESS`'tir. **W21 (R2-31):** `0.0.0.0/8` bloğunun geri kalanı
+(`0.1.2.3`, `[::ffff:0.8.8.8]` gibi) artık bu bilgisayar sayılmaz: bu adresler
+"bu ağ" anlamına gelir, Linux 5.3 ve sonrası onları sıradan adres gibi
+yönlendirir ve istem varsayılan ağ geçidinden dışarı çıkabilir. Dış adres gibi
+sınıflanırlar; `LOCAL_ONLY` altında hem yerel üretim hem de gömme uç noktası
+reddedilir. Böyle bir
+ad reddedildiğinde sağlıktaki (`localAi.reason`, `aiPolicy.localModel.reasonTr`)
+ve açılış günlüğündeki gerekçe ne yazılması gerektiğini de söyler (`localhost`
+ya da `127.0.0.1`); `CLOUD_ALLOWED` altında adres dışarıdaki bir servis olarak
+kabul edilir ve aynı cümle uyarı olarak düşer.
 
 `COLLEX_DATA_BOUNDARY=LOCAL_ONLY` bulutu yasaklar ve **geri düşüş yoktur**.
 Yerel model erişilemezse bu, çağıranın öğrendiği bir arızadır; dosyayı
@@ -81,6 +135,15 @@ Değerler hiçbir günlüğe, hata iletisine veya sağlık çıktısına yazılm
 
 Varsayılan `ALLOW_CLOUD`'dur, çünkü bulut yapay zekâ zaten anahtarsız
 kapalıdır ve bu ayar mevcut kurulumların davranışını sessizce değiştirmez.
+
+**W21 (R2-30):** `COLLEX_DATA_BOUNDARY`, `COLLEX_AI_POLICY` gibi okunur.
+Büyük/küçük harf, boşluk ve `-` affedilir: `LOCAL-ONLY` ve `local only`
+`LOCAL_ONLY` demektir. Boş ya da hiç yazılmamış ayar varsayılanı (`ALLOW_CLOUD`)
+korur. Bunların dışındaki her değer (`LOCALONLY`, `yes`, bir yazım hatası)
+**güvenli tarafta kalır**: yalnız yerel çalışma (`LOCAL_ONLY`) seçilir ve
+sağlıkta (`aiPolicy.warnings`) "Veri sınırı ayarı tanınmadı; güvenli tarafta
+kalmak için yalnız yerel çalışma seçildi." uyarısı görünür. Eskiden böyle bir
+değer sessizce `ALLOW_CLOUD` oluyordu; oysa operatör bir sınır yazmıştı.
 
 ## Hedeflenen kurulum: M2 Mac mini (8 GB) — ÖLÇÜLMEDİ
 
@@ -122,6 +185,44 @@ küme gerekir, kronometre değil.
 Bir sayı ancak bu betik gerçek kutuda koşturulduktan sonra
 `docs/implementation/STATUS.md` **Ölçülen sayılar** tablosuna yazılabilir.
 
+## Yapay zekâ ilkesi (W21)
+
+`COLLEX_AI_POLICY`, uygulamanın tamamında yapay zekâ kullanımını belirler.
+`COLLEX_DATA_BOUNDARY` ile birleşir; sunucu ikisini açılışta bir kez çözer.
+
+| İlke | Cevaplar | Dosya incelemesi (model gerektiren görevler) |
+|---|---|---|
+| `LOCAL_ONLY` | Yalnız bu bilgisayardaki ya da kendi ağınızdaki (listeli) model. Model yoksa kural tabanlı cevap ve `MODEL_UNAVAILABLE`. Bulut istense de reddedilir. | Yalnız yerel model |
+| `LOCAL_PREFERRED` (varsayılan; `AUTO` aynı anlama gelir) | Yerel model varsa o kullanılır. Bulut yalnız o istek için ayrı onayla ve veri sınırı izin veriyorsa. | Yalnız yerel model |
+| `CLOUD_ALLOWED` | Onaylı istekte bulut. Yerel ayara dışarıdaki bir adres yazılmışsa o da yalnız onaylı istekte kullanılır ve uyarı "dış bir sunucu yazdı" der. | Yalnız yerel model; dışarıdaki model dosya incelemesinde asla kullanılmaz |
+| `DETERMINISTIC_ONLY` | Her zaman kural tabanlı | Reddedilir (`AI_POLICY_DETERMINISTIC`); çelişkiler ve kronoloji çalışır |
+
+**Kurallar:**
+
+- **Yerelden buluta sessiz geçiş yoktur.** Yerel model yoksa ya da cevap
+  vermezse bu söylenir; dosya dışarı gönderilmez.
+- **Karar hiçbir porta dokunulmadan verilir.** Betikli uçlarla ölçüldü:
+  `LOCAL_ONLY` altında 7 giriş yolunda bulut çağrısı 0.
+- **Dosya incelemesinde istek başına onay yoktur.** Bu yüzden model
+  gerektiren görevler yalnız iki rol de (çıkarım ve değerlendirme) bu
+  bilgisayarda ya da kendi ağınızda çalışıyorsa yürür.
+- **Neden kodla söylenir.** Sağlıkta `aiPolicy.modelTasks`, dosya
+  incelemesinin yetenek cevabında `model.code` ve 409 mesajında:
+  - `AI_POLICY_DETERMINISTIC`;
+  - `MODEL_UNAVAILABLE` — kullanılabilir yerel model yok (hiç ayarlanmamış
+    ya da ayarlı adres güven kurallarını geçmemiş; ikincisinde sağlık
+    gerekçeyi de söyler);
+  - `MODEL_OFF_MACHINE` — model dışarıda. W21: `LOCAL_ONLY` ilkesi ya da
+    `COLLEX_DATA_BOUNDARY=LOCAL_ONLY` altında reddedilen dış adres de böyle
+    adlandırılır; "ayarlı model yok" denmez.
+- **Cevapta da aynı neden söylenir (W21).** `useLocalAi` isteyen bir cevapta
+  `LOCAL_AI_UNAVAILABLE` uyarısı dört durumdan birini söyler: model hiç
+  ayarlı değil ("yapılandırılmadığı için"); ayarlı model dışarıda ve ilke ya
+  da veri sınırı izin vermiyor ("yapay zekâ ilkesi dışarıdaki servislere
+  izin vermediği için"); ayarlı model dışarıda ve bu istek onay vermedi
+  (`CLOUD_ALLOWED`); ayarlı adres güven kurallarını geçmedi. `LOCAL_ONLY`
+  altında `MODEL_UNAVAILABLE` uyarısı da modelin dışarıda olduğunu söyler.
+
 ## Sağlıkta nasıl görünür
 
 `/v1/health` içindeki `localAi` bloğu üç durumdan birini söyler:
@@ -130,3 +231,15 @@ ve `configured`. **`configured`, "çalışıyor" demek değildir** —
 `liveTested` her zaman `false`'tur, çünkü sağlık uç noktası her yoklamada
 modeli araması gereken bir yük üreticisi olmamalıdır. Erişilebilirlik ayrı
 bir ölçümdür ve yukarıdaki betikle yapılır.
+
+W21'den beri `/v1/health` ayrıca `aiPolicy` bloğunu verir:
+
+- etkin ve ayarlanan ilke, etkin veri sınırı;
+- yerel modelin durumu ve nerede çalıştığı (`where`);
+- yerel modelin cevaplarda ve dosya incelemesinde kullanılabilir olup
+  olmadığı;
+- bulutun izinli olup olmadığı;
+- `modelTasks` kararı.
+
+`dataBoundary` artık **etkin** sınırı gösterir: ilke `LOCAL_ONLY` ya da
+`DETERMINISTIC_ONLY` ise değer `LOCAL_ONLY`'dir.
