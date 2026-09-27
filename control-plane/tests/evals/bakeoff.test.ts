@@ -430,7 +430,10 @@ describe("bake-off honesty (W21 review)", () => {
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
-  });
+    // Each spawned CLI transpiles the control-plane first (2-4 s on a loaded
+    // machine); the default 5 s test budget raced it (measured 27.09.2026:
+    // 5122 ms). The spawns carry their own 120 s limit; the test matches it.
+  }, 120_000);
 });
 
 describe("bake-off honesty (W21 review, round two)", () => {
@@ -703,5 +706,8 @@ describe("bake-off honesty (W21 review, round two)", () => {
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
-  });
+    // Each spawned CLI transpiles the control-plane first (2-4 s on a loaded
+    // machine); the default 5 s test budget raced it (measured 27.09.2026:
+    // 5122 ms). The spawns carry their own 120 s limit; the test matches it.
+  }, 120_000);
 });
