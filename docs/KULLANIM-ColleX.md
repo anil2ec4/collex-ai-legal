@@ -1075,10 +1075,14 @@ zaten doğrulanmış bir kayda bağlı olduğu için denetim tamdır.
 
 #### Takvim ve duruşma
 
-Dosyaya **duruşma** kaydedebilirsiniz: tarih, saat, mahkeme, salon, tür
-(Duruşma / Keşif / e-Duruşma), not ve durum (Planlandı / Yapıldı /
-Ertelendi). Duruşmanın üstüne bastığınızda bir **hazırlık kartı** çıkar:
-açık süreler, son üç belge ve dosyanın kronolojisi.
+Dosyaya **duruşma** kaydedebilirsiniz: dosya sayfasında **Süreler**
+sekmesini açın, en üstteki **Duruşmalar ve keşifler** bölümünde **Duruşma
+ekle**'ye basın. Tarih, saat, tür (Duruşma / Keşif / e-Duruşma), mahkeme
+(dosyanın mahkemesi hazır gelir), salon ve not yazıp **Duruşmayı kaydet**'e
+basın. Duruşma olduktan ya da ertelendikten sonra satırdaki seçiciden durumu
+**Yapıldı** ya da **Ertelendi** yapın. Takvim ekranında duruşmanın üstüne
+bastığınızda bir **hazırlık kartı** çıkar: açık süreler, son üç belge ve
+dosyanın kronolojisi.
 
 Takvim dosyası Outlook ya da Google Takvim'de açılacak biçimde üretilir:
 süreler **tüm gün** olayı ve 7 gün önce hatırlatma, duruşmalar **saatli**
