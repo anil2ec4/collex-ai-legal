@@ -2856,6 +2856,13 @@ button.seal { border-radius: var(--r-ctl); }
 /* W23 · faiz ekranı: dönem satırı = başlangıç · bitiş · oran · kaynak · sil. */
 .faizrow { display: grid; grid-template-columns: 160px 160px 110px minmax(0, 1fr) auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 @media (max-width: 820px) { .faizrow { grid-template-columns: 1fr 1fr; } .faizrow > input[type="text"] { grid-column: 1 / -1; } }
+/* W23 · duruşma hazırlığının tek sayfalık baskısı: yalnız kart basılır. */
+@media print {
+  body.printprep * { visibility: hidden; }
+  body.printprep #takvim-detail, body.printprep #takvim-detail * { visibility: visible; }
+  body.printprep #takvim-detail { position: absolute; left: 0; top: 0; width: 100%; }
+  body.printprep #takvim-detail .filebtns { display: none; }
+}
 @media print {
   body.shell .masthead { position: static; width: auto; border: 0; }
   body.shell .wrap { padding: 0; }
@@ -17466,6 +17473,15 @@ button.seal { border-radius: var(--r-ctl); }
     var ics = el("a", "dl", "Bu dosyanın sürelerini takvimime aktar");
     ics.href = "/v1/matters/" + enc(p.matterId) + "/calendar.ics";
     acts.appendChild(ics);
+    /* W23: duruşmaya giderken telefonda okunacak tek sayfa. Tarayıcının
+       yazdırma penceresi açılır; oradan "PDF olarak kaydet" seçilir. Yalnız
+       bu kart basılır. */
+    acts.appendChild(ghostBtn("Tek sayfa yazdır / PDF", function () {
+      document.body.classList.add("printprep");
+      var done = function () { document.body.classList.remove("printprep"); window.removeEventListener("afterprint", done); };
+      window.addEventListener("afterprint", done);
+      window.print();
+    }, "small"));
     card.appendChild(acts);
     host.appendChild(card);
   }

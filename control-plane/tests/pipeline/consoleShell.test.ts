@@ -79,3 +79,12 @@ describe("W23 faiz hesabı screen", () => {
     expect((fn.match(/body\.disclaimer/gu) ?? []).length).toBe(1);
   });
 });
+
+describe("W23 hearing brief print", () => {
+  it("prints only the hearing preparation card, and cleans up after the print dialog", () => {
+    expect(html).toContain('acts.appendChild(ghostBtn("Tek sayfa yazdır / PDF", function () {');
+    expect(html).toContain('window.addEventListener("afterprint", done);');
+    expect(style).toContain("body.printprep * { visibility: hidden; }");
+    expect(style).toContain("body.printprep #takvim-detail, body.printprep #takvim-detail * { visibility: visible; }");
+  });
+});
