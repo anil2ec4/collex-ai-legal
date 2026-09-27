@@ -12,6 +12,13 @@ import httpx
 from markitdown import MarkItDown
 from pydantic import HttpUrl
 
+from legal_contracts import (
+    InvalidToolInput,
+    UpstreamContractError,
+    classify_exception_chain,
+    failure_marker,
+)
+
 from .models import (
     BtkDecisionSummary,
     BtkDocumentMarkdown,
@@ -145,26 +152,43 @@ class BtkApiClient:
         result = self.markitdown.convert_stream(pdf_stream, file_extension=".pdf")
         return (result.text_content or "").strip()
 
+    @staticmethod
+    def _failed(source_url: HttpUrl, page_number: int, failure) -> BtkDocumentMarkdown:
+        """A failed retrieval: ``error_message`` is the typed marker ONLY.
+
+        W22 left this path carrying ``f"Failed to retrieve BTK document:
+        {e}"`` — with the network down the MCP response read "[SSL:
+        CERTIFICATE_VERIFY_FAILED] certificate verify failed: …". The driver
+        text goes to the server log; the wire gets
+        ``"<KIND> retry_after=N.N: <safe message>"``, which the tool facade
+        turns into the typed fields (mcp_server_main.get_btk_document_markdown).
+        """
+        return BtkDocumentMarkdown(
+            source_url=source_url,
+            markdown_chunk=None,
+            current_page=max(1, page_number),
+            total_pages=0,
+            is_paginated=False,
+            error_message=failure_marker(failure),
+        )
+
     async def get_document_markdown(self, pdf_url: str, page_number: int = 1) -> BtkDocumentMarkdown:
         if not pdf_url or not pdf_url.strip():
-            return BtkDocumentMarkdown(
-                source_url=HttpUrl(f"{self.BASE_URL}/kurul-kararlari"),
-                markdown_chunk=None,
-                current_page=max(1, page_number),
-                total_pages=0,
-                is_paginated=False,
-                error_message="pdf_url is required.",
+            return self._failed(
+                HttpUrl(f"{self.BASE_URL}/kurul-kararlari"),
+                page_number,
+                InvalidToolInput("pdf_url is required.").failure(),
             )
 
         pdf_url = pdf_url.strip()
         if not pdf_url.startswith(("https://www.btk.gov.tr/", "https://www.btk.tr/")):
-            return BtkDocumentMarkdown(
-                source_url=HttpUrl(pdf_url),
-                markdown_chunk=None,
-                current_page=max(1, page_number),
-                total_pages=0,
-                is_paginated=False,
-                error_message="Invalid BTK document URL. URL must start with https://www.btk.gov.tr/ or https://www.btk.tr/.",
+            return self._failed(
+                HttpUrl(pdf_url),
+                page_number,
+                InvalidToolInput(
+                    "Invalid BTK document URL. URL must start with "
+                    "https://www.btk.gov.tr/ or https://www.btk.tr/."
+                ).failure(),
             )
 
         try:
@@ -173,7 +197,12 @@ class BtkApiClient:
 
             content_type = response.headers.get("content-type", "").lower()
             if "pdf" not in content_type and not pdf_url.lower().endswith(".pdf"):
-                raise Exception(f"Expected a PDF document, got content type: {content_type}")
+                raise UpstreamContractError("Upstream did not return a PDF document.")
+            # A .pdf URL answered with an HTML maintenance page (200) used to
+            # go through the PDF converter and come back as the "decision
+            # text". A PDF carries its magic header within the first KiB.
+            if b"%PDF-" not in response.content[:1024]:
+                raise UpstreamContractError("Upstream did not return a PDF document.")
 
             markdown_content = await asyncio.to_thread(self._convert_pdf_to_markdown, response.content)
             total_pages = max(1, math.ceil(len(markdown_content) / self.DOCUMENT_MARKDOWN_CHUNK_SIZE))
@@ -191,14 +220,7 @@ class BtkApiClient:
             )
         except Exception as e:
             logger.error("BtkApiClient: error retrieving BTK PDF %s: %s", pdf_url, e, exc_info=True)
-            return BtkDocumentMarkdown(
-                source_url=HttpUrl(pdf_url),
-                markdown_chunk=None,
-                current_page=max(1, page_number),
-                total_pages=0,
-                is_paginated=False,
-                error_message=f"Failed to retrieve BTK document: {str(e)}",
-            )
+            return self._failed(HttpUrl(pdf_url), page_number, classify_exception_chain(e))
 
     async def close_client_session(self):
         if hasattr(self, "http_client") and self.http_client and not self.http_client.is_closed:

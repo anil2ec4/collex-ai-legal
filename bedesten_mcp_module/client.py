@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
+from legal_contracts import UpstreamContractError
 from markitdown import MarkItDown
 
 from bedesten_rate_limit import (
@@ -113,19 +114,19 @@ class BedestenApiClient:
             
             # Add null safety checks for document data
             if not hasattr(doc_response, 'data') or doc_response.data is None:
-                raise ValueError("Document response does not contain data")
+                raise UpstreamContractError("Document response does not contain data")
             
             if not hasattr(doc_response.data, 'content') or doc_response.data.content is None:
-                raise ValueError("Document data does not contain content")
+                raise UpstreamContractError("Document data does not contain content")
                 
             if not hasattr(doc_response.data, 'mimeType') or doc_response.data.mimeType is None:
-                raise ValueError("Document data does not contain mimeType")
+                raise UpstreamContractError("Document data does not contain mimeType")
             
             # Decode base64 content with error handling
             try:
                 content_bytes = base64.b64decode(doc_response.data.content)
             except Exception as e:
-                raise ValueError(f"Failed to decode base64 content: {str(e)}")
+                raise UpstreamContractError("Failed to decode base64 content.") from e
             
             mime_type = doc_response.data.mimeType
             
@@ -147,7 +148,7 @@ class BedestenApiClient:
                 )
             else:
                 logger.warning(f"Unsupported mime type: {mime_type}")
-                markdown_content = f"Unsupported content type: {mime_type}. Unable to convert to markdown."
+                raise UpstreamContractError("Unsupported document content type.")
             
             # Canonical fetch contract: every consumer of this method (the
             # 'fetch' facade and 'get_bedesten_document_markdown' tool) gets
@@ -192,7 +193,7 @@ class BedestenApiClient:
             
         except Exception as e:
             logger.error(f"Error converting HTML to Markdown: {e}")
-            return f"Error converting HTML content: {str(e)}"
+            raise UpstreamContractError("Document HTML could not be converted to Markdown.") from e
     
     def _convert_pdf_to_markdown(self, pdf_bytes: bytes) -> Optional[str]:
         """Convert PDF to Markdown using MarkItDown"""
@@ -213,7 +214,7 @@ class BedestenApiClient:
             
         except Exception as e:
             logger.error(f"Error converting PDF to Markdown: {e}")
-            return f"Error converting PDF content: {str(e)}. The document may be corrupted or in an unsupported format."
+            raise UpstreamContractError("Document PDF could not be converted to Markdown.") from e
     
     async def close_client_session(self):
         """Close HTTP client session"""

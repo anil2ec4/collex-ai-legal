@@ -14,7 +14,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError as McpToolError
 
 from bedesten_rate_limit import BedestenCircuitOpen, BedestenRateLimited
-from legal_contracts import classify_exception_chain, failure_marker
+from legal_contracts import ProviderError, classify_exception_chain, failure_marker
 from mevzuat_bedesten_client import BedestenContentError
 from mevzuat_client import MevzuatApiClientNew
 from mevzuat_models import (
@@ -159,14 +159,35 @@ def _content_failure(error_message: str) -> McpToolError:
     match = _TYPED_MARKER_RE.search(text)
     if match is not None:
         return McpToolError(text[match.start():])
-    if text.startswith("No Bedesten document found") or "not found" in text.lower():
+    # Only messages THIS module authored are echoed; any other text may be
+    # upstream prose (Bedesten's FMTE, a legacy client's exception text) and
+    # is logged, never put on the wire.
+    if text.startswith(_AUTHORED_NOT_FOUND_PREFIXES):
         return _typed_tool_error(text, "NOT_FOUND")
     if text.startswith("Unsupported legislation type"):
         return _typed_tool_error(text, "INVALID_REQUEST")
-    return _typed_tool_error(
-        f"Upstream reported an error: {text}" if text else "Upstream reported an error.",
-        "UNAVAILABLE",
-        retryable=True,
+    if text:
+        logger.warning("Legislation lookup reported an untyped error: %r", text)
+    return _typed_tool_error("Upstream reported an error.", "UNAVAILABLE", retryable=True)
+
+
+_AUTHORED_NOT_FOUND_PREFIXES = (
+    "No Bedesten document found",
+    "No content found for",
+    "No legislation found",
+)
+
+
+def _typed_error_text(text: str) -> str:
+    """``text`` from its typed marker on; an untyped text is not echoed."""
+    stripped = (text or "").strip()
+    match = _TYPED_MARKER_RE.search(stripped)
+    if match is not None:
+        return stripped[match.start():]
+    if stripped:
+        logger.warning("Legislation lookup reported an untyped error: %r", stripped)
+    return failure_marker(
+        ProviderError("Upstream reported an error.", retryable=True).failure()
     )
 
 
@@ -287,7 +308,7 @@ async def _get_bedesten_content_by_number(
         # "No content found" message.
         return MevzuatArticleContent(
             madde_id=mevzuat_no, mevzuat_id=document.mevzuat_id,
-            markdown_content="", error_message=str(exc),
+            markdown_content="", error_message=_typed_error_text(exc.cause),
         )
     except BedestenRateLimited as exc:
         return MevzuatArticleContent(

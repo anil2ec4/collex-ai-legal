@@ -74,7 +74,9 @@ class VectorStore:
         if len(query_embedding.shape) == 1:
             query_embedding = query_embedding.reshape(1, -1)
 
-        similarities = np.dot(self.embeddings, query_embedding.T).squeeze()
+        # reshape(-1), not squeeze(): one stored document must stay a 1-element
+        # vector (squeeze() made it 0-d and np.where() raised).
+        similarities = np.dot(self.embeddings, query_embedding.T).reshape(-1)
 
         if threshold is not None:
             valid_indices = np.where(similarities >= threshold)[0]

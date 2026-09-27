@@ -2,6 +2,8 @@
 # Unified client for all three Sayıştay decision types
 
 import logging
+
+from legal_contracts import InvalidToolInput
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 
@@ -110,7 +112,7 @@ class SayistayUnifiedClient:
             )
         
         else:
-            raise ValueError(f"Unsupported decision type: {params.decision_type}")
+            raise InvalidToolInput(f"Unsupported decision type: {params.decision_type}")
     
     async def get_document_unified(self, decision_id: str, decision_type: str) -> SayistayUnifiedDocumentMarkdown:
         """Unified document retrieval for all Sayıştay decision types."""

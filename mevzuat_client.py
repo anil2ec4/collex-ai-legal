@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 from bs4 import BeautifulSoup
 from markitdown import MarkItDown
+
+from legal_contracts import ProviderError, classify_exception_chain, failure_marker
 from typing import Dict, Optional, Any, NamedTuple
 from mevzuat_models import (
     MevzuatSearchRequestNew, MevzuatSearchResultNew, MevzuatDocumentNew,
@@ -407,7 +409,7 @@ class MevzuatApiClientNew:
                     page_size=request.page_size,
                     total_pages=0,
                     query_used=request.model_dump(),
-                    error_message=f"API error: {result.get('text', 'Unknown error')[:100]}"
+                    error_message=failure_marker(ProviderError("Upstream reported an error for this search.", retryable=True).failure())
                 )
 
             # Parse response
@@ -447,7 +449,7 @@ class MevzuatApiClientNew:
                 page_size=request.page_size,
                 total_pages=0,
                 query_used=request.model_dump(),
-                error_message=f"Playwright search error: {str(e)}"
+                error_message=failure_marker(classify_exception_chain(e))
             )
 
     async def search_documents(self, request: MevzuatSearchRequestNew) -> MevzuatSearchResultNew:
@@ -542,7 +544,7 @@ class MevzuatApiClientNew:
                 page_size=request.page_size,
                 total_pages=0,
                 query_used=request.model_dump(),
-                error_message=f"API request failed: {e.response.status_code}"
+                error_message=failure_marker(classify_exception_chain(e))
             )
         except Exception as e:
             logger.exception("Unexpected error during search")
@@ -553,7 +555,7 @@ class MevzuatApiClientNew:
                 page_size=request.page_size,
                 total_pages=0,
                 query_used=request.model_dump(),
-                error_message=f"An unexpected error occurred: {e}"
+                error_message=failure_marker(classify_exception_chain(e))
             )
 
     async def get_content(
@@ -805,5 +807,5 @@ class MevzuatApiClientNew:
                 madde_id=mevzuat_no,
                 mevzuat_id=mevzuat_no,
                 markdown_content="",
-                error_message=f"HTML scraping error: {str(e)}"
+                error_message=failure_marker(classify_exception_chain(e))
             )

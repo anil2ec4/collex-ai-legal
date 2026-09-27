@@ -18,6 +18,8 @@ try:
 except ImportError:
     HAS_CRYPTOGRAPHY = False
 
+from legal_contracts import ProviderError, classify_exception_chain, failure_marker
+
 from .models_v2 import (
     KikV2DecisionType, KikV2SearchPayload, KikV2SearchPayloadDk, KikV2SearchPayloadMk,
     KikV2RequestData, KikV2QueryRequest, KikV2KeyValuePair, 
@@ -294,12 +296,17 @@ class KikV2ApiClient:
             # Check for API errors
             if result_data.hataKodu and result_data.hataKodu != "0":
                 logger.warning(f"KikV2ApiClient: API returned error - Code: {result_data.hataKodu}, Message: {result_data.hataMesaji}")
+                # The upstream's own message (hataMesaji) is untrusted prose
+                # and stays in the log; the caller gets a typed failure.
+                failure = ProviderError(
+                    "KİK reported an error for this query.", retryable=False
+                ).failure()
                 return KikV2SearchResult(
                     decisions=[],
                     total_records=0,
                     page=1,
-                    error_code=result_data.hataKodu,
-                    error_message=result_data.hataMesaji
+                    error_code=failure.kind.value,
+                    error_message=failure_marker(failure)
                 )
             
             # Convert to compact format
@@ -330,23 +337,18 @@ class KikV2ApiClient:
                 error_message=""
             )
             
-        except httpx.HTTPStatusError as e:
-            logger.error(f"KikV2ApiClient: HTTP error during search: {e.response.status_code} - {e.response.text}")
-            return KikV2SearchResult(
-                decisions=[],
-                total_records=0, 
-                page=1,
-                error_code="HTTP_ERROR",
-                error_message=f"HTTP {e.response.status_code}: {e.response.text}"
-            )
         except Exception as e:
-            logger.error(f"KikV2ApiClient: Unexpected error during search: {str(e)}")
+            # HTTP bodies, TLS/driver text and pydantic errors (whose
+            # input_value quotes the upstream body) go to the log only; the
+            # result carries the typed kind and the shared marker.
+            logger.error(f"KikV2ApiClient: search failed: {e!r}")
+            failure = classify_exception_chain(e)
             return KikV2SearchResult(
                 decisions=[],
                 total_records=0,
-                page=1, 
-                error_code="UNEXPECTED_ERROR",
-                error_message=str(e)
+                page=1,
+                error_code=failure.kind.value,
+                error_message=failure_marker(failure)
             )
     
     async def get_document_markdown(self, document_id: str) -> KikV2DocumentMarkdown:
@@ -492,13 +494,13 @@ class KikV2ApiClient:
                 )
                 
         except Exception as e:
-            logger.error(f"KikV2ApiClient: Error retrieving document {document_id}: {str(e)}")
+            logger.error(f"KikV2ApiClient: Error retrieving document {document_id}: {e!r}")
             return KikV2DocumentMarkdown(
                 document_id=document_id,
                 kararNo="",
                 markdown_content="",
                 source_url=document_url,
-                error_message=str(e)
+                error_message=failure_marker(classify_exception_chain(e))
             )
     
     async def close_client_session(self):

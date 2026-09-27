@@ -282,17 +282,42 @@ export function failureKindOf(
   return classifyFailureCode(errorCode, ...texts).kind;
 }
 
+/**
+ * Error codes a provider uses to say "no error". KİK answers every SUCCESSFUL
+ * search with `error_code: "0"` and `error_message: ""`; read as a code, "0"
+ * classified as the unknown UNAVAILABLE, so an honestly empty KİK search was
+ * drawn as a dead archive and a KİK result with rows was marked degraded.
+ */
+const NO_ERROR_CODES: ReadonlySet<string> = new Set(["0"]);
+
 function failureFromRecord(rec: Record<string, unknown>): ParsedFailure | undefined {
   const errorCode = asString(rec["error_code"]);
   const error = asString(rec["error"]);
   if (errorCode === undefined && error === undefined) return undefined;
+  const message = asString(rec["message"]);
+  const errorMessage = asString(rec["error_message"]);
+  if (
+    error === undefined &&
+    message === undefined &&
+    (errorMessage === undefined || errorMessage.trim() === "") &&
+    errorCode !== undefined &&
+    NO_ERROR_CODES.has(errorCode.trim())
+  ) {
+    return undefined;
+  }
   // `message` carries the shared "<KIND> retry_after=N.N: …" marker on every
   // Python facade; `error` is a code on some (service_unavailable) and a
   // sentence on others ("KVKK module disabled: set BRAVE_API_TOKEN …").
-  const kind = failureKindOf(errorCode, asString(rec["message"]), error, asString(rec["error_message"]));
+  const kind = failureKindOf(errorCode, message, error, errorMessage);
   return {
     kind,
-    retryable: rec["retryable"] === true || kind === "RATE_LIMITED" || kind === "TIMEOUT" || kind === "UNAVAILABLE",
+    // The gateway's typed fields carry an explicit `retryable` (false for the
+    // unknown answer, "UNAVAILABLE retry_after=0.0"); only a payload without
+    // one falls back to the kind's default.
+    retryable:
+      typeof rec["retryable"] === "boolean"
+        ? rec["retryable"]
+        : kind === "RATE_LIMITED" || kind === "TIMEOUT" || kind === "UNAVAILABLE",
     // Machine token only — provider prose is untrusted and is never echoed.
     safeMessage: `provider reported failure (${errorCode ?? kind})`,
   };

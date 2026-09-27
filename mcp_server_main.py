@@ -43,7 +43,18 @@ except ImportError:
     tiktoken = None
 from fastmcp import Context
 
-from legal_contracts import classify_exception_chain, failure_marker
+from legal_contracts import (
+    FAILURE_KIND_ERROR_NAMES,
+    FAILURE_MARKER_RE,
+    InvalidToolInput,
+    UpstreamContractError,
+    classify_exception_chain,
+    failure_fields,
+    failure_from_marker,
+    failure_marker,
+)
+from fastmcp.exceptions import ToolError as McpToolError
+from pydantic import ValidationError as _PydanticValidationError
 
 # Use standard exception for tool errors
 class ToolError(Exception):
@@ -380,6 +391,53 @@ app = FastMCP(
     version="1.0.0"
 )
 
+
+class TypedToolFailureMiddleware(Middleware):
+    """No tool failure reaches the wire as driver or upstream prose.
+
+    MEASURED, 27.09.2026 (W22 follow-up): a dozen tools re-raise an
+    unexpected exception, and FastMCP turns it into ``"Error calling tool
+    'x': <str(exc)>"`` — with the network down the MCP response read "[SSL:
+    CERTIFICATE_VERIFY_FAILED] certificate verify failed …", and a pydantic
+    error on an upstream model carried the upstream BODY in its
+    ``input_value``. Every such error is re-raised here as a typed tool error
+    whose text is only ``"<KIND> retry_after=N.N: <safe message>"``
+    (``legal_contracts.failure_marker``), the marker the control plane's
+    ``classifyFailureText`` reads first. The raw text stays in the server log.
+
+    Left untouched, on purpose:
+      * FastMCP's own ARGUMENT validation (a pydantic error titled
+        ``call[<tool>]``) — the one failure that is the caller's to fix and
+        that ``failureText.ts`` keeps as INVALID_REQUEST;
+      * a tool error a tool raised itself (no ``Error calling tool`` wrapper,
+        or already carrying a marker) — its text was authored for the caller;
+      * FastMCP's non-tool errors (unknown tool, disabled component).
+    """
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        tool_name = getattr(context.message, "name", "unknown_tool")
+        try:
+            return await call_next(context)
+        except McpToolError as exc:
+            text = str(exc)
+            cause = exc.__cause__
+            if (
+                FAILURE_MARKER_RE.search(text) is not None
+                or cause is None
+                or not text.startswith("Error calling tool")
+            ):
+                raise
+            logger.warning("Tool %s failed: %r", tool_name, cause)
+            raise McpToolError(failure_marker(classify_exception_chain(cause))) from cause
+        except _PydanticValidationError as exc:
+            if str(getattr(exc, "title", "")).startswith("call["):
+                raise
+            logger.warning("Tool %s: upstream model validation failed: %r", tool_name, exc)
+            raise McpToolError(failure_marker(classify_exception_chain(exc))) from exc
+
+
+app.add_middleware(TypedToolFailureMiddleware())
+
 # --- Health Check Functions (using individual clients) ---
 
 # --- API Client Instances ---
@@ -501,7 +559,7 @@ async def search_yargitay_detailed(
 async def get_yargitay_document_markdown(id: str) -> YargitayDocumentMarkdown:
     # Get Yargıtay decision text as Markdown. Use ID from search results.
     logger.info(f"Tool 'get_yargitay_document_markdown' called for ID: {id}")
-    if not id or not id.strip(): raise ValueError("Document ID must be a non-empty string.")
+    if not id or not id.strip(): raise InvalidToolInput("Document ID must be a non-empty string.")
     try:
         return await yargitay_client_instance.get_decision_document_as_markdown(id)
     except Exception as e:
@@ -627,7 +685,7 @@ async def search_danistay_detailed(
 async def get_danistay_document_markdown(id: str) -> DanistayDocumentMarkdown:
     # Get Danıştay decision text as Markdown. Use ID from search results.
     logger.info(f"Tool 'get_danistay_document_markdown' called for ID: {id}")
-    if not id or not id.strip(): raise ValueError("Document ID must be a non-empty string for Danıştay.")
+    if not id or not id.strip(): raise InvalidToolInput("Document ID must be a non-empty string for Danıştay.")
     try:
         return await danistay_client_instance.get_decision_document_as_markdown(id)
     except Exception as e:
@@ -746,7 +804,7 @@ async def search_emsal_detailed_decisions(
 async def get_emsal_document_markdown(id: str) -> Dict[str, Any]:
     """Get document as Markdown."""
     logger.info(f"Tool 'get_emsal_document_markdown' called for ID: {id}")
-    if not id or not id.strip(): raise ValueError("Document ID required for Emsal.")
+    if not id or not id.strip(): raise InvalidToolInput("Document ID required for Emsal.")
     try:
         result = await emsal_client_instance.get_decision_document_as_markdown(id)
         return result.model_dump()
@@ -799,7 +857,7 @@ async def get_uyusmazlik_document_markdown_from_url(
     """Get Uyuşmazlık Mahkemesi decision as Markdown."""
     logger.info(f"Tool 'get_uyusmazlik_document_markdown_from_url' called for URL: {str(document_url)}")
     if not document_url:
-        raise ValueError("Document URL (document_url) is required for Uyuşmazlık document retrieval.")
+        raise InvalidToolInput("Document URL (document_url) is required for Uyuşmazlık document retrieval.")
     try:
         result = await uyusmazlik_client_instance.get_decision_document_as_markdown(str(document_url))
         return result.model_dump()
@@ -962,7 +1020,10 @@ async def search_kik_v2_decisions(
             "error_code": api_response.error_code,
             "error_message": api_response.error_message
         }
-        
+        if not api_response.decisions:
+            # A failed search is reported by the client as a typed marker.
+            result.update(reported_failure_fields(api_response.error_message))
+
         logger.info(f"KİK v2 {decision_type} search completed. Found {len(api_response.decisions)} decisions")
         return result
         
@@ -1003,13 +1064,16 @@ async def get_kik_v2_document_markdown(
     try:
         api_response = await kik_v2_client_instance.get_document_markdown(gundemMaddesiId)
 
-        return {
+        payload = {
             "document_id": api_response.document_id,
             "kararNo": api_response.kararNo,
             "markdown_content": api_response.markdown_content,
             "source_url": api_response.source_url,
             "error_message": api_response.error_message
         }
+        if not api_response.markdown_content:
+            payload.update(reported_failure_fields(api_response.error_message))
+        return payload
 
     except Exception as e:
         logger.exception(f"Error in KİK v2 document retrieval tool for gundemMaddesiId: {gundemMaddesiId}")
@@ -1105,7 +1169,10 @@ async def get_rekabet_kurumu_document(
     
     try:
         result = await rekabet_client_instance.get_decision_document(karar_id, page_number=current_page_to_fetch)
-        return result.model_dump()
+        payload = result.model_dump()
+        if not result.markdown_chunk:
+            payload.update(reported_failure_fields(result.error_message))
+        return payload
     except Exception:
         logger.exception(f"Error in tool 'get_rekabet_kurumu_document'. Karar ID: {karar_id}")
         raise 
@@ -1135,15 +1202,7 @@ BEDESTEN_UPSTREAM_FAILURES = (
 
 # FailureKind -> (legacy `error` string, default HTTP status when upstream
 # never answered).  "rate_limit_exceeded" is pre-existing and must not change.
-_FAILURE_KIND_TO_ERROR = {
-    "RATE_LIMITED": ("rate_limit_exceeded", 429),
-    "TIMEOUT": ("upstream_timeout", 504),
-    "UNAVAILABLE": ("service_unavailable", 503),
-    "PARSER_ERROR": ("upstream_parse_error", 502),
-    "NOT_FOUND": ("not_found", 404),
-    "UNAUTHORIZED": ("unauthorized", 401),
-    "INVALID_REQUEST": ("invalid_request", 400),
-}
+_FAILURE_KIND_TO_ERROR = FAILURE_KIND_ERROR_NAMES
 
 
 def _classify_bedesten_failure(exc: BaseException) -> Tuple[str, bool, Optional[float], Optional[int], str]:
@@ -1233,23 +1292,33 @@ def upstream_failure_fields(exc: BaseException) -> Dict[str, Any]:
     ``failureFromRecord``) serves every lane; ``message`` never carries driver
     or upstream text.
     """
-    failure = classify_exception_chain(exc)
-    kind = failure.kind.value
-    error_name, default_status = _FAILURE_KIND_TO_ERROR.get(
-        kind, ("service_unavailable", 503)
-    )
-    if failure.retry_after_ms is not None:
-        retry_after = failure.retry_after_ms / 1000.0
-    else:
-        retry_after = 30.0 if failure.retryable else 0.0
-    return {
-        "error": error_name,
-        "error_code": kind,
-        "status_code": failure.upstream_status or default_status,
-        "retry_after": f"{retry_after:.1f}",
-        "retryable": failure.retryable,
-        "message": failure_marker(failure),
-    }
+    return failure_fields(classify_exception_chain(exc))
+
+
+def reported_failure_fields(error_message: Optional[str]) -> Dict[str, Any]:
+    """The typed fields for a failure a CLIENT reported as a marker string.
+
+    Several clients cannot raise (their result model is the contract) and
+    hand a failed retrieval back as ``error_message`` =
+    ``"<KIND> retry_after=N.N: <safe message>"``. The facade owes the caller
+    the same typed fields an exception would have produced, so the marker is
+    read back (``legal_contracts.failure_from_marker``). No marker → no
+    fields: an informational message is never promoted to a failure.
+    """
+    failure = failure_from_marker(error_message)
+    return failure_fields(failure) if failure is not None else {}
+
+
+def safe_client_error_message(error_message: Optional[str]) -> Optional[str]:
+    """Drop everything BEFORE a typed marker (a wrapper's own prefix).
+
+    ``"General error while processing decision: UNAVAILABLE retry_after=…"``
+    keeps only the marker, so the machine kind stays in first position.
+    """
+    if not error_message:
+        return error_message
+    match = FAILURE_MARKER_RE.search(error_message)
+    return error_message[match.start():] if match is not None else error_message
 
 
 # A module switched off for want of a credential is not an outage. The
@@ -1389,7 +1458,7 @@ async def get_bedesten_document_markdown(
     logger.info(f"Tool 'get_bedesten_document_markdown' called for ID: {documentId}")
     
     if not documentId or not documentId.strip():
-        raise ValueError("Document ID must be a non-empty string.")
+        raise InvalidToolInput("Document ID must be a non-empty string.")
     
     try:
         return await bedesten_client_instance.get_document_as_markdown(documentId)
@@ -1530,6 +1599,7 @@ YANLIŞ KULLANIM:
 
             documents_data = []
             failed_fetches = 0
+            last_fetch_error: Optional[BaseException] = None
             decisions_to_process = all_decisions[:candidate_limit]
 
             for i, decision in enumerate(decisions_to_process):
@@ -1564,15 +1634,27 @@ YANLIŞ KULLANIM:
                         logger.info(f"Processed {i + 1}/{len(decisions_to_process)} documents")
 
                 except Exception as e:
-                    logger.warning(f"Failed to fetch document {decision.documentId}: {e}")
+                    logger.warning(f"Failed to fetch document {decision.documentId}: {e!r}")
                     failed_fetches += 1
+                    last_fetch_error = e
 
             if not documents_data:
                 logger.warning("No documents could be processed")
+                # Every candidate failed: that is the upstream's failure (an
+                # unreachable Bedesten), not "no relevant decision". Without a
+                # fetch exception the documents arrived with no readable text.
+                failure = (
+                    classify_exception_chain(last_fetch_error)
+                    if last_fetch_error is not None
+                    else UpstreamContractError(
+                        "Could not process any documents: no readable text."
+                    ).failure()
+                )
                 return {
                     "status": "processing_error",
-                    "message": "Could not process any documents",
-                    "results": []
+                    "results": [],
+                    "failed_fetches": failed_fetches,
+                    **failure_fields(failure),
                 }
 
             logger.info(f"Successfully processed {len(documents_data)} documents, {failed_fetches} failed")
@@ -1653,11 +1735,15 @@ YANLIŞ KULLANIM:
             }
 
         except Exception as e:
-            logger.exception(f"Error in semantic search: {e}")
+            # W22 open item: this path returned ``"message": str(e)`` — the
+            # TLS/driver prose of a failed Bedesten call, or the embedding
+            # SDK's own text. The raw exception goes to the server log only;
+            # the caller gets the typed fields and the shared marker.
+            logger.exception("Error in semantic search")
             return {
                 "status": "error",
-                "message": str(e),
-                "results": []
+                "results": [],
+                **upstream_failure_fields(e),
             }
 
 
@@ -1867,11 +1953,14 @@ async def get_sayistay_document_unified(
     logger.info(f"Tool 'get_sayistay_document_unified' called for ID: {decision_id}, type: {decision_type}")
 
     if not decision_id or not decision_id.strip():
-        raise ValueError("Decision ID must be a non-empty string.")
+        raise InvalidToolInput("Decision ID must be a non-empty string.")
 
     try:
         result = await sayistay_unified_client_instance.get_document_unified(decision_id, decision_type)
-        return result.model_dump()
+        payload = result.model_dump()
+        if not result.markdown_content:
+            payload.update(reported_failure_fields(result.error_message))
+        return payload
     except Exception:
         logger.exception("Error in tool 'get_sayistay_document_unified'")
         raise
@@ -2000,6 +2089,22 @@ def get_or_create_health_check_client() -> httpx.AsyncClient:
     return _health_check_client
 
 
+def _unhealthy_from_exception(exc: BaseException) -> Dict[str, Any]:
+    """A probe failure: the reason names the failure CLASS, never driver text.
+
+    ``reason`` keeps its old "Connection error: …" prefix, but the rest is the
+    classification's safe message (it used to be ``str(e)`` — the TLS
+    library's own prose). ``error_code`` / ``retryable`` are additive.
+    """
+    failure = classify_exception_chain(exc)
+    return {
+        "status": "unhealthy",
+        "reason": f"Connection error: {failure.safe_message}",
+        "error_code": failure.kind.value,
+        "retryable": failure.retryable,
+    }
+
+
 # --- Health Check Tools ---
 @app.tool(
     description="Use this when checking if Turkish legal database servers are online and responding.",
@@ -2070,10 +2175,8 @@ async def check_government_servers_health() -> Dict[str, Any]:
             }
         
     except Exception as e:
-        health_results["yargitay"] = {
-            "status": "unhealthy",
-            "reason": f"Connection error: {str(e)}"
-        }
+        logger.warning("Health check (yargitay) failed: %r", e)
+        health_results["yargitay"] = _unhealthy_from_exception(e)
     
     # Check Bedesten API server
     try:
@@ -2141,10 +2244,8 @@ async def check_government_servers_health() -> Dict[str, Any]:
             "retry_after": round(e.retry_after, 1),
         }
     except Exception as e:
-        health_results["bedesten"] = {
-            "status": "unhealthy", 
-            "reason": f"Connection error: {str(e)}"
-        }
+        logger.warning("Health check (bedesten) failed: %r", e)
+        health_results["bedesten"] = _unhealthy_from_exception(e)
     
     # Overall health assessment
     healthy_servers = sum(1 for server in health_results.values() if server["status"] == "healthy")
@@ -2275,7 +2376,10 @@ async def get_kvkk_document_markdown(
 
         result = await kvkk_client_instance.get_decision_document(decision_url, page_number or 1)
         logger.info(f"KVKK document retrieved successfully. Page {result.current_page}/{result.total_pages}, Content length: {len(result.markdown_chunk) if result.markdown_chunk else 0}")
-        return result.model_dump()
+        payload = result.model_dump()
+        if not result.markdown_chunk:
+            payload.update(reported_failure_fields(result.error_message))
+        return payload
         
     except Exception as e:
         logger.exception(f"Error retrieving KVKK document: {e}")
@@ -2484,19 +2588,28 @@ async def get_btk_document_markdown(
     logger.info("BTK document retrieval tool called for URL: %s, page: %s", pdf_url, page_number)
 
     if not pdf_url or not pdf_url.strip():
-        return BtkDocumentMarkdown(
-            source_url=HttpUrl("https://www.btk.tr/kurul-kararlari"),
-            markdown_chunk=None,
-            current_page=page_number or 1,
-            total_pages=0,
-            is_paginated=False,
-            error_message="pdf_url is required and cannot be empty."
-        ).model_dump()
+        refusal = InvalidToolInput("pdf_url is required and cannot be empty.").failure()
+        return {
+            **BtkDocumentMarkdown(
+                source_url=HttpUrl("https://www.btk.tr/kurul-kararlari"),
+                markdown_chunk=None,
+                current_page=page_number or 1,
+                total_pages=0,
+                is_paginated=False,
+                error_message=failure_marker(refusal),
+            ).model_dump(),
+            **failure_fields(refusal),
+        }
 
     try:
         result = await btk_client_instance.get_document_markdown(pdf_url, page_number or 1)
         logger.info("BTK document retrieved. Page %s/%s", result.current_page, result.total_pages)
-        return result.model_dump()
+        payload = result.model_dump()
+        if not result.markdown_chunk:
+            # The client reports a failed retrieval as a typed marker; the
+            # caller gets the same typed fields an exception would produce.
+            payload.update(reported_failure_fields(result.error_message))
+        return payload
     except Exception as e:
         logger.exception("Error retrieving BTK document: %s", e)
         fields = upstream_failure_fields(e)
@@ -2591,7 +2704,10 @@ async def get_gib_ozelge_document_markdown(
         logger.info(
             f"GİB document retrieved. id={ozelge_id} page={result.current_page}/{result.total_pages}"
         )
-        return result.model_dump()
+        payload = result.model_dump()
+        if not result.markdown_chunk:
+            payload.update(reported_failure_fields(result.error_message))
+        return payload
     except Exception as e:
         logger.exception(f"Error retrieving GİB document: {e}")
         fields = upstream_failure_fields(e)
@@ -3043,7 +3159,7 @@ async def fetch(
     logger.info(f"ChatGPT Deep Research fetch tool called for document ID: {id}")
     
     if not id or not id.strip():
-        raise ValueError("Document ID must be a non-empty string")
+        raise InvalidToolInput("Document ID must be a non-empty string")
     
     try:
         # Use the numeric ID directly with Bedesten API

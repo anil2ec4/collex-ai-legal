@@ -24,6 +24,8 @@ from .models import (
 )
 from pydantic import HttpUrl # Ensure HttpUrl is imported from pydantic
 
+from legal_contracts import UpstreamContractError, classify_exception_chain, failure_marker
+
 logger = logging.getLogger(__name__)
 if not logger.hasHandlers(): # Pragma: no cover
     logging.basicConfig(
@@ -347,7 +349,7 @@ class RekabetKurumuApiClient:
                             original_pdf_bytes = await self._download_pdf_bytes(str(pdf_url_to_report))
                         else: error_message = (error_message or "") + " PDF URL not found on HTML landing page."
                     else: error_message = "Decision landing page content is empty."
-                else: error_message = f"Unexpected content type ({content_type}) for URL: {final_url_of_response}"
+                else: error_message = failure_marker(UpstreamContractError("Unexpected content type for the decision page.").failure())
 
                 if original_pdf_bytes:
                     single_page_pdf_bytes, total_pdf_pages_from_extraction = self._extract_single_pdf_page_as_pdf_bytes(original_pdf_bytes, page_number)
@@ -384,19 +386,23 @@ class RekabetKurumuApiClient:
                 total_pages=total_pdf_pages, is_paginated=is_paginated,
                 error_message=error_message.strip("; ") if error_message else None )
 
-        except httpx.HTTPStatusError as e: error_msg_detail = f"HTTP Status error {e.response.status_code} while processing decision page."
-        except httpx.RequestError as e: error_msg_detail = f"HTTP Request error while processing decision page: {str(e)}"
-        except Exception as e: error_msg_detail = f"General error while processing decision: {str(e)}"
-        
-        exc_info_flag = not isinstance(e, (httpx.HTTPStatusError, httpx.RequestError)) if 'e' in locals() else True
-        logger.error(f"RekabetKurumuApiClient: Error processing decision {karar_id} from {full_landing_page_url}: {error_msg_detail}", exc_info=exc_info_flag)
-        error_message = (error_message + "; " if error_message else "") + error_msg_detail
-        
+        except Exception as e:
+            # Driver/TLS text ("HTTP Request error …: [SSL: …]") stays in the
+            # log; the result carries the shared typed marker FIRST, so the
+            # facade and the control plane read the kind, never the prose.
+            logger.error(
+                f"RekabetKurumuApiClient: Error processing decision {karar_id} from {full_landing_page_url}: {e!r}",
+                exc_info=not isinstance(e, (httpx.HTTPStatusError, httpx.RequestError)),
+            )
+            marker = failure_marker(classify_exception_chain(e))
+
+        error_message = marker + ("; " + error_message.strip("; ") if error_message else "")
+
         return RekabetDocument(
             source_landing_page_url=full_landing_page_url, karar_id=karar_id,
             title_on_landing_page=title_to_report, pdf_url=pdf_url_to_report,
             markdown_chunk=None, current_page=page_number, total_pages=0, is_paginated=False,
-            error_message=error_message.strip("; ") if error_message else "An unexpected error occurred." )
+            error_message=error_message )
 
     async def close_client_session(self): # Pragma: no cover
         if hasattr(self, 'http_client') and self.http_client and not self.http_client.is_closed:

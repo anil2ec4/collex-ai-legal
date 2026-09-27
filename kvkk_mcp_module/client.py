@@ -13,6 +13,8 @@ from urllib.parse import urljoin, urlparse, parse_qs
 from markitdown import MarkItDown
 from pydantic import HttpUrl
 
+from legal_contracts import classify_exception_chain, failure_marker
+
 from .models import (
     KvkkSearchRequest,
     KvkkDecisionSummary,
@@ -178,24 +180,14 @@ class KvkkApiClient:
                 query=search_query
             )
             
-        except httpx.RequestError as e:
-            logger.error(f"KvkkApiClient: HTTP request error during search: {e}")
-            return KvkkSearchResult(
-                decisions=[], 
-                total_results=0, 
-                page=params.page, 
-                pageSize=params.pageSize,
-                query=search_query
-            )
         except Exception as e:
-            logger.error(f"KvkkApiClient: Unexpected error during search: {e}")
-            return KvkkSearchResult(
-                decisions=[], 
-                total_results=0, 
-                page=params.page, 
-                pageSize=params.pageSize,
-                query=search_query
-            )
+            # RAISED, never turned into an empty result: an empty
+            # KvkkSearchResult is exactly what "no decision matches" looks
+            # like (measured: an unreachable Brave API answered as a clean
+            # empty list). The tool facade (mcp_server_main.search_kvkk_decisions)
+            # is the one place that turns the exception into typed fields.
+            logger.error(f"KvkkApiClient: search failed: {e!r}")
+            raise
     
     def _extract_decision_content_from_html(self, html: str, url: str) -> Dict[str, Any]:
         """Extract decision content from KVKK decision page HTML."""
@@ -340,24 +332,11 @@ class KvkkApiClient:
                 error_message=None
             )
             
-        except httpx.HTTPStatusError as e:
-            error_msg = f"HTTP error {e.response.status_code} when fetching decision document"
-            logger.error(f"KvkkApiClient: {error_msg}")
-            return KvkkDocumentMarkdown(
-                source_url=HttpUrl(decision_url),
-                title=None,
-                decision_date=None,
-                decision_number=None,
-                subject_summary=None,
-                markdown_chunk=None,
-                current_page=page_number,
-                total_pages=0,
-                is_paginated=False,
-                error_message=error_msg
-            )
         except Exception as e:
-            error_msg = f"Unexpected error when fetching decision document: {str(e)}"
-            logger.error(f"KvkkApiClient: {error_msg}")
+            # Driver/TLS text stays in the log; the result carries the typed
+            # marker, which the facade reads back into the typed fields.
+            logger.error(f"KvkkApiClient: fetching decision document failed: {e!r}")
+            error_msg = failure_marker(classify_exception_chain(e))
             return KvkkDocumentMarkdown(
                 source_url=HttpUrl(decision_url),
                 title=None,

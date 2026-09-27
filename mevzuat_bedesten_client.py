@@ -23,7 +23,12 @@ from bedesten_rate_limit import (
     BedestenRateLimited,
     bedesten_rate_limiter,
 )
-from legal_contracts import classify_exception_chain, failure_marker
+from legal_contracts import (
+    ProviderError,
+    UpstreamNotFound,
+    classify_exception_chain,
+    failure_marker,
+)
 from mevzuat_bedesten_models import (
     MevzuatTurEnum,
     BedMevzuatDocument,
@@ -74,6 +79,32 @@ def _failure_text(exc: BaseException) -> str:
     upstream or driver text.
     """
     return failure_marker(classify_exception_chain(exc))
+
+
+# Bedesten's own "does not exist" wording (Turkish and English, any case).
+_UPSTREAM_NOT_FOUND_RE = re.compile(r"bulunama|not found|mevcut de[gğ]il", re.IGNORECASE)
+
+
+def _upstream_reported_failure(meta: Any) -> str:
+    """Typed marker for an answer whose metadata says ``FMTY != SUCCESS``.
+
+    The upstream's own message (``FMTE``) used to be copied into
+    ``error_message`` and, through the legislation tools, onto the wire
+    ("UNAVAILABLE retry_after=30.0: Upstream reported an error: <FMTE>").
+    It is untrusted upstream prose: it goes to the server log, and the
+    caller gets the failure CLASS — NOT_FOUND when the upstream said the
+    record does not exist, otherwise a retryable UNAVAILABLE.
+    """
+    fmte = meta.get("FMTE") if isinstance(meta, dict) else None
+    fmty = meta.get("FMTY") if isinstance(meta, dict) else None
+    logger.warning("Bedesten reported FMTY=%r FMTE=%r", fmty, fmte)
+    if isinstance(fmte, str) and _UPSTREAM_NOT_FOUND_RE.search(fmte):
+        return failure_marker(
+            UpstreamNotFound("Upstream reported that the requested record does not exist.").failure()
+        )
+    return failure_marker(
+        ProviderError("Upstream reported an error for this request.", retryable=True).failure()
+    )
 
 
 def _wrap(data: dict) -> dict:
@@ -245,7 +276,7 @@ class BedestenClient:
             meta = body.get("metadata", {})
             if meta.get("FMTY") != "SUCCESS":
                 return BedSearchResult(
-                    error_message=meta.get("FMTE") or "Unknown error",
+                    error_message=_upstream_reported_failure(meta),
                     query_used=phrase,
                 )
 
@@ -290,7 +321,7 @@ class BedestenClient:
 
             meta = body.get("metadata", {})
             if meta.get("FMTY") != "SUCCESS":
-                return BedDocumentContent(error_message=meta.get("FMTE", "Unknown error"))
+                return BedDocumentContent(error_message=_upstream_reported_failure(meta))
 
             data = body.get("data") or {}
             raw = data.get("content", "")
@@ -323,7 +354,7 @@ class BedestenClient:
 
             meta = body.get("metadata", {})
             if meta.get("FMTY") != "SUCCESS":
-                return BedDocumentContent(error_message=meta.get("FMTE", "Unknown error"))
+                return BedDocumentContent(error_message=_upstream_reported_failure(meta))
 
             data = body.get("data") or {}
             decoded = _decode_base64(data.get("content", ""))
@@ -362,7 +393,7 @@ class BedestenClient:
 
             meta = body.get("metadata", {})
             if meta.get("FMTY") != "SUCCESS":
-                return [], meta.get("FMTE", "Unknown error")
+                return [], _upstream_reported_failure(meta)
 
             data = body.get("data") or {}
             # Tree response is {"children": [...]} at top level
@@ -398,7 +429,7 @@ class BedestenClient:
 
             meta = body.get("metadata", {})
             if meta.get("FMTY") != "SUCCESS":
-                return BedGerekceContent(error_message=meta.get("FMTE", "Unknown error"))
+                return BedGerekceContent(error_message=_upstream_reported_failure(meta))
 
             data = body.get("data") or {}
             raw = data.get("content", "")

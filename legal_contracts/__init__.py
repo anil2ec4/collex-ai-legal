@@ -16,6 +16,14 @@ from legal_contracts.outcomes import (
     classify_exception,
     classify_exception_chain,
     failure_marker,
+    failure_fields,
+    failure_from_marker,
+    FAILURE_KIND_ERROR_NAMES,
+    FAILURE_MARKER_RE,
+    ProviderError,
+    InvalidToolInput,
+    UpstreamContractError,
+    UpstreamNotFound,
 )
 
 __all__ = [
@@ -30,4 +38,12 @@ __all__ = [
     "classify_exception",
     "classify_exception_chain",
     "failure_marker",
+    "failure_fields",
+    "failure_from_marker",
+    "FAILURE_KIND_ERROR_NAMES",
+    "FAILURE_MARKER_RE",
+    "ProviderError",
+    "InvalidToolInput",
+    "UpstreamContractError",
+    "UpstreamNotFound",
 ]

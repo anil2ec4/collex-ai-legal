@@ -11,6 +11,8 @@ import io
 from urllib.parse import urlencode, urljoin
 from markitdown import MarkItDown
 
+from legal_contracts import UpstreamContractError, classify_exception_chain, failure_marker
+
 from .models import (
     GenelKurulSearchRequest, GenelKurulSearchResponse, GenelKurulDecision,
     TemyizKuruluSearchRequest, TemyizKuruluSearchResponse, TemyizKuruluDecision,
@@ -675,38 +677,23 @@ class SayistayApiClient:
                     decision_type=decision_type,
                     source_url=document_url,
                     markdown_content=None,
-                    error_message=f"Failed to convert HTML to Markdown: {markdown_content}"
+                    # The converter's own text may quote an exception; only
+                    # the typed marker reaches the caller.
+                    error_message=failure_marker(
+                        UpstreamContractError("Document could not be converted to Markdown.").failure()
+                    ),
                 )
-                
-        except httpx.HTTPStatusError as e:
-            error_msg = f"HTTP error {e.response.status_code} when fetching document: {e}"
-            logger.error(f"HTTP error fetching document {decision_id}: {error_msg}")
-            return SayistayDocumentMarkdown(
-                decision_id=decision_id,
-                decision_type=decision_type,
-                source_url=document_url,
-                markdown_content=None,
-                error_message=error_msg
-            )
-        except httpx.RequestError as e:
-            error_msg = f"Network error when fetching document: {e}"
-            logger.error(f"Network error fetching document {decision_id}: {error_msg}")
-            return SayistayDocumentMarkdown(
-                decision_id=decision_id,
-                decision_type=decision_type,
-                source_url=document_url,
-                markdown_content=None,
-                error_message=error_msg
-            )
+
         except Exception as e:
-            error_msg = f"Unexpected error when fetching document: {e}"
-            logger.error(f"Unexpected error fetching document {decision_id}: {error_msg}")
+            # HTTP/TLS/driver text stays in the server log; the result carries
+            # the shared typed marker (the facade adds the typed fields).
+            logger.error(f"Error fetching Sayıştay document {decision_id}: {e!r}")
             return SayistayDocumentMarkdown(
                 decision_id=decision_id,
                 decision_type=decision_type,
                 source_url=document_url,
                 markdown_content=None,
-                error_message=error_msg
+                error_message=failure_marker(classify_exception_chain(e))
             )
 
     async def close_client_session(self):

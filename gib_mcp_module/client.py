@@ -8,6 +8,14 @@ import math
 from typing import Optional, Any, Dict
 from markitdown import MarkItDown
 
+from legal_contracts import (
+    InvalidToolInput,
+    UpstreamContractError,
+    UpstreamNotFound,
+    classify_exception_chain,
+    failure_marker,
+)
+
 from .models import (
     GibSearchRequest,
     GibOzelgeSummary,
@@ -232,6 +240,22 @@ class GibApiClient:
             parts.append("\n".join(meta_lines))
         return "\n\n".join(parts).strip()
 
+    @staticmethod
+    def _failed(ozelge_id: int, page_number: int, failure) -> GibDocumentMarkdown:
+        """A failed retrieval whose ``error_message`` is the typed marker only.
+
+        The tool facade (mcp_server_main.get_gib_ozelge_document_markdown)
+        reads the marker back into the typed fields; no driver or upstream
+        text is ever put here.
+        """
+        return GibDocumentMarkdown(
+            ozelge_id=ozelge_id,
+            current_page=page_number,
+            total_pages=0,
+            is_paginated=False,
+            error_message=failure_marker(failure),
+        )
+
     async def get_ozelge_document(
         self, ozelge_id: int, page_number: int = 1
     ) -> GibDocumentMarkdown:
@@ -241,12 +265,10 @@ class GibApiClient:
         )
 
         if not isinstance(ozelge_id, int) or ozelge_id <= 0:
-            return GibDocumentMarkdown(
-                ozelge_id=ozelge_id if isinstance(ozelge_id, int) else 0,
-                current_page=page_number,
-                total_pages=0,
-                is_paginated=False,
-                error_message="ozelge_id must be a positive integer",
+            return self._failed(
+                ozelge_id if isinstance(ozelge_id, int) else 0,
+                page_number,
+                InvalidToolInput("ozelge_id must be a positive integer").failure(),
             )
 
         body = {
@@ -261,36 +283,26 @@ class GibApiClient:
             resp = await self.http_client.post(self.LIST_PATH, params=query, json=body)
             resp.raise_for_status()
             payload = resp.json()
-        except httpx.HTTPStatusError as e:
-            msg = f"HTTP {e.response.status_code} when fetching özelge {ozelge_id}"
-            logger.error("GibApiClient: %s", msg)
-            return GibDocumentMarkdown(
-                ozelge_id=ozelge_id,
-                current_page=page_number,
-                total_pages=0,
-                is_paginated=False,
-                error_message=msg,
-            )
+            if payload is not None and not isinstance(payload, dict):
+                raise UpstreamContractError("Upstream response was not the documented shape.")
+            container = (payload or {}).get("resultContainer") or {}
+            if not isinstance(container, dict):
+                raise UpstreamContractError("Upstream response was not the documented shape.")
+            content = container.get("content") or []
+            if not isinstance(content, list):
+                raise UpstreamContractError("Upstream response was not the documented shape.")
         except Exception as e:
-            msg = f"Request failed: {e}"
-            logger.error("GibApiClient: %s", msg)
-            return GibDocumentMarkdown(
-                ozelge_id=ozelge_id,
-                current_page=page_number,
-                total_pages=0,
-                is_paginated=False,
-                error_message=msg,
-            )
+            # Driver/TLS text stays in the server log; the wire gets the
+            # typed marker (W22 open item: "[SSL: CERTIFICATE_VERIFY_FAILED]"
+            # used to ride in error_message as "Request failed: …").
+            logger.error("GibApiClient: fetching özelge %s failed: %s", ozelge_id, e)
+            return self._failed(ozelge_id, page_number, classify_exception_chain(e))
 
-        container = (payload or {}).get("resultContainer") or {}
-        content = container.get("content") or []
         if not content:
-            return GibDocumentMarkdown(
-                ozelge_id=ozelge_id,
-                current_page=page_number,
-                total_pages=0,
-                is_paginated=False,
-                error_message=f"Özelge {ozelge_id} not found",
+            return self._failed(
+                ozelge_id,
+                page_number,
+                UpstreamNotFound(f"Özelge {ozelge_id} not found").failure(),
             )
 
         item = content[0] if isinstance(content[0], dict) else {}
@@ -315,7 +327,9 @@ class GibApiClient:
                 current_page=page_number,
                 total_pages=0,
                 is_paginated=False,
-                error_message="Document body is empty",
+                error_message=failure_marker(
+                    UpstreamContractError("Document body is empty").failure()
+                ),
             )
 
         total_pages = max(

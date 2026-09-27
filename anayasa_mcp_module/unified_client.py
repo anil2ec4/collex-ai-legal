@@ -4,6 +4,8 @@
 # on search, and by the document URL (?type=...) on document retrieval.
 
 import logging
+
+from legal_contracts import InvalidToolInput
 from typing import Optional, Tuple
 
 from .models import (
@@ -81,7 +83,7 @@ class AnayasaUnifiedClient:
                 retrieved_page_number=result.retrieved_page_number,
             )
 
-        raise ValueError(f"Unsupported decision type: {params.decision_type}")
+        raise InvalidToolInput(f"Unsupported decision type: {params.decision_type}")
 
     async def get_document_unified(self, document_url: str, page_number: int = 1) -> AnayasaUnifiedDocumentMarkdown:
         """Unified document retrieval that auto-detects the decision type from the URL."""
