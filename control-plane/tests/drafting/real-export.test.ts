@@ -65,6 +65,46 @@ describe("real export.cli round-trip (venv Python)", () => {
     expect(bytes.subarray(0, 4)).toEqual(Buffer.from([80, 75, 3, 4]));
     expect(bytes.length).toBeGreaterThan(10_000);
   }, 60_000);
+  it.skipIf(!HAVE_PYTHON)(
+    "2026-09-27: a sectioned contract with excerpts, a negation and an unattached observation passes the exporter's self-check",
+    async () => {
+      const app = createContractsRouter({ repoRoot: REPO_ROOT, pythonPath: PYTHON });
+      const response = await app.request("/v1/contracts/review/export", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          documentTitle: "Kira formu (SENTETİK)",
+          text: [
+            "KİRA SÖZLEŞMESİ",
+            "",
+            "Kira Bedelinin Ödeneceği Hesap : TR12 IBAN numaralı hesap",
+            "",
+            "GENEL ŞARTLAR",
+            "",
+            "1- Kiracı kiralananı özenle kullanır.",
+            "2- Kiracıdan depozito alınmamıştır.",
+            "",
+            "ÖZEL ŞARTLAR",
+            "",
+            "1- Kiracı 50.000 TL güvence bedelini bankaya yatırmıştır.",
+          ].join("\n"),
+          checklist: { id: "kira", title: "Kira", items: [
+            { id: "depozito", label: "Depozito", terms: ["güvence bedeli", "depozito"] },
+            { id: "iban", label: "IBAN", terms: ["iban"] },
+            { id: "kefil", label: "Kefil", terms: ["kefil"] },
+          ] },
+          observations: [
+            { clauseIndex: 0, text: "<b>Riskli</b> bir giriş." },
+            { clauseIndex: 99, text: "Bu gözlem bir maddeye bağlanamaz." },
+          ],
+        }),
+      });
+      expect(response.status).toBe(200);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      expect(bytes.subarray(0, 4)).toEqual(Buffer.from([80, 75, 3, 4]));
+    },
+    60_000,
+  );
   it.skipIf(!HAVE_PYTHON)("writes DOCX and UDF for a composed draft, refuses a tampered one", async () => {
     const draft = composeDraft(
       davaRequest(),

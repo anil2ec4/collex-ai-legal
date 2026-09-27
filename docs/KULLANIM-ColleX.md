@@ -916,9 +916,18 @@ kullanmaz."* ve *"'yok' satırı, aranan başlığın metinde bulunamadığını
 söyler; maddenin gerekli olup olmadığına avukat karar verir."*
 Ayrıca **"risk" kelimesi yalnız doğrulanmış bir alıntıya bağlı satırda
 kalabilir**: kaynağı olmayan bir gözlem "⚠ KAYNAKSIZ —" ile başlar ve
-içindeki "risk", "riskli", "risklerin" gibi bütün biçimler "gözlem"e
-çevrilir. Böylece o satır bağlamından koparılıp okunsa bile bir risk
-değerlendirmesi gibi görünmez.
+içindeki "risk", "riskli", "risklerin" gibi bütün biçimlerde "risk" kökü
+"gözlem"e çevrilir ("riskli" → "gözlemli"). Böylece o satır bağlamından
+koparılıp okunsa bile bir risk değerlendirmesi gibi görünmez. Bir alıntı
+ancak ColleX'in kendi kaydettiği bir araştırma sonucunda aynen duruyorsa
+"doğrulanmış" sayılır.
+
+Raporda "var" ya da "belirsiz" çıkan her satırın altında, sözleşmenin o
+satırı karşılayan **kendi cümlesi** ve madde adı ("Özel Şartlar 1",
+"Madde 5", "Giriş") yazılıdır; eşleşmenin doğru olup olmadığını o cümleyi
+okuyarak görürsünüz. Aranan ifade olumsuz bir cümlede geçiyorsa
+("depozito alınmamıştır") satır "var" değil "belirsiz" olur ve nedeni
+yazılır.
 
 ### Karar ve mevzuat bul
 

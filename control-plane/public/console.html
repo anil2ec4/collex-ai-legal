@@ -2296,6 +2296,8 @@ table.feetable tr.total td { border-top: 2px solid var(--line-strong); border-bo
 .clitem { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--sp-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: var(--sp-3); margin-bottom: var(--sp-2); }
 .obsline { font-size: var(--fs-sm); line-height: var(--lh-body); padding: var(--sp-1) 0; }
 .obsline.unsourced { color: var(--bad); border-left: 3px solid var(--bad); padding-left: var(--sp-2); }
+.clexcerpt { font-size: var(--fs-xs); line-height: var(--lh-body); color: var(--ink-soft); border-left: 2px solid var(--line-strong); padding-left: var(--sp-2); margin-top: var(--sp-1); }
+.clexcerpt.neg { border-left-color: var(--bad); }
 
 /* --- Yedekleme --- */
 .backline { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); align-items: baseline; font-size: var(--fs-sm); }
@@ -17956,7 +17958,7 @@ details.tech .techline {
       l1.addEventListener("input", function () { checklistDraft.items[i].label = this.value; });
       var l2 = labelledInput(r, "cl-terms-" + i, "Aranacak ifadeler (virgülle)", b2TextInput("depozito, güvence bedeli", it.terms));
       l2.addEventListener("input", function () { checklistDraft.items[i].terms = this.value; });
-      var l3 = labelledInput(r, "cl-weak-" + i, "Şüpheli ifadeler — bunlardan biri geçerse madde “kesin var” değil “şüpheli” işaretlenir", b2TextInput("teminat", it.weakTerms));
+      var l3 = labelledInput(r, "cl-weak-" + i, "Şüpheli ifadeler — aranan ifadelerin hiçbiri geçmez de yalnızca bunlardan biri geçerse madde “var” değil “belirsiz” işaretlenir", b2TextInput("teminat", it.weakTerms));
       l3.addEventListener("input", function () { checklistDraft.items[i].weakTerms = this.value; });
       var l4 = labelledInput(r, "cl-note-" + i, "Kendi notunuz (isteğe bağlı — inceleme sonucunda bu satırın altında görünür)", b2TextInput("", it.note));
       l4.addEventListener("input", function () { checklistDraft.items[i].note = this.value; });
@@ -18038,7 +18040,8 @@ details.tech .techline {
     head.appendChild(el("h3", "fname", (body.documentTitle || "Sözleşme") + (body.checklistTitle ? " — " + body.checklistTitle : "")));
     head.appendChild(chip(body.clauseCount + " madde", "mute"));
     var t = body.totals || {};
-    head.appendChild(chip((t.VAR || 0) + " madde sözleşmede bulundu", "ok"));
+    /* VAR counts CHECKLIST ITEMS, not clauses of the contract. */
+    head.appendChild(chip((t.VAR || 0) + " kontrol maddesinin karşılığı bulundu", "ok"));
     head.appendChild(chip((t.YOK || 0) + " yok", "bad"));
     head.appendChild(chip((t.BELIRSIZ || 0) + " belirsiz", "mute"));
     card.appendChild(head);
@@ -18054,10 +18057,25 @@ details.tech .techline {
       var mid = el("div");
       mid.appendChild(el("div", null, f.label || f.itemId));
       var why = [];
-      if ((f.clauseNumbers || []).length) { why.push("Madde " + f.clauseNumbers.join(", ")); }
-      if (f.matchedTerm) { why.push("sözleşmede geçen ifade: “" + f.matchedTerm + "”"); }
+      /* clauseLabels name "Özel Şartlar 1" apart from "Genel Şartlar 1";
+         a report without them falls back to the bare numbers. */
+      var labels = f.clauseLabels || [];
+      if (labels.length) { why.push(labels.join(", ")); }
+      else if ((f.clauseNumbers || []).length) { why.push("Madde " + f.clauseNumbers.join(", ")); }
+      if (f.matchedTerm) { why.push("aranan ifade: “" + f.matchedTerm + "”"); }
       if (f.note) { why.push(f.note); }
       if (why.length) { mid.appendChild(el("div", "why", why.join(" · "))); }
+      if (f.reason) { mid.appendChild(el("div", "why", f.reason)); }
+      /* The contract's own sentence under every var/belirsiz row, so a wrong
+         match is visible to the lawyer. Text only. */
+      (f.matches || []).forEach(function (m) {
+        var marks = [];
+        if (m.negated) { marks.push("olumsuz ifade"); }
+        if (m.strength === "weak") { marks.push("şüpheli ifade"); }
+        mid.appendChild(el("div", "clexcerpt" + (m.negated ? " neg" : ""),
+          (m.clauseLabel || ("Madde " + (m.clauseNumber || ""))) + ": “" + (m.excerpt || "") + "”" +
+          (marks.length ? " (" + marks.join(", ") + ")" : "")));
+      });
       row.appendChild(mid);
       row.appendChild(el("span", "why", ""));
       card.appendChild(row);
@@ -18066,7 +18084,14 @@ details.tech .techline {
 
     var obs = [];
     (body.clauses || []).forEach(function (c) {
-      (c.observations || []).forEach(function (o) { obs.push({ clause: c.clauseNumber, o: o }); });
+      (c.observations || []).forEach(function (o) {
+        obs.push({ where: c.label || ("Madde " + c.clauseNumber), o: o });
+      });
+    });
+    /* An observation whose clause does not exist is shown with its reason,
+       never silently dropped. */
+    (body.unattachedObservations || []).forEach(function (o) {
+      obs.push({ where: "Maddeye bağlanamadı", o: o, note: o.note || "" });
     });
     if (obs.length) {
       var oc = el("section", "card");
@@ -18075,9 +18100,10 @@ details.tech .techline {
         "Aşağıdakiler hukukî değerlendirme değildir; sözleşme metninde geçen ifadelerin altı çizilmiştir. Değerlendirme size aittir."));
       obs.forEach(function (x) {
         var line = el("div", "obsline" + (x.o.sourced === false ? " unsourced" : ""),
-          "Madde " + x.clause + " — " + (x.o.text || ""));
+          x.where + " — " + (x.o.text || ""));
         if (x.o.sourced === true && x.o.evidenceLabel) { line.appendChild(chip(x.o.evidenceLabel, "mute")); }
         oc.appendChild(line);
+        if (x.note) { oc.appendChild(el("div", "why", x.note)); }
       });
       out.appendChild(anim(oc));
     }

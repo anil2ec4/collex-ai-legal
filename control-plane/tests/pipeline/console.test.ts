@@ -1642,11 +1642,31 @@ describe("W14 B2 · new screens", () => {
     // checklist editor labels (W14-L-EVID §8.6)
     // W15 şerit E: "zayıf ifade" ve "Notum" tanımsız etiketlerdi; her ikisi de
     // artık ne yaptıklarını kendi etiketlerinde söylüyor.
+    // 2026-09-27: the weak-term label said ANY weak hit made the row
+    // "şüpheli"; the engine (and ChecklistItem.weakTerms) makes it BELİRSİZ
+    // only when no strong term matched — the label now says what runs.
     for (const label of ["Aranacak ifadeler (virgülle)",
-      "Şüpheli ifadeler — bunlardan biri geçerse madde “kesin var” değil “şüpheli” işaretlenir",
+      "Şüpheli ifadeler — aranan ifadelerin hiçbiri geçmez de yalnızca bunlardan biri geçerse madde “var” değil “belirsiz” işaretlenir",
       "Kendi notunuz (isteğe bağlı — inceleme sonucunda bu satırın altında görünür)"]) {
       expect(html).toContain(label);
     }
+    expect(html).not.toContain("“kesin var” değil “şüpheli”");
+  });
+
+  it("B-24 Sözleşme (2026-09-27): counts checklist items, quotes the contract, drops nothing", () => {
+    // The VAR chip counts CHECKLIST ITEMS; "N madde sözleşmede bulundu" read
+    // as a count of the contract's clauses.
+    expect(html).toContain('chip((t.VAR || 0) + " kontrol maddesinin karşılığı bulundu", "ok")');
+    expect(html).not.toContain('" madde sözleşmede bulundu"');
+    // the section-aware label and the contract's own sentence, as text
+    expect(html).toContain("var labels = f.clauseLabels || [];");
+    expect(html).toContain('(f.matches || []).forEach(function (m) {');
+    expect(html).toContain('mid.appendChild(el("div", "clexcerpt" + (m.negated ? " neg" : ""),');
+    expect(html).toContain('if (f.reason) { mid.appendChild(el("div", "why", f.reason)); }');
+    expect(html).toContain(".clexcerpt { font-size: var(--fs-xs);");
+    // an observation whose clause does not exist is shown, never dropped
+    expect(html).toContain("(body.unattachedObservations || []).forEach(function (o) {");
+    expect(html).toContain('obs.push({ where: c.label || ("Madde " + c.clauseNumber), o: o });');
   });
 
   it("B-19 klasör bırakma: recursive walk, unsupported files named not swallowed", () => {
