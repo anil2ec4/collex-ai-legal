@@ -63,6 +63,11 @@ import { STAGE_SCHEMA_VERSION } from "./stageTypes.js";
 import { ANALYSIS_TASKS, TASK_SPECS, taskAvailability, type AnalysisTask } from "./tasks.js";
 import type { WorkerModelRoutes } from "./worker.js";
 
+
+/** A run that is no longer queued or working (done, failed, cancelled). */
+function runEndedOf(status: string): boolean {
+  return !["queued", "mapping", "aggregating", "reducing"].includes(status);
+}
 export const analysisRequestSchema = z
   .object({
     task: z.enum(ANALYSIS_TASKS).default("full_review"),
@@ -402,7 +407,8 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
       intelligenceCoverage: layers.intelligence,
       // The ONLY field that may license "the analysis is complete".
       analysisCompleteness: completeness,
-      coverageSummary: coverage === null ? null : coverageSentenceTr(coverage),
+      coverageSummary:
+        coverage === null ? null : coverageSentenceTr(coverage, { runEnded: runEndedOf(run.status) }),
       // Present whenever an exhaustive claim is NOT permitted. A caller that
       // renders "tüm çelişkiler" must check this first.
       // W21: also refused while extraction or an analytical stage is
@@ -411,7 +417,9 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
       exhaustiveClaimRefusedBecause:
         coverage === null
           ? "İnceleme kapsamı hesaplanamadı."
-          : refuseExhaustiveClaim(coverage) ?? completeness?.refusedBecause ?? notCurrent,
+          : refuseExhaustiveClaim(coverage, { runEnded: runEndedOf(run.status) }) ??
+            completeness?.refusedBecause ??
+            notCurrent,
       // A finished run is an immutable snapshot of the versions it read; a
       // newer upload of one of those files makes the result STALE, and the
       // lawyer is told which files changed rather than shown old findings as
@@ -669,7 +677,10 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
         sourceChanged: drift.changed,
         sourceAdded: drift.added,
         sourceRemoved: drift.removed,
-        coverageSummary: run.coverage === undefined ? null : coverageSentenceTr(run.coverage),
+        coverageSummary:
+          run.coverage === undefined
+            ? null
+            : coverageSentenceTr(run.coverage, { runEnded: runEndedOf(run.status) }),
       });
     }
     return c.json({ runs: views });
@@ -691,7 +702,10 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
         finishedAt: run.finishedAt,
         complete: !stale && (run.coverage?.complete ?? false),
         analysisComplete: !stale && !drift.membersUnknown && analysisCompleteOf(run),
-        coverageSummary: run.coverage === undefined ? null : coverageSentenceTr(run.coverage),
+        coverageSummary:
+          run.coverage === undefined
+            ? null
+            : coverageSentenceTr(run.coverage, { runEnded: runEndedOf(run.status) }),
         // Derived intelligence is a cache: when a source changed, or the
         // matter gained or lost a document, the cached result is flagged stale
         // and a new run is needed to rebuild it.

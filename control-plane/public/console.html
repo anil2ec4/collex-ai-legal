@@ -11356,7 +11356,9 @@ details.tech .techline {
     SPARSE_PAGE: "çok az metin çıkan sayfa",
     FILE_EXTRACTION_FAILED: "belge açılamadı",
     UNIT_FAILED: "bu bölüm incelenemedi",
-    UNIT_NOT_PROCESSED: "bu bölüm henüz işlenmedi",
+    /* This box is drawn only after the run stopped: an unprocessed unit was
+       left unprocessed, it is not "yet to come" (W21: never "henüz"). */
+    UNIT_NOT_PROCESSED: "bu bölüm işlenmeden kaldı (inceleme tamamlanmadı)",
     NO_ANALYSIS_UNITS: "belgede incelenecek bölüm bulunamadı",
     TEXT_OUTSIDE_UNITS: "incelenmemiş metin",
     EXCLUDED_BY_REQUEST: "incelemeden çıkarıldı",

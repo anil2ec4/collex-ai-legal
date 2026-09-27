@@ -377,7 +377,10 @@ describe("cancellation, retries, terminal failure", () => {
     expect(view.body.processingCoverage.gaps).toContainEqual(
       expect.objectContaining({ reason: "UNIT_NOT_PROCESSED" }),
     );
-    expect(view.body.exhaustiveClaimRefusedBecause).toContain("henüz işlenmedi");
+    // W21 hostile review: a cancelled run's gaps say "tamamlanmadı", never
+    // "henüz" (this assertion used to pin the forbidden wording).
+    expect(view.body.exhaustiveClaimRefusedBecause).toContain("işlenmeden kaldı (inceleme tamamlanmadı)");
+    expect(view.body.exhaustiveClaimRefusedBecause).not.toContain("henüz");
     const again = await post(app_(), `/v1/matters/${matterId}/analysis/${run.runId}/cancel`);
     expect(again.status).toBe(409);
   });

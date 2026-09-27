@@ -219,7 +219,15 @@ export function deriveCoverage(tally: CoverageTally): ProcessingCoverage {
  * vocabulary — the reader is a lawyer, and the numbers are documents and
  * pages, not units of work.
  */
-export function coverageSentenceTr(coverage: ProcessingCoverage): string {
+/**
+ * `runEnded`: the run has stopped (done, failed, cancelled). Its unprocessed
+ * units are then left unprocessed, not "yet to come" — W21 hostile review:
+ * "a failed or cancelled run's gaps say 'tamamlanmadı', never 'henüz'".
+ */
+export function coverageSentenceTr(
+  coverage: ProcessingCoverage,
+  options: { runEnded?: boolean } = {},
+): string {
   if (coverage.filesTotal === 0) {
     return "İncelenecek belge seçilmedi.";
   }
@@ -253,7 +261,11 @@ export function coverageSentenceTr(coverage: ProcessingCoverage): string {
     coverage.analysisUnitsProcessed -
     coverage.analysisUnitsFailed;
   if (notProcessed > 0) {
-    parts.push(`${notProcessed} bölüm henüz işlenmedi`);
+    parts.push(
+      options.runEnded === true
+        ? `${notProcessed} bölüm işlenmeden kaldı (inceleme tamamlanmadı)`
+        : `${notProcessed} bölüm henüz işlenmedi`,
+    );
   }
   if (coverage.gaps.some((gap) => gap.reason === "SYNTHESIS_FAILED")) {
     parts.push("değerlendirme aşaması tamamlanamadı");
@@ -303,8 +315,9 @@ export function qualityGapsTr(coverage: ProcessingCoverage): string[] {
  */
 export function refuseExhaustiveClaim(
   coverage: ProcessingCoverage,
+  options: { runEnded?: boolean } = {},
 ): string | undefined {
   if (coverage.complete) return undefined;
   if (coverage.filesTotal === 0) return "Hiç belge seçilmedi.";
-  return coverageSentenceTr(coverage);
+  return coverageSentenceTr(coverage, options);
 }
