@@ -2258,6 +2258,16 @@ button.calitem:hover { box-shadow: var(--shadow); }
 .calrow .mt { font-size: var(--fs-xs); color: var(--ink-soft); }
 .calrow .mt a { color: var(--seal); text-decoration: none; }
 .calrow .mt a:hover { text-decoration: underline; }
+/* 27.09.2026: at 390 px the five main tabs needed 390 px in a 362 px strip
+   and the last one showed as "Ayar…" cut at the edge (the strip scrolls,
+   but nothing says so). Narrower horizontal padding lets all five fit at
+   390 and at 360 px; the strip still scrolls if a font renders wider. */
+@media (max-width: 420px) {
+  .viewtab, body.compact .viewtab { padding-left: 7px; padding-right: 7px; }
+}
+@media (max-width: 374px) {
+  .viewtab, body.compact .viewtab { padding-left: 4px; padding-right: 4px; font-size: 13px; }
+}
 @media (max-width: 640px) { .calrow { grid-template-columns: minmax(0, 1fr) auto; } .calrow .due { grid-column: 1 / -1; } }
 .prepgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-4); }
 
