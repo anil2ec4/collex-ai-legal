@@ -90,7 +90,7 @@ const CASES: Case[] = [
     baseDueDate: "2026-08-30",
     applied: false,
     stepsInclude: ["Zafer Bayramı", "hafta sonu (Pazar)", "uzama uygulanmadı"],
-    warningsInclude: ["applyAdliTatil=false", "07.09.2026"],
+    warningsInclude: ["uzatmasını uygula” seçeneği kapatıldı", "07.09.2026"],
   },
   {
     name: "7 Eylül on a Sunday (2025) rolls to 08.09.2025",
@@ -160,11 +160,15 @@ const CASES: Case[] = [
     warningsInclude: ["uzaması uygulanmadı", "İİK m.62/1"],
   },
   {
-    name: "İİK m.62 forced applyAdliTatil=true -> 07.09.2026 with a 'zorlandı' warning",
+    // 27.09.2026: the switch used to move this to 07.09.2026 — a month after
+    // the takip became final. A rule marked "not subject to adli tatil" is
+    // never extended, whatever the switch says.
+    name: "İİK m.62 with the switch on stays 10.08.2026: the rule forbids the extension",
     input: { ruleId: "iik-odeme-emri-itiraz", startDate: "2026-08-01", applyAdliTatil: true },
-    dueDate: "2026-09-07",
-    applied: true,
-    warningsInclude: ["zorlandı", "10.08.2026"],
+    dueDate: "2026-08-10",
+    applied: false,
+    warningsInclude: ["uzaması uygulanmadı", "son gününü değiştirmez"],
+    warningsExclude: ["07.09.2026", "applyAdliTatil"],
   },
   {
     name: "İİK m.168 kambiyo 5 gün: 03.09.2026 -> 08.09.2026 Salı",
@@ -203,7 +207,7 @@ const CASES: Case[] = [
     input: { ruleId: "cmk-istinaf", startDate: "2026-07-25", applyAdliTatil: true },
     dueDate: "2026-08-10",
     applied: false,
-    warningsInclude: ["CMK m.331", "applyAdliTatil=true"],
+    warningsInclude: ["CMK m.331", "uzatmasını uygula” seçeneği CMK'da"],
   },
   {
     name: "custom 1 ay from 31.01.2028 -> 29.02.2028 Salı (no such day -> month's last day, leap year)",

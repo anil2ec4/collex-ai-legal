@@ -12166,6 +12166,11 @@ details.tech .techline {
       var r = byId[ruleSel.value];
       customRow.hidden = ruleSel.value !== "__custom";
       atCb.checked = r ? r.adliTatilApplies === true : false;
+      /* A rule the law does not extend (adliTatileTabi === false) cannot be
+         extended from here either: the engine ignores the switch for it, so
+         the switch is drawn off and says why. */
+      atCb.disabled = !!(r && r.adliTatileTabi === false);
+      atLab.title = atCb.disabled ? "Bu sürede adli tatil uzaması uygulanmaz." : "";
       ruleNotes.textContent = "";
       if (r) {
         ruleNotes.appendChild(el("p", "note-p", "Dayanak: " + (r.reference ? r.reference.label : "-") +
@@ -17640,7 +17645,7 @@ details.tech .techline {
     ], "dava-harci"));
     labelledInput(form, "harc-deger", "Dava değeri (TL)", numberInput("100000"));
     labelledInput(form, "harc-mahkeme", "Mahkeme", selectInput([
-      ["", "— seçin —"], ["sulh", "Sulh / icra"], ["asliye", "Asliye / idare"], ["kanun-yolu", "Kanun yolu"]
+      ["", "— seçin —"], ["sulh", "Sulh / icra"], ["asliye", "Asliye / idare"]
     ], "asliye"));
     labelledInput(form, "harc-yol", "Kanun yolu", selectInput([
       ["", "— seçin —"], ["hmk-istinaf", "HMK istinaf"], ["hmk-temyiz", "HMK temyiz"],

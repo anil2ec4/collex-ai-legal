@@ -118,9 +118,17 @@ export class FeeInputError extends Error {
   }
 }
 
-/** TL rounding: 2 decimals, half-up on the absolute value. */
+/**
+ * TL rounding: 2 decimals, half-up on the decimal value the lawyer typed.
+ *
+ * `value * 100` carries binary noise (18.500 × 68,31 ‰ = 1263,735 is stored
+ * as 1263.73499…), and adding `Number.EPSILON` does nothing above 1: 344
+ * whole-lira values between 1 and 5.000.000 TL came out one kuruş low.
+ * Rounding the product to 12 significant digits first removes the noise
+ * without moving any real value (TL amounts never need more than 12).
+ */
 export function roundTl(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
+  return Math.round(Number((value * 100).toPrecision(12))) / 100;
 }
 
 function formatTl(value: number): string {
@@ -225,6 +233,17 @@ export function computeFees(input: FeeComputeInput, options: FeeComputeOptions =
   if (input.kind === "dava-harci") {
     const deger = requirePositiveValue(input.davaDegeri, "davaDegeri");
     const court: FeeCourtKind = input.mahkeme ?? "asliye";
+    if (court === "kanun-yolu") {
+      // "Dava açılışında ödenecek toplam" is a first-instance sum: the A/I-3
+      // başvurma harcı plus a quarter of the NISPI first-instance harç plus
+      // gider avansı was a number no istinaf or temyiz dilekçesi ever pays,
+      // and the A/IV kanun yolu harçları are not modelled here.
+      throw new FeeInputError(
+        "INVALID_REQUEST",
+        "Dava harcı hesabı ilk derece mahkemesinde dava açılışı içindir. Kanun yolu (istinaf/temyiz) harçları (492 s.K. (1) sayılı tarife A/IV) bu hesapta yok; kanun yolu başvurma harcını tarife listesinden okuyun.",
+        "mahkeme",
+      );
+    }
 
     steps.push({
       id: "dava-degeri",
@@ -257,6 +276,8 @@ export function computeFees(input: FeeComputeInput, options: FeeComputeOptions =
     const nispi = resolve(tariff, "karar-ilam-harci-nispi-orani", overrides);
     track(nispi);
     let kararIlam: number | null = null;
+    /** The tariff floor for nispi harçlar, when known (A/III-1 son fıkra). */
+    let asgariFloor: { value: number; label: string } | null = null;
     if (nispi.value === null) {
       steps.push(unknownStep("karar-ilam-harci", nispi.line.title, nispi.line));
       eksik.push(nispi.line.id);
@@ -275,6 +296,9 @@ export function computeFees(input: FeeComputeInput, options: FeeComputeOptions =
 
       const asgari = resolve(tariff, "karar-ilam-harci-nispi-asgari", overrides);
       track(asgari);
+      if (asgari.value !== null) {
+        asgariFloor = { value: roundTl(asgari.value), label: asgari.line.reference.label };
+      }
       if (asgari.value === null) {
         steps.push({
           id: "karar-ilam-harci-asgari",
@@ -330,11 +354,19 @@ export function computeFees(input: FeeComputeInput, options: FeeComputeOptions =
       });
       if (pesinOran.value === null) eksik.push(pesinOran.line.id);
     } else {
-      pesin = roundTl(kararIlam * pesinOran.value);
+      const quarter = roundTl(kararIlam * pesinOran.value);
+      // The peşin harç is itself a nispi harç, and "nispi harçlar … alt
+      // sınırdan aşağı olamaz": a quarter of a floored karar harcı (732 TL →
+      // 183 TL in 2026) under-collects, and an eksik harç stalls the filing
+      // (492 s.K. m.30). UYAP collects the floor; so does this computation.
+      const floored = asgariFloor !== null && quarter < asgariFloor.value;
+      pesin = floored ? asgariFloor!.value : quarter;
       steps.push({
         id: "pesin-harc",
         label: "Peşin harç (dava açılışında yatırılan)",
-        detail: `${formatTl(kararIlam)} × ${pesinOran.value.toLocaleString("tr-TR")} = ${formatTl(pesin)} (${pesinOran.line.reference.label}). Oranı madde metniyle doğrulayın.`,
+        detail: floored
+          ? `${formatTl(kararIlam)} × ${pesinOran.value.toLocaleString("tr-TR")} = ${formatTl(quarter)}; nispi harç alt sınırın altında alınamayacağından peşin harç olarak alt sınır esas alındı: ${formatTl(pesin)} (${pesinOran.line.reference.label}; ${asgariFloor!.label}). Oranı ve alt sınırın peşin harca uygulanışını madde metniyle doğrulayın.`
+          : `${formatTl(kararIlam)} × ${pesinOran.value.toLocaleString("tr-TR")} = ${formatTl(pesin)} (${pesinOran.line.reference.label}). Oranı madde metniyle doğrulayın.`,
         amount: pesin,
         durum: "hesaplandi",
         lineId: pesinOran.line.id,
@@ -526,12 +558,60 @@ export function computeFees(input: FeeComputeInput, options: FeeComputeOptions =
   }
 
   const sinir = roundTl(limit.value);
-  const acik = deger > sinir;
-  if (!limit.fromUser && limit.line.yenidenDegerlemeyeTabi) {
+  const tabanOnly = !limit.fromUser && limit.line.yenidenDegerlemeyeTabi;
+  if (tabanOnly) {
     warnings.push(
       `Kullanılan ${formatTl(sinir)} tutarı KANUNDAKİ TABAN tutardır, uygulanacak güncel sınır değildir; ${limit.line.reference.label} sınırı her takvim yılı başında yeniden değerleme oranında artar. Bu yılın rakamını girin.`,
     );
   }
+  // A verdict needs this year's limit. The statutory base only settles the
+  // question one way: the revalued limit can never be BELOW the base, so a
+  // value at or under the base is kesin under any year's limit. A value
+  // above the base proves nothing — it used to print "kanun yolu AÇIKTIR"
+  // for 20.000 TL against the 3.000 TL base of HMK m.341 while the real
+  // limit was an order of magnitude higher, i.e. it sent the lawyer to
+  // istinaf against a final decision while the AYM bireysel başvuru period
+  // (6216 m.47/5) ran out.
+  if (tabanOnly && deger > sinir) {
+    steps.push({
+      id: "kesinlik-siniri",
+      label: limit.line.title,
+      detail: `Kanundaki taban tutar ${formatTl(sinir)} (${limit.line.reference.label}); bu yılın güncel sınırı bu tutardan yüksektir ve girilmedi. ${FEE_AMOUNT_UNKNOWN_TEXT}`,
+      amount: null,
+      durum: "TUTAR_GEREKLI",
+      lineId: limit.line.id,
+      kullaniciDegeri: false,
+      verified: limit.line.verified.status,
+    });
+    steps.push({
+      id: "kesinlik-sonucu",
+      label: "Sonuç",
+      detail: `${formatTl(deger)} kanundaki ${formatTl(sinir)} taban tutarı aşıyor, ancak bu yılın güncel sınırı bilinmediği için kanun yolunun açık olup olmadığı BELİRLENEMEDİ. Bu yılın sınırını girip yeniden hesaplayın.`,
+      amount: null,
+      durum: "BILGI",
+    });
+    eksik.push(limit.line.id);
+    return {
+      year: tariff.year,
+      kind: input.kind,
+      davaDegeri: roundTl(deger),
+      steps,
+      toplam: null,
+      eksikKalemler: [...new Set(eksik)],
+      dogrulanmamisKalemler: [...dogrulanmamis],
+      warnings,
+      disclaimer: FEE_DISCLAIMER,
+      sinirSonucu: {
+        yol,
+        sinir: null,
+        kullaniciDegeri: false,
+        kanunYoluAcik: null,
+        aciklama:
+          "Değer kanundaki taban tutarı aşıyor ama bu yılın güncel sınırı bilinmediği için kanun yolunun açık olup olmadığı belirlenemedi. Bu yılın sınırını girin.",
+      },
+    };
+  }
+  const acik = deger > sinir;
   steps.push({
     id: "kesinlik-siniri",
     label: limit.line.title,
@@ -571,7 +651,9 @@ export function computeFees(input: FeeComputeInput, options: FeeComputeOptions =
       kanunYoluAcik: acik,
       aciklama: acik
         ? "Parasal sınır aşılmıştır; kanun yolu bu yönden açıktır."
-        : "Parasal sınır aşılmamıştır; karar bu yönden kesindir.",
+        : tabanOnly
+          ? "Değer kanundaki taban tutarı bile aşmıyor; güncel sınır tabandan düşük olamayacağından karar bu yönden kesindir."
+          : "Parasal sınır aşılmamıştır; karar bu yönden kesindir.",
     },
   };
 }

@@ -24,11 +24,21 @@ it("uses the published application fee and minimum while keeping unknown expense
   const result = computeFees({ year: 2026, kind: "dava-harci", davaDegeri: 1000 });
   expect(result.steps.find((s) => s.id === "basvurma-harci")?.amount).toBe(732);
   expect(result.steps.find((s) => s.id === "karar-ilam-harci-asgari")?.amount).toBe(732);
-  expect(result.steps.find((s) => s.id === "pesin-harc")?.amount).toBe(183);
+  // A quarter of the floored karar harcı (183 TL) under-collects: the peşin
+  // harç is a nispi harç and cannot go below the 732 TL floor either.
+  expect(result.steps.find((s) => s.id === "pesin-harc")?.amount).toBe(732);
+  expect(result.steps.find((s) => s.id === "pesin-harc")?.detail).toContain("alt sınır esas alındı");
   expect(result.toplam).toBeNull();
   expect(result.eksikKalemler).toEqual(["gider-avansi"]);
 });
 
 it("locates the advocate-certified copy fee in tariff D/I-c, not appeal fees A/IV", () => {
   expect(findTariffLine(2026, "vekalet-suret-harci")?.reference.article).toBe("(1) sayılı tarife D/I-c");
+});
+
+it("takes a quarter of the nispi harç once that quarter clears the floor", () => {
+  // 1.000.000 TL × binde 68,31 = 68.310 TL; a quarter is 17.077,50 TL.
+  const result = computeFees({ year: 2026, kind: "dava-harci", davaDegeri: 1_000_000 });
+  expect(result.steps.find((s) => s.id === "karar-ilam-harci")?.amount).toBe(68310);
+  expect(result.steps.find((s) => s.id === "pesin-harc")?.amount).toBe(17077.5);
 });

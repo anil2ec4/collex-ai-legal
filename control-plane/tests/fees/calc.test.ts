@@ -89,7 +89,9 @@ describe("computeFees — dava harcı", () => {
     const asgari = result.steps.find((s) => s.id === "karar-ilam-harci-asgari")!;
     expect(asgari.durum).toBe("hesaplandi");
     expect(asgari.amount).toBe(1000);
-    expect(result.steps.find((s) => s.id === "pesin-harc")!.amount).toBe(250);
+    // The peşin harç is a nispi harç too: a quarter of the floor (250) would
+    // fall under the floor itself, so the floor is collected.
+    expect(result.steps.find((s) => s.id === "pesin-harc")!.amount).toBe(1000);
   });
 
   it("warns when the alt sınır is unknown instead of silently skipping it", () => {
@@ -169,10 +171,33 @@ describe("computeFees — kesinlik sınırı", () => {
       davaDegeri: 50_000,
       yol: "hmk-temyiz",
     });
-    expect(result.sinirSonucu?.sinir).toBe(40_000);
     expect(result.sinirSonucu?.kullaniciDegeri).toBe(false);
     expect(result.warnings.join(" ")).toContain("KANUNDAKİ TABAN");
     expect(result.warnings.join(" ")).toContain("yeniden değerleme");
+  });
+
+  // 27.09.2026: 20.000 TL against the 3.000 TL statutory BASE of HMK m.341
+  // printed "kanun yolu bu yönden AÇIKTIR", while this year's revalued limit
+  // is far higher — the decision was kesin and the lawyer would have filed
+  // istinaf while the AYM bireysel başvuru period ran out.
+  it("gives NO verdict for a value above the statutory base when this year's limit is unknown", () => {
+    for (const [yol, deger] of [["hmk-istinaf", 20_000], ["hmk-temyiz", 100_000]] as const) {
+      const result = computeFees({ year: YEAR, kind: "kesinlik-siniri", davaDegeri: deger, yol });
+      expect(result.sinirSonucu?.kanunYoluAcik).toBeNull();
+      expect(result.sinirSonucu?.sinir).toBeNull();
+      expect(result.eksikKalemler).toContain(`${yol}-kesinlik`);
+      const sonuc = result.steps.find((s) => s.id === "kesinlik-sonucu")!.detail;
+      expect(sonuc).toContain("BELİRLENEMEDİ");
+      expect(sonuc).not.toContain("AÇIKTIR");
+    }
+  });
+
+  it("still says KESİN for a value at or under the base: no year's limit is lower than the base", () => {
+    const result = computeFees({ year: YEAR, kind: "kesinlik-siniri", davaDegeri: 3_000, yol: "hmk-istinaf" });
+    expect(result.sinirSonucu?.kanunYoluAcik).toBe(false);
+    expect(result.sinirSonucu?.sinir).toBe(3_000);
+    expect(result.sinirSonucu?.aciklama).toContain("taban tutarı bile aşmıyor");
+    expect(result.steps.find((s) => s.id === "kesinlik-sonucu")!.detail).toContain("KESİNDİR");
   });
 
   it("answers 'belirlenemedi' when even the base is unknown (İYUK)", () => {
@@ -210,5 +235,25 @@ describe("computeFees — input discipline", () => {
     const step = result.steps.find((s) => s.id === "karar-ilam-harci")!;
     expect(step.amount).toBe(roundTl((12_345.67 * 68.31) / 1000));
     expect(String(step.amount).split(".")[1]?.length ?? 0).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("roundTl — half-up on the decimal value", () => {
+  it("rounds a binary-noisy half kuruş UP (18.500 TL × binde 68,31 = 1.263,735)", () => {
+    expect(roundTl((18_500 * 68.31) / 1000)).toBe(1263.74);
+  });
+  it("does not move exact or clearly-below values", () => {
+    expect(roundTl(1263.734)).toBe(1263.73);
+    expect(roundTl(732)).toBe(732);
+    expect(roundTl(0.005)).toBe(0.01);
+    expect(roundTl(1_000_000.125)).toBe(1_000_000.13);
+  });
+});
+
+describe("computeFees — dava harcı is a first-instance computation", () => {
+  it("refuses mahkeme 'kanun-yolu' instead of inventing a kanun yolu total", () => {
+    expect(() =>
+      computeFees({ year: YEAR, kind: "dava-harci", davaDegeri: 10_000, mahkeme: "kanun-yolu" }),
+    ).toThrow(/A\/IV/u);
   });
 });

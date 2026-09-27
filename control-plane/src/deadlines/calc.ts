@@ -67,6 +67,9 @@ import {
 // Public types
 // ---------------------------------------------------------------------------
 
+
+/** The console's own words for `applyAdliTatil` — a field name never reaches the lawyer. */
+const ADLI_TATIL_SWITCH_TR = "“adli tatil uzatmasını uygula” seçeneği";
 export interface ComputeDeadlineInput {
   ruleId?: string;
   custom?: DeadlinePeriod;
@@ -396,7 +399,14 @@ export function computeDeadline(
   }
 
   // ---- 3. adli tatil ----
-  const apply = input.applyAdliTatil ?? (rule !== null ? rule.adliTatilApplies : false);
+  // A rule that says adli tatil does NOT apply (adliTatileTabi === false) is
+  // never extended, whatever the switch says: the switch sits next to every
+  // rule on screen, and "İİK m.62 itiraz from 25.07 → 07.09" is a lost
+  // takip, not a cautious reading. The switch still decides for "belirsiz"
+  // rules and for a custom period, where the lawyer's reading is the input.
+  const ruleForbidsExtension = rule !== null && rule.adliTatileTabi === false;
+  const apply =
+    !ruleForbidsExtension && (input.applyAdliTatil ?? (rule !== null ? rule.adliTatilApplies : false));
   const baseInTatil = isAdliTatil(baseEnd);
   let candidate = baseEnd;
   let applied = false;
@@ -405,7 +415,7 @@ export function computeDeadline(
   if (procedure === "CMK") {
     if (input.applyAdliTatil === true) {
       warnings.push(
-        "applyAdliTatil=true CMK'da HMK m.104 uzamasını uygulamaz; ceza usulünde adli tatil etkisi CMK m.331'e tabidir (aşağıdaki uyarı).",
+        `${ADLI_TATIL_SWITCH_TR} CMK'da HMK m.104 uzamasını uygulamaz; ceza usulünde adli tatil etkisi CMK m.331'e tabidir (aşağıdaki uyarı).`,
       );
     }
     if (periodTouchesAdliTatil(start, baseEnd)) {
@@ -437,13 +447,13 @@ export function computeDeadline(
           `HMK m.103'te sayılan, adli tatilde de görülen işlerde (ihtiyati tedbir/haciz ve delil tespiti, nafaka-soybağı-velayet-vesayet, işçi davaları, iflas-konkordato, çekişmesiz yargı, kanunen veya mahkemece ivedi sayılan işler vb.) süre uzamaz; bu durumda son gün ${formatTrLong(rolledWithout)} olur.`,
         );
       }
-      if (rule !== null && !rule.adliTatilApplies) {
+      if (rule !== null && rule.adliTatileTabi === "belirsiz") {
         warnings.push(
-          `Bu kuralda ${cit.tatilName} uzaması öngörülmüyor (${rule.reference.label}); applyAdliTatil=true ile zorlandı. Uzatılmamış son gün: ${formatTrLong(rolledWithout)}.`,
+          `Bu kuralda ${cit.tatilName} uzamasının uygulanıp uygulanmayacağı tartışmalıdır (${rule.reference.label}); seçiminiz üzerine uzatılmış tarih gösteriliyor. Uzatılmamış (ihtiyatlı) son gün: ${formatTrLong(rolledWithout)} — dilekçeyi o güne kadar vermek bu riski ortadan kaldırır.`,
         );
       } else if (rule === null) {
         warnings.push(
-          `Özel süre için adli tatil uzaması applyAdliTatil=true ile uygulandı; sürenin HMK'ya tabi bir dava/iş süresi olduğundan emin olun. Uzatılmamış son gün: ${formatTrLong(rolledWithout)}.`,
+          `Özel süre için adli tatil uzaması seçiminiz üzerine uygulandı; sürenin HMK'ya tabi bir dava/iş süresi olduğundan emin olun. Uzatılmamış son gün: ${formatTrLong(rolledWithout)}.`,
         );
       }
     } else {
@@ -453,15 +463,21 @@ export function computeDeadline(
       );
       if (rule !== null && rule.adliTatilApplies) {
         warnings.push(
-          `applyAdliTatil=false: ${cit.adliTatil} uzaması kapatıldı; uygulansaydı son gün ${formatTrLong(rolledExtended)} olurdu.`,
+          `${ADLI_TATIL_SWITCH_TR} kapatıldı: ${cit.adliTatil} uzaması uygulanmadı; uygulansaydı son gün ${formatTrLong(rolledExtended)} olurdu.`,
+        );
+      } else if (ruleForbidsExtension) {
+        warnings.push(
+          `Bu süre için ${cit.tatilName} uzaması uygulanmadı (${rule!.reference.label}: bu sürede uzama öngörülmüyor)${
+            input.applyAdliTatil === true ? `; ${ADLI_TATIL_SWITCH_TR} bu sürenin son gününü değiştirmez` : ""
+          }.`,
+        );
+      } else if (rule !== null) {
+        warnings.push(
+          `Bu kuralda ${cit.tatilName} uzamasının uygulanıp uygulanmayacağı tartışmalıdır (${rule.reference.label}); ihtiyatlı olan uzatılmamış tarih gösteriliyor. Uzama uygulanırsa son gün ${formatTrLong(rolledExtended)} olur.`,
         );
       } else {
         warnings.push(
-          `Bu süre için ${cit.tatilName} uzaması uygulanmadı${
-            rule !== null
-              ? ` (${rule.reference.label}: bu sürede uzama öngörülmüyor)`
-              : " (özel süre; yasal dayanak belirtilmedi)"
-          }; uygulanması gerektiğini düşünüyorsanız applyAdliTatil=true ile yeniden hesaplayın — o hâlde son gün ${formatTrLong(rolledExtended)} olur.`,
+          `Bu süre için ${cit.tatilName} uzaması uygulanmadı (özel süre; yasal dayanak belirtilmedi); süre HMK'ya tabi bir dava/iş süresiyse ${ADLI_TATIL_SWITCH_TR} işaretleyip yeniden hesaplayın — o hâlde son gün ${formatTrLong(rolledExtended)} olur.`,
         );
       }
     }
