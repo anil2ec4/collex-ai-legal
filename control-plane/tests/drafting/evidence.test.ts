@@ -10,6 +10,7 @@ import {
   draftEvidenceLabel,
   extractDateTr,
   extractSuggestedFacts,
+  splitSentencesTr,
   MAX_SUGGESTED_FACTS,
   resolveDraftEvidence,
 } from "../../src/drafting/evidence.js";
@@ -136,5 +137,21 @@ describe("resolveDraftEvidence — fileIds (audit #4)", () => {
     const many = Array.from({ length: 40 }, (_, i) => `Davalı ${i + 1}.01.2024 tarihinde ödeme yapmamıştır.`).join(" ");
     const facts = extractSuggestedFacts([uploadChunk({ text: many })]);
     expect(facts.length).toBe(MAX_SUGGESTED_FACTS);
+  });
+});
+
+describe("suggested facts — abbreviation-aware sentences (27.09.2026)", () => {
+  it("never cuts a fact at 'm.', 'E.', an ordinal or 'A.Ş.'", () => {
+    const text =
+      "Fesih bildirimi 02.10.2023 tarihinde Şişli 12. Noterliği aracılığıyla Örnek A.Ş. adına gönderildi. " +
+      "4857 sayılı Kanun m. 17 uyarınca bildirim süresi 8 haftadır. Yargıtay 9. HD. 2020/1111 E. sayılı karar da aynı yöndedir.";
+    expect(splitSentencesTr(text).map((s) => s.trim())).toEqual([
+      "Fesih bildirimi 02.10.2023 tarihinde Şişli 12. Noterliği aracılığıyla Örnek A.Ş. adına gönderildi.",
+      "4857 sayılı Kanun m. 17 uyarınca bildirim süresi 8 haftadır.",
+      "Yargıtay 9. HD. 2020/1111 E. sayılı karar da aynı yöndedir.",
+    ]);
+    const facts = extractSuggestedFacts([uploadChunk({ text })]);
+    expect(facts.some((f) => f.metin.endsWith("Kanun m.") || /^\d+ /u.test(f.metin))).toBe(false);
+    expect(facts[0]?.tarih).toBe("02.10.2023");
   });
 });

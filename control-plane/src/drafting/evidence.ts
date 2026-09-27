@@ -306,6 +306,52 @@ export function extractDateTr(sentence: string): string | undefined {
 }
 
 /**
+ * Words whose trailing dot closes an ABBREVIATION, never a sentence
+ * (compared Turkish-lowercased). Mirrors intake/analysis.py::_ABBREVIATIONS.
+ */
+const ABBREVIATIONS = new Set([
+  "m", "md", "mad", "mdd", "maddesi", "no", "nu", "nolu", "sy", "sayılı",
+  "av", "dr", "prof", "doç", "yrd", "öğr", "gör", "bkz", "krş", "vb", "vs",
+  "vd", "vdv", "s", "sh", "c", "bk", "ek", "hd", "cd", "hgk", "cgk", "ibk",
+  "iddk", "ybk", "d", "daire", "yarg", "e", "k", "t", "ltd", "şti", "tic",
+  "san", "a", "ş", "sk", "sok", "cad", "mah", "apt", "blv", "kat", "tel",
+]);
+
+function isAbbreviationDot(text: string, dotIndex: number): boolean {
+  const before = text.slice(Math.max(0, dotIndex - 40), dotIndex);
+  const match = /(\S+)$/u.exec(before);
+  if (match === null) return false;
+  const token = (match[1] as string).replace(/^[("'“‘«[]+/u, "");
+  if (token === "") return false;
+  if (token.includes(".")) return true; // A.Ş, T.C, Ltd.Şti
+  if (/^\d+$/u.test(token)) return token.length <= 3; // "9. Hukuk Dairesi", "12. Noterlik"
+  if (Array.from(token).length === 1) return true; // "E.", "K."
+  if (token.length <= 5 && token === token.toLocaleUpperCase("tr-TR") && /\p{L}/u.test(token)) {
+    return true; // HD, HGK, TCK
+  }
+  return ABBREVIATIONS.has(token.toLocaleLowerCase("tr-TR"));
+}
+
+/**
+ * Sentences of a whitespace-collapsed text, abbreviation-aware: a "." after
+ * "m", "E", "A.Ş" or an ordinal is not a cut. 27.09.2026: the plain
+ * `(?<=[.!?])\s+` split offered "17 uyarınca … Kanun m." and
+ * "02.10.2023 Şişli 12." to the lawyer as suggested facts.
+ */
+export function splitSentencesTr(text: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  for (const m of text.matchAll(/[.!?]\s+/gu)) {
+    const at = m.index ?? 0;
+    if (text[at] === "." && isAbbreviationDot(text, at)) continue;
+    out.push(text.slice(start, at + 1));
+    start = at + m[0].length;
+  }
+  out.push(text.slice(start));
+  return out;
+}
+
+/**
  * Fact-like sentences of uploaded chunks: a sentence that carries a date,
  * an amount or a procedural cue word. Offered to the lawyer; never inserted.
  */
@@ -313,9 +359,7 @@ export function extractSuggestedFacts(chunks: readonly DraftFileChunk[]): DraftS
   const out: DraftSuggestedFact[] = [];
   const seen = new Set<string>();
   for (const chunk of chunks) {
-    const sentences = chunk.text
-      .replace(/\s+/gu, " ")
-      .split(/(?<=[.!?])\s+/u)
+    const sentences = splitSentencesTr(chunk.text.replace(/\s+/gu, " "))
       .map((s) => s.trim())
       .filter((s) => s.length >= 15 && s.length <= 400);
     for (const sentence of sentences) {
