@@ -41,17 +41,17 @@ Reproduce: `.venv/Scripts/python.exe scripts/run_evals.py`
 | Answer-layer abstention precision | 100.0% | coverage gate (answer layer): correct / abstained (measured) |
 | Answer-layer abstention recall | 100.0% | coverage gate (answer layer): correct / should-abstain; n=13; missed=none |
 | Answer-layer FALSE abstentions | 0 | TRIPWIRE: answerable gold queries the coverage gate abstained on: none |
-| Answer-level status counts (AnswerPipeline) | ABSTAIN=14, COMPLETE=11, PARTIAL=3, QUALIFIED=6 | REPORT ONLY (BAND): status of the real AnswerPipeline (DEFAULT_ANSWER_LIMITS, rule-based drafter, lexical entailment); n=34; 1 repeat(s) / 1 ingest(s), identical across them; errors=none |
+| Answer-level status counts (AnswerPipeline) | ABSTAIN=14, COMPLETE=11, PARTIAL=3, QUALIFIED=6 | REPORT ONLY (BAND): status of the real AnswerPipeline (DEFAULT_ANSWER_LIMITS, rule-based drafter, lexical entailment); n=34; 4 repeat(s) / 4 ingest(s), identical across them; errors=none |
 | Answer-level false abstentions | 1 | REPORT ONLY (BAND): answerable gold rows the pipeline ABSTAINed on (n=21); union over repeats: fx-amend-002 |
 | Answer-level false answers | 0 | GATE (BAND): must be 0 in EVERY repeat; no_answer gold rows the pipeline did NOT abstain on (n=13); union: none |
-| Answer-level finalizable rate | 81.0% | REPORT ONLY (BAND): finalizable answers / answerable rows (17/21); overall 17/34; 1 repeat(s) / 1 ingest(s), identical across them |
+| Answer-level finalizable rate | 81.0% | REPORT ONLY (BAND): finalizable answers / answerable rows (17/21); overall 17/34; 4 repeat(s) / 4 ingest(s), identical across them |
 | Answer-level expected unit cited | 95.2% | REPORT ONLY (BAND): answerable rows whose evidence pack cites >= 1 expected gold unit; n=21 |
 | Citation resolvability | 100.0% | GATE: must be 100%; over 128 ranked hits |
 | Quote/hash integrity | 100.0% | GATE: must be 100%; over 36 evidence records |
 | Fabricated ids | 0 | GATE: must be 0; ids absent from the corpus inventory |
 | Cross-tenant leak indicators | 0 | GATE: must be 0; non-public documents in a public search |
-| Retrieval latency p50 / p95 (ms) | 13.2 / 28.9 | searchLegalCorpus wall clock per query; n=34 |
-| Evidence-pack latency p50 / p95 (ms) | 0.4 / 1.2 | buildEvidencePack wall clock per query; n=34 |
+| Retrieval latency p50 / p95 (ms) | 12.3 / 25.7 | searchLegalCorpus wall clock per query; n=34 |
+| Evidence-pack latency p50 / p95 (ms) | 0.3 / 1.0 | buildEvidencePack wall clock per query; n=34 |
 | Queries returning zero hits | 12 | of 34 gold queries; 13 of them SHOULD return nothing |
 | Hits by lane | exact=36, lexical=67, trigram=5, dense=0, relation=19, citation=10 | ranked hits in whose lane provenance each lane appears (a lane at 0 contributed no recall on this corpus) |
 
@@ -76,7 +76,7 @@ Reproduce: `.venv/Scripts/python.exe scripts/run_evals.py`
 | PASS | cross_tenant_leak_indicators == 0 | 0 non-public hit(s) in a public corpus search |
 | PASS | no retrieval lane total failure | queries whose every retrieval lane failed: none |
 | PASS | no gold query dropped | 0 gold queries had no result line |
-| PASS | answer-layer false answers == 0 (every repeat) | worst repeat: 0 no_answer gold row(s) answered over 1 repeat(s) / 1 ingest(s); ids: none |
+| PASS | answer-layer false answers == 0 (every repeat) | worst repeat: 0 no_answer gold row(s) answered over 4 repeat(s) / 4 ingest(s); ids: none |
 
 Overall: **PASS**
 
@@ -92,14 +92,14 @@ Overall: **PASS**
 
 | Stage | ms |
 |---|---|
-| driver_bundle | 25.9 |
-| answer_driver_bundle | 29.5 |
-| database_recreate | 144.5 |
-| ingestion | 444.4 |
-| answer_measurement | 2073.2 |
-| retrieval_measurement | 732.8 |
-| scoring | 0.6 |
-| citation_check | 0.7 |
+| driver_bundle | 49.4 |
+| answer_driver_bundle | 48.7 |
+| database_recreate | 63.8 |
+| ingestion | 329.7 |
+| answer_measurement | 1707.3 |
+| retrieval_measurement | 675.2 |
+| scoring | 0.5 |
+| citation_check | 0.6 |
 
 ## Lane contribution
 
@@ -185,7 +185,7 @@ at ingest). The last id-borne source was closed the same day
 chunk's uuid, so the coverage-aware cap kept a different top-8 after every
 ingest). The band remains because a single run can never PROVE stability:
 repeat with `--repeats N` and read the range;
-`1 repeat(s) / 1 ingest(s), identical across them` for this report.
+`4 repeat(s) / 4 ingest(s), identical across them` for this report.
 Only ONE thing here is gated and it is gated on the band's worst repeat:
 **no_answer gold rows answered must be 0 in every repeat**.
 
@@ -210,18 +210,18 @@ repeats is named in the union lists above.
 | fx-exact-007 | exact_reference | COMPLETE | True | 2 | 4 | bypassed-by-reference | True | False | - |
 | fx-exact-008 | exact_reference | COMPLETE | True | 1 | 3 | bypassed-by-reference | True | False | - |
 | fx-exact-009 | exact_reference | COMPLETE | True | 8 | 8 | bypassed-by-reference | True | False | - |
-| fx-fact-001 | fact_pattern | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-4db235d4d3b7ec21:ev-7dec3027454c5818, CONFLICTING_AUTHORITIES:claim-ev-eb3b500bdbf8f8a6:ev-7dec3027454c5818, CONFLICTING_AUTHORITIES:claim-ev-e13f639c568282b1:ev-7dec3027454c5818 |
+| fx-fact-001 | fact_pattern | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-0edf9d001708604c:ev-0ce91c4927783641 |
 | fx-fact-002 | fact_pattern | COMPLETE | True | 3 | 4 | passed | True | False | - |
-| fx-fact-003 | fact_pattern | QUALIFIED | True | 7 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-c189fbc110b00667:ev-28a1fa3b2aeeba74 |
+| fx-fact-003 | fact_pattern | QUALIFIED | True | 7 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-f266a67bdca24e7c:ev-0547aba8c757e7bd |
 | fx-fact-004 | fact_pattern | COMPLETE | True | 6 | 7 | passed | True | False | - |
 | fx-temporal-001 | temporal | PARTIAL | False | 1 | 1 | bypassed-by-reference | True | False | NOT_FINALIZABLE, QUESTION_PARTIALLY_COVERED, TEMPORAL_COMPARISON_MISSING |
 | fx-temporal-002 | temporal | PARTIAL | False | 1 | 1 | bypassed-by-reference | True | False | NOT_FINALIZABLE, QUESTION_PARTIALLY_COVERED, TEMPORAL_COMPARISON_MISSING |
 | fx-temporal-003 | temporal | QUALIFIED | True | 1 | 1 | bypassed-by-reference | True | False | TEMPORAL_COMPARISON_MISSING |
 | fx-amend-001 | temporal_amendment | COMPLETE | True | 1 | 1 | bypassed-by-reference | True | False | - |
 | fx-amend-002 | temporal_amendment | ABSTAIN | False | 0 | 0 | failed | False | False | QUESTION_NOT_COVERED, ABSTENTION_NOT_FINALIZABLE |
-| fx-amend-003 | temporal_amendment | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-eb3b500bdbf8f8a6:ev-7dec3027454c5818, CONFLICTING_AUTHORITIES:claim-ev-4db235d4d3b7ec21:ev-7dec3027454c5818, CONFLICTING_AUTHORITIES:claim-ev-fd1865618e48ff18:ev-7dec3027454c5818 |
-| fx-contrary-001 | contrary_authority | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-eb3b500bdbf8f8a6:ev-7dec3027454c5818, CONFLICTING_AUTHORITIES:claim-ev-4db235d4d3b7ec21:ev-7dec3027454c5818 |
-| fx-contrary-002 | contrary_authority | QUALIFIED | True | 5 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-eb3b500bdbf8f8a6:ev-8777725da2a9da9d+ev-7dec3027454c5818, CONFLICTING_AUTHORITIES:claim-ev-4db235d4d3b7ec21:ev-8777725da2a9da9d+ev-7dec3027454c5818, CONFLICTING_AUTHORITIES:claim-ev-c189fbc110b00667:ev-8777725da2a9da9d+ev-7dec3027454c5818+ev-28a1fa3b2aeeba74, CONFLICTING_AUTHORITIES:claim-ev-e13f639c568282b1:ev-8777725da2a9da9d+ev-7dec3027454c5818 |
+| fx-amend-003 | temporal_amendment | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-270dbd2e210cefab:ev-0ce91c4927783641 |
+| fx-contrary-001 | contrary_authority | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641 |
+| fx-contrary-002 | contrary_authority | QUALIFIED | True | 5 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-b81dd90c00c7fe77+ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-b81dd90c00c7fe77+ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-f266a67bdca24e7c:ev-b81dd90c00c7fe77+ev-0ce91c4927783641+ev-0547aba8c757e7bd, CONFLICTING_AUTHORITIES:claim-ev-0edf9d001708604c:ev-b81dd90c00c7fe77+ev-0ce91c4927783641 |
 | fx-noanswer-001 | no_answer | ABSTAIN | False | 0 | 0 | failed | None | True | NO_EVIDENCE, ABSTENTION_NOT_FINALIZABLE |
 | fx-noanswer-002 | no_answer | ABSTAIN | False | 0 | 0 | failed | None | True | NO_EVIDENCE, ABSTENTION_NOT_FINALIZABLE |
 | fx-noanswer-003 | no_answer | ABSTAIN | False | 0 | 0 | failed | None | True | NO_EVIDENCE, ABSTENTION_NOT_FINALIZABLE |

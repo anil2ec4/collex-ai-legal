@@ -834,9 +834,9 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-4db235d4d3b7ec21:ev-7dec3027454c5818",
-          "CONFLICTING_AUTHORITIES:claim-ev-eb3b500bdbf8f8a6:ev-7dec3027454c5818",
-          "CONFLICTING_AUTHORITIES:claim-ev-e13f639c568282b1:ev-7dec3027454c5818"
+          "CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641",
+          "CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641",
+          "CONFLICTING_AUTHORITIES:claim-ev-0edf9d001708604c:ev-0ce91c4927783641"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -864,7 +864,7 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-c189fbc110b00667:ev-28a1fa3b2aeeba74"
+          "CONFLICTING_AUTHORITIES:claim-ev-f266a67bdca24e7c:ev-0547aba8c757e7bd"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -970,9 +970,9 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-eb3b500bdbf8f8a6:ev-7dec3027454c5818",
-          "CONFLICTING_AUTHORITIES:claim-ev-4db235d4d3b7ec21:ev-7dec3027454c5818",
-          "CONFLICTING_AUTHORITIES:claim-ev-fd1865618e48ff18:ev-7dec3027454c5818"
+          "CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641",
+          "CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641",
+          "CONFLICTING_AUTHORITIES:claim-ev-270dbd2e210cefab:ev-0ce91c4927783641"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -987,8 +987,8 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-eb3b500bdbf8f8a6:ev-7dec3027454c5818",
-          "CONFLICTING_AUTHORITIES:claim-ev-4db235d4d3b7ec21:ev-7dec3027454c5818"
+          "CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641",
+          "CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -1003,10 +1003,10 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-eb3b500bdbf8f8a6:ev-8777725da2a9da9d+ev-7dec3027454c5818",
-          "CONFLICTING_AUTHORITIES:claim-ev-4db235d4d3b7ec21:ev-8777725da2a9da9d+ev-7dec3027454c5818",
-          "CONFLICTING_AUTHORITIES:claim-ev-c189fbc110b00667:ev-8777725da2a9da9d+ev-7dec3027454c5818+ev-28a1fa3b2aeeba74",
-          "CONFLICTING_AUTHORITIES:claim-ev-e13f639c568282b1:ev-8777725da2a9da9d+ev-7dec3027454c5818"
+          "CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-b81dd90c00c7fe77+ev-0ce91c4927783641",
+          "CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-b81dd90c00c7fe77+ev-0ce91c4927783641",
+          "CONFLICTING_AUTHORITIES:claim-ev-f266a67bdca24e7c:ev-b81dd90c00c7fe77+ev-0ce91c4927783641+ev-0547aba8c757e7bd",
+          "CONFLICTING_AUTHORITIES:claim-ev-0edf9d001708604c:ev-b81dd90c00c7fe77+ev-0ce91c4927783641"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -1221,11 +1221,14 @@
       }
     ],
     "band": {
-      "repeats": 1,
-      "ingests": 1,
+      "repeats": 4,
+      "ingests": 4,
       "note": "Bant, art arda koşulan N ölçümün min-max aralığıdır. Genişliği sıfır olan bir bant, o koşularda bu satırın değişmediğini gösterir; tek koşu ise hiçbir zaman kararlılık kanıtı değildir (N-7).",
       "false_abstention_count": {
         "values": [
+          1,
+          1,
+          1,
           1
         ],
         "min": 1,
@@ -1234,6 +1237,9 @@
       },
       "false_answer_count": {
         "values": [
+          0,
+          0,
+          0,
           0
         ],
         "min": 0,
@@ -1242,6 +1248,9 @@
       },
       "finalizable_answers": {
         "values": [
+          17,
+          17,
+          17,
           17
         ],
         "min": 17,
@@ -1250,6 +1259,9 @@
       },
       "finalizable_total": {
         "values": [
+          17,
+          17,
+          17,
           17
         ],
         "min": 17,
@@ -1258,6 +1270,9 @@
       },
       "finalizable_rate": {
         "values": [
+          0.8095238095238095,
+          0.8095238095238095,
+          0.8095238095238095,
           0.8095238095238095
         ],
         "min": 0.8095238095238095,
@@ -1266,6 +1281,9 @@
       },
       "finalizable_rate_overall": {
         "values": [
+          0.5,
+          0.5,
+          0.5,
           0.5
         ],
         "min": 0.5,
@@ -1274,6 +1292,9 @@
       },
       "expected_unit_in_evidence_rate": {
         "values": [
+          0.9523809523809523,
+          0.9523809523809523,
+          0.9523809523809523,
           0.9523809523809523
         ],
         "min": 0.9523809523809523,
@@ -1282,6 +1303,9 @@
       },
       "answerable_queries": {
         "values": [
+          21,
+          21,
+          21,
           21
         ],
         "min": 21,
@@ -1290,6 +1314,9 @@
       },
       "no_answer_queries": {
         "values": [
+          13,
+          13,
+          13,
           13
         ],
         "min": 13,
@@ -1298,6 +1325,9 @@
       },
       "measured_queries": {
         "values": [
+          34,
+          34,
+          34,
           34
         ],
         "min": 34,
@@ -1307,6 +1337,9 @@
       "status_counts": {
         "ABSTAIN": {
           "values": [
+            14,
+            14,
+            14,
             14
           ],
           "min": 14,
@@ -1315,6 +1348,9 @@
         },
         "COMPLETE": {
           "values": [
+            11,
+            11,
+            11,
             11
           ],
           "min": 11,
@@ -1323,6 +1359,9 @@
         },
         "PARTIAL": {
           "values": [
+            3,
+            3,
+            3,
             3
           ],
           "min": 3,
@@ -1331,6 +1370,9 @@
         },
         "QUALIFIED": {
           "values": [
+            6,
+            6,
+            6,
             6
           ],
           "min": 6,
@@ -1409,32 +1451,32 @@
   "latency": {
     "benchmark_latency_ms": {
       "count": 34,
-      "p50_ms": 13.213701000000015,
-      "p95_ms": 28.930579399999996
+      "p50_ms": 12.338481000000002,
+      "p95_ms": 25.743968750000008
     },
     "stages": {
       "retrieval_per_query": {
         "n": 34,
-        "p50_ms": 13.213701000000015,
-        "p95_ms": 28.930579399999996
+        "p50_ms": 12.338481000000002,
+        "p95_ms": 25.743968750000008
       },
       "evidence_pack_per_query": {
         "n": 34,
-        "p50_ms": 0.3671485000000132,
-        "p95_ms": 1.20949755
+        "p50_ms": 0.2801175000000171,
+        "p95_ms": 0.9563977999999621
       },
-      "corpus_inventory_ms": 19.011015999999998,
-      "canonical_text_load_ms": 6.418498
+      "corpus_inventory_ms": 19.557500000000005,
+      "canonical_text_load_ms": 6.667402999999993
     },
     "wall_clock_stage_ms": {
-      "driver_bundle": 25.876403999973263,
-      "answer_driver_bundle": 29.482155999971837,
-      "database_recreate": 144.50710800002753,
-      "ingestion": 444.4429100000207,
-      "answer_measurement": 2073.2010809999792,
-      "retrieval_measurement": 732.8445720000332,
-      "scoring": 0.5728350000140381,
-      "citation_check": 0.6973210000182917
+      "driver_bundle": 49.421388000155275,
+      "answer_driver_bundle": 48.69353100002627,
+      "database_recreate": 63.761942999917665,
+      "ingestion": 329.7035700006745,
+      "answer_measurement": 1707.270722999965,
+      "retrieval_measurement": 675.217259999954,
+      "scoring": 0.5286830000841292,
+      "citation_check": 0.6418399998437962
     }
   },
   "gates": [
@@ -1471,7 +1513,7 @@
     {
       "name": "answer-layer false answers == 0 (every repeat)",
       "passed": true,
-      "detail": "worst repeat: 0 no_answer gold row(s) answered over 1 repeat(s) / 1 ingest(s); ids: none"
+      "detail": "worst repeat: 0 no_answer gold row(s) answered over 4 repeat(s) / 4 ingest(s); ids: none"
     }
   ],
   "gates_passed": true,
