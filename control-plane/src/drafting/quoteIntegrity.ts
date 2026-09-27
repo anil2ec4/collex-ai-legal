@@ -25,8 +25,10 @@
  * CANONICALIZATION (mirrored verbatim by `export/draft.py::canonical_quote_text`
  * — change both or neither):
  *   1. fold the render guard's entity escapes back (`&lt;` `&gt;` `&#40;`
- *      `&#58;` `&#46;` and finally `&amp;`), because paragraph text has been
- *      through `sanitizeMarkdown` while `evidence.quote` is stored raw;
+ *      `&#58;` `&#46;` and finally `&amp;`), because paragraph text stored
+ *      before 27.09.2026 had been through `sanitizeMarkdown` while
+ *      `evidence.quote` is stored raw (text is now stored plain, but old
+ *      drafts must keep verifying exactly as they did);
  *   2. drop zero-width / BiDi controls (they are invisible, so they must not
  *      decide whether a citation holds);
  *   3. NFC-normalize (ADR-003: canonical text is NFC);
@@ -65,13 +67,28 @@ const ENTITY_FOLDS: ReadonlyArray<readonly [RegExp, string]> = Object.freeze([
 ]);
 
 /**
+ * Fold the render guard's entity escapes back to the characters they stand
+ * for (step 1 of the canonical form, exposed on its own).
+ *
+ * Since 27.09.2026 draft text is STORED as plain text (the escapes had been
+ * printed into filed DOCX/UDF copies — "Yılmaz &amp; Kaya"). Drafts stored
+ * before that still carry the escapes, so every renderer folds them for
+ * display, and a save folds them for good. Mirrored by
+ * `export/draft.py::fold_guard_entities`; it is the SAME table the canonical
+ * comparison uses, so the comparison is unchanged.
+ */
+export function foldGuardEntities(value: string): string {
+  let out = value;
+  for (const [pattern, replacement] of ENTITY_FOLDS) out = out.replace(pattern, replacement);
+  return out;
+}
+
+/**
  * The canonical comparison form of a piece of draft text. Identical output is
  * produced by `export/draft.py::canonical_quote_text`.
  */
 export function canonicalQuoteText(value: string): string {
-  let out = value;
-  for (const [pattern, replacement] of ENTITY_FOLDS) out = out.replace(pattern, replacement);
-  return out
+  return foldGuardEntities(value)
     .replace(INVISIBLE_CHARS, "")
     .normalize("NFC")
     .replace(/\s+/gu, " ")

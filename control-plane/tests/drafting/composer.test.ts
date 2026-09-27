@@ -30,6 +30,7 @@ import {
   type DraftParagraph,
 } from "../../src/drafting/types.js";
 import { sha256HexUtf8 } from "../../src/verification/validator.js";
+import { renderDraftMarkdown } from "../../src/drafting/markdown.js";
 import {
   CHUNK_TEXT,
   QUOTE_KARSIT,
@@ -516,7 +517,9 @@ describe("composeDraft — uploaded documents are exhibits, never legal prose (a
   it("lists one DELİLLER line per file, keeps chunks out of the assessment, offers suggestedFacts", () => {
     const draft = composeDraft(davaRequest(), uploadPack());
     const deliller = paragraphs(draft, "deliller").map((p) => p.text);
-    expect(deliller).toEqual(["Ek-1: protokol.pdf (dosyaya eklediğiniz belge)"]);
+    // 27.09.2026: the human title, no file extension (the full name stays in
+    // EK — DOĞRULAMA below, which identifies the exact file).
+    expect(deliller).toEqual(["Ek-1: protokol (dosyaya eklediğiniz belge)"]);
     const degerlendirme = paragraphs(draft, "aciklamalar").filter(
       (p) => p.role === "hukukiDegerlendirme",
     );
@@ -668,7 +671,11 @@ describe("composeDraft — istinaf ve sözleşmeler", () => {
 });
 
 describe("composeDraft — untrusted user strings", () => {
-  it("neutralizes HTML and folds newlines out of inline fields", () => {
+  // 27.09.2026: draft text is stored as PLAIN TEXT (the render guard's entity
+  // escapes had been printed into filed DOCX/UDF copies). The HTML-inertness
+  // guarantee moved to the one surface a Markdown renderer reads — the
+  // Markdown export — and is asserted there, on the rendered output.
+  it("stores plain text, folds newlines out of inline fields, and renders HTML inert", () => {
     const draft = composeDraft(
       davaRequest({
         matter: davaMatter({
@@ -681,20 +688,26 @@ describe("composeDraft — untrusted user strings", () => {
     );
     const taraflar = paragraphs(draft, "taraflar");
     for (const p of taraflar) {
-      expect(p.text).not.toContain("<");
       expect(p.text).not.toContain("\n");
+      expect(p.text).not.toContain("&lt;");
+      expect(p.text).not.toContain("&amp;");
     }
-    expect(taraflar[0]?.text).toContain("&lt;script&gt;");
+    expect(taraflar[0]?.text).toBe("DAVACI : <script>alert(1)</script>");
     expect(taraflar[1]?.text.startsWith("DAVALI :")).toBe(true);
+    const md = renderDraftMarkdown(draft);
+    expect(md).not.toContain("<script");
+    expect(md).not.toContain("</script");
   });
 
-  it("sanitizes ekBilgiler clause values and talep items", () => {
+  it("keeps ekBilgiler clause values as written; the Markdown render neutralizes markup", () => {
     const request = hizmetRequest();
     (request.matter.ekBilgiler as Record<string, unknown>)["bedel"] =
       "<img src=x onerror=alert(1)> 1.000 TL";
     const draft = composeDraft(request);
     const bedel = paragraphs(draft, "bedel");
-    expect(bedel[0]?.text).not.toContain("<img");
-    expect(bedel[0]?.text).toContain("1.000 TL");
+    expect(bedel[0]?.text).toContain("<img src=x onerror=alert(1)> 1.000 TL");
+    const md = renderDraftMarkdown(draft);
+    expect(md).not.toContain("<img");
+    expect(md).toContain("&lt;img src=x onerror=alert(1)> 1.000 TL");
   });
 });

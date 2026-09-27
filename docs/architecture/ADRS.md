@@ -1391,6 +1391,22 @@ data policy.
   DOCX read back with python-docx: page 21,00 × 29,70 cm, one CENTER, three
   RIGHT, eight JUSTIFY, seven bold runs, and `⚠ KAYNAKSIZ` / `kiracı
   yüklemesi` / `collex.export.` / rule ids **0 times** in the final copy.
+- **Amendment (27.09.2026, drafting audit):** the NİHAİ copy printed system
+  placeholders ("[Kararın özeti — doldurun]", "[Karşı dava talebi varsa
+  buraya yazın; yoksa bu bölümü silin]") and KAYNAKSIZ stubs addressed to the
+  lawyer ("… avukat tarafından eklenmelidir.") as ordinary body text. One
+  ADDITIONAL gate now applies to the filing copy only: while a paragraph
+  still carries a recorded system placeholder (`DraftParagraph.placeholders`,
+  a token still present in its text) the NİHAİ export is refused —
+  `409 EXPORT_REFUSED / PLACEHOLDER_UNFILLED` before any format is produced
+  (`drafting/placeholders.ts`), and `export/draft.py::refuse_unfilled_placeholders`
+  applies the identical test to the tokens written into the exporter's JSON.
+  It is deliberately NOT part of `verify_draft_or_refuse`, which still runs
+  identically in every mode: the gate only makes the filing copy stricter,
+  never any copy looser. `marks=none` also drops the DELİLLER screen note
+  "(dosyaya eklediğiniz belge)" — a note to the lawyer, not court text.
+  Evidence: `control-plane/tests/drafting/filedCopy.test.ts`,
+  `tests/export/test_filed_copy.py`.
 
 ---
 

@@ -37,6 +37,7 @@ import {
   type AnthropicAnswerAdapter,
 } from "../llm/anthropicAdapter.js";
 import { sanitizeMarkdown } from "../security/renderGuard.js";
+import { draftPlainText, inlineText } from "../drafting/appendix.js";
 import { DRAFT_PERSIST_FAILED_MESSAGE_TR } from "../store/persistNotice.js";
 import {
   ANALYSIS_DISCLAIMER,
@@ -1027,11 +1028,21 @@ export function createAiRouter(deps: AiRouterDeps): Hono {
       // product reviser renamed (drafting/revise.ts gives an id it does not
       // know a fresh one); the old id-only lookup missed it and reported the
       // judge's verdict for a paragraph saved as KAYNAKSIZ.
-      const located = locateRevisedParagraph(result, idsBefore, {
-        sectionId: request.sectionId,
-        paragraphId,
-        text,
-      });
+      // 27.09.2026: the product reviser stores PLAIN text (the guard's entity
+      // escapes folded — drafting/appendix.ts::draftPlainText), so a paragraph
+      // whose model text carried "&" or "<" is saved as the folded form; the
+      // lookup accepts either form, never a third.
+      const located =
+        locateRevisedParagraph(result, idsBefore, {
+          sectionId: request.sectionId,
+          paragraphId,
+          text,
+        }) ??
+        locateRevisedParagraph(result, idsBefore, {
+          sectionId: request.sectionId,
+          paragraphId,
+          text: draftPlainText(text).trim(),
+        });
       // W21: the response's `kaynakli` is the SAVED paragraph's state: true
       // only when a binding the judge kept is attached to the paragraph the
       // reviser saved as supported (the console reads it as "kaynaklı sayıldı").
@@ -1131,7 +1142,8 @@ export function createAiRouter(deps: AiRouterDeps): Hono {
  * "Düzenleme notu: " line, sanitized and flattened the same way).
  */
 function revisionNoteWarning(note: string): string {
-  return `Düzenleme notu: ${sanitizeMarkdown(note).replace(/\s*\n+\s*/g, " ").trim()}`;
+  // 27.09.2026: revise.ts writes the note as plain text (inlineText); mirror it.
+  return `Düzenleme notu: ${inlineText(note)}`;
 }
 
 /** Re-exported for the integration lane (type of the mounted draft-store dep). */

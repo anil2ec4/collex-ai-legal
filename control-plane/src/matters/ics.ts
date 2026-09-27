@@ -54,6 +54,13 @@ export interface IcsEvent {
   location?: string;
   /** How many days before the event the calendar should remind (0 = none). */
   alarmDaysBefore?: number;
+  /**
+   * Additive (27.09.2026): RFC 5545 §3.8.1.11 STATUS. Absent = CONFIRMED.
+   * A postponed hearing is CANCELLED on its old date, so a subscribed
+   * calendar strikes the old entry instead of keeping it as confirmed; it
+   * gets no alarm either.
+   */
+  status?: "CONFIRMED" | "CANCELLED" | "TENTATIVE";
 }
 
 /** RFC 5545 §3.3.11 text escaping. */
@@ -184,9 +191,10 @@ export function buildIcs(events: readonly IcsEvent[], options: BuildIcsOptions):
     if (event.location !== undefined && event.location !== "") {
       lines.push(`LOCATION:${escapeIcsText(event.location)}`);
     }
-    lines.push("STATUS:CONFIRMED");
-    lines.push("TRANSP:OPAQUE");
-    const alarm = event.alarmDaysBefore ?? 0;
+    const status = event.status ?? "CONFIRMED";
+    lines.push(`STATUS:${status}`);
+    lines.push(status === "CANCELLED" ? "TRANSP:TRANSPARENT" : "TRANSP:OPAQUE");
+    const alarm = status === "CANCELLED" ? 0 : (event.alarmDaysBefore ?? 0);
     if (alarm > 0) {
       lines.push("BEGIN:VALARM");
       lines.push("ACTION:DISPLAY");
@@ -200,14 +208,27 @@ export function buildIcs(events: readonly IcsEvent[], options: BuildIcsOptions):
   return lines.map(foldIcsLine).join("\r\n") + "\r\n";
 }
 
-/** Turkish summary of a hearing row (calendar + .ics share it). */
+/** SUMMARY prefix of a postponed hearing (27.09.2026). */
+export const POSTPONED_SUMMARY_PREFIX = "ERTELENDİ — ";
+
+/**
+ * Turkish summary of a hearing row (calendar + .ics share it).
+ *
+ * 27.09.2026: the hearing's own `title` ("Bilirkişi raporuna itiraz") is part
+ * of the summary — it used to be dropped, so two hearings of one matter read
+ * the same in the calendar — and a postponed hearing opens with
+ * "ERTELENDİ — ".
+ */
 export function hearingSummary(
   matterTitle: string,
   kind: HearingKind,
   court: string,
+  options: { title?: string; postponed?: boolean } = {},
 ): string {
   const label = HEARING_KIND_LABELS[kind] ?? HEARING_KIND_LABELS.durusma;
-  const parts = [label, matterTitle].filter((p) => p !== "");
+  const title = (options.title ?? "").trim();
+  const parts = [label, title, matterTitle].filter((p) => p !== "");
   const head = parts.join(" — ");
-  return court === "" ? head : `${head} (${court})`;
+  const summary = court === "" ? head : `${head} (${court})`;
+  return options.postponed === true ? `${POSTPONED_SUMMARY_PREFIX}${summary}` : summary;
 }

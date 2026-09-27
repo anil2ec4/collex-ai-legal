@@ -63,6 +63,7 @@ from export.draft import (
     citation_ref,
     expected_citations,
     paragraph_lines,
+    refuse_unfilled_placeholders,
     verify_draft_or_refuse,
 )
 from export.errors import ExportRefused
@@ -565,6 +566,9 @@ def export_udf(
     from export import __version__
 
     verify_draft_or_refuse(draft)
+    # 27.09.2026: the NİHAİ copy may not carry an unfilled system placeholder
+    # (an additional, filing-copy-only gate; the one above is unchanged).
+    refuse_unfilled_placeholders(draft, mode)
     stamp = generated_at or datetime.now().astimezone().isoformat(timespec="seconds")
     # W14 B-02 (DAILYFLOW #9): the evidence-bundle schema tag
     # (collex.export.evidence-report/v1) is NOT this document's schema and

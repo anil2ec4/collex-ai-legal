@@ -32,14 +32,17 @@
  *    and only those — are what `unsupportedCount` counts.
  *
  * SECURITY: every user-provided string (party names, facts, requests,
- * ekBilgiler values, başlık) passes through the render guard
- * (`sanitizeMarkdown`) BEFORE it enters a paragraph, and inline fields are
- * additionally folded to one line so an injected newline cannot start a fresh
- * top-level line in any later markdown/docx context.
+ * ekBilgiler values, başlık) is stored as PLAIN TEXT (27.09.2026): character
+ * hygiene only — controls and zero-width/BiDi characters dropped — and inline
+ * fields are folded to one line so an injected newline cannot start a fresh
+ * top-level line in any later markdown/docx context. It is NOT entity-escaped
+ * here any more: the escapes of the render guard were printed verbatim into
+ * the filed DOCX/UDF ("Yılmaz &amp; Kaya"). Each surface escapes for its own
+ * medium — the console assigns `textContent`, the Python writers escape XML,
+ * and the Markdown export runs `escapeMarkdownText` when it renders.
  */
 
 import { randomUUID } from "node:crypto";
-import { sanitizeMarkdown } from "../security/renderGuard.js";
 import { extractNumbers, tokenize } from "../llm/lexicalEntailment.js";
 import { parseReferences } from "../retrieval/referenceParser.js";
 import { paragraphContainsQuote } from "./quoteIntegrity.js";
@@ -50,6 +53,9 @@ import {
   DRAFT_REVIEW_BANNER,
   KARSI_ICTIHAT_SECTION_ID,
   KARSI_ICTIHAT_SECTION_TITLE,
+  KAYNAKSIZ_STUB_DEGERLENDIRME_ESIK,
+  KAYNAKSIZ_STUB_DEGERLENDIRME_KAYNAK_YOK,
+  KAYNAKSIZ_STUB_SEBEPLER,
   NOTE_ALEYHE_YOK,
   NOTE_BEYAN,
   NOTE_KARSIT,
@@ -76,21 +82,32 @@ import {
   KAPSAM_SABIT_CUMLE,
   OLAY_ANLATISI_KEY,
   getTemplate,
+  validateEkBilgiler,
   validateRequiredFields,
   type DraftTemplate,
   type FieldIssue,
   type TemplateField,
+  type TemplateSection,
   type TemplateSlot,
 } from "./templates.js";
 import {
+  addresseeDative,
   dateSortKey,
-  datifSuffix,
   formatDateTr,
+  istanbulDateIso,
   narrativeSearchSuggestion,
   splitLines,
   splitNarrativeSentences,
   todayTr,
 } from "./input.js";
+import {
+  findUnfilledPlaceholders,
+  missingFieldPlaceholder,
+  placeholderTokens,
+  placeholderWarning,
+} from "./placeholders.js";
+import { computeDeadline } from "../deadlines/calc.js";
+import { DEADLINE_DISCLAIMER } from "../deadlines/rules.js";
 import { extractDateTr } from "./evidence.js";
 import {
   assessEvidenceRelevance,
@@ -100,7 +117,9 @@ import {
 } from "./relevance.js";
 import {
   buildEkDogrulamaSection,
+  draftPlainText,
   groupUploads,
+  inlineText,
   karsiIctihatParagraphText,
   sebeplerParagraphText,
   uploadDelillerLine,
@@ -172,9 +191,9 @@ export interface ComposeOptions {
 // Sanitization helpers — user strings are untrusted (brief 12.1 rule 3)
 // ---------------------------------------------------------------------------
 
-/** Sanitize a user string for a single-line context (names, titles, items). */
+/** A user string as single-line plain text (names, titles, items). */
 function inline(value: string): string {
-  return sanitizeMarkdown(value).replace(/\s*\n+\s*/g, " ").trim();
+  return inlineText(value);
 }
 
 /** Turkish upper-case (İ/ı-correct). */
@@ -243,6 +262,13 @@ interface ComposeState {
   relevance: Map<string, RelevanceAssessment>;
   /** Memoized usable claims (relevance-filtered; warnings emitted once). */
   usable?: DraftClaim[];
+  /**
+   * 27.09.2026: true when the draft's own dates show the template's statutory
+   * period (`template.sure`) has run out; slots then use `textSureGecti`.
+   */
+  sureGecti: boolean;
+  /** Ids of `liste` paragraphs that are only an emptyText placeholder. */
+  emptyListParagraphs: Set<string>;
 }
 
 function nextParagraph(
@@ -250,7 +276,7 @@ function nextParagraph(
   sectionId: string,
   role: SlotKind,
   text: string,
-  init: Partial<Pick<DraftParagraph, "evidenceIds" | "supported" | "note">> = {},
+  init: Partial<Pick<DraftParagraph, "evidenceIds" | "supported" | "note" | "placeholders">> = {},
 ): DraftParagraph {
   state.paragraphCounter += 1;
   const paragraph: DraftParagraph = {
@@ -262,6 +288,10 @@ function nextParagraph(
   };
   const note = init.note ?? NOTE_BEYAN;
   if (note !== "") paragraph.note = note;
+  // Only tokens the paragraph really carries: a system string the text does
+  // not contain is not a placeholder of this paragraph.
+  const placeholders = [...new Set(init.placeholders ?? [])].filter((t) => t !== "" && text.includes(t));
+  if (placeholders.length > 0) paragraph.placeholders = placeholders;
   for (const id of paragraph.evidenceIds) state.citedEvidenceIds.add(id);
   return paragraph;
 }
@@ -375,25 +405,169 @@ function kapsamOf(state: ComposeState): DayanakKapsami | undefined {
   return undefined;
 }
 
-function fillHukum(state: ComposeState, slot: TemplateSlot): string {
+/**
+ * Put `value` into every `{key}` of `text` — without doubling what the
+ * template already says around it (27.09.2026):
+ *  - a value that ends with the word the template writes right after the
+ *    placeholder loses that word ("{sure} gün" + "7 (yedi) gün" printed
+ *    "7 (yedi) gün gün");
+ *  - a value that ends with "." before a template "." loses its own period
+ *    ("{karar}." + "… K. 2026/40." printed "K. 2026/40..").
+ */
+export function fillPlaceholder(text: string, key: string, value: string): string {
+  const marker = `{${key}}`;
+  const parts = text.split(marker);
+  if (parts.length === 1) return text;
+  let out = parts[0] as string;
+  for (let i = 1; i < parts.length; i += 1) {
+    const after = parts[i] as string;
+    let filled = value;
+    const nextWord = /^\s+(\p{L}+)/u.exec(after)?.[1];
+    if (nextWord !== undefined) {
+      const lastWord = /\s(\p{L}+)$/u.exec(filled)?.[1];
+      if (
+        lastWord !== undefined &&
+        lastWord.toLocaleLowerCase("tr-TR") === nextWord.toLocaleLowerCase("tr-TR")
+      ) {
+        filled = filled.replace(/\s+\p{L}+$/u, "");
+      }
+    }
+    if (after.startsWith(".")) filled = filled.replace(/\.+$/u, "");
+    out += filled + after;
+  }
+  return out;
+}
+
+/** A filled clause and the system placeholders it carries. */
+interface FilledClause {
+  text: string;
+  placeholders: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Süre — may the document say "süresi içinde"? (27.09.2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * The date a decision künye names, as YYYY-MM-DD: the one after "T." first
+ * ("…, K. 2026/4, T. 01.02.2026"), else the last full date in the line.
+ * Undefined when the künye carries no readable date.
+ */
+export function decisionDateOf(kunye: string): string | undefined {
+  const marked = /\bT\.?\s*:?\s*(\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2})/u.exec(kunye)?.[1];
+  if (marked !== undefined) return dateSortKey(marked);
+  const all = [...kunye.matchAll(/\b(\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2})\b/gu)];
+  const last = all[all.length - 1]?.[1];
+  return last === undefined ? undefined : dateSortKey(last);
+}
+
+/**
+ * THE DEFECT. An icra itiraz with a tebliğ of 03.08.2026 and a dilekçe dated
+ * 27.09.2026 still said "işbu itiraz İİK m.62/1'deki yedi günlük süre içinde
+ * yapılmaktadır" — a filed document asserting a timeliness its own dates
+ * contradict. And an istinaf accepted a tebliğ date earlier than the decision
+ * it served, without a word.
+ *
+ * THE RULE. The last day is computed by the deadlines engine
+ * (`computeDeadline`, the SAME rule the Süreler screen uses) from the
+ * template's `sure`. When the document's own date — `matter.tarih`, else
+ * today in Türkiye — is after it, `state.sureGecti` switches every slot that
+ * has a `textSureGecti` to the wording that keeps the tebliğ FACT and drops
+ * the "süresi içinde" CLAIM, and a loud warning (with the deadline
+ * disclaimer, verbatim: it shows a computed date) says why. Nothing here
+ * refuses a draft: a late filing can still be made (e.g. İİK m.65), it just
+ * may not say it is on time.
+ */
+function assessTimeliness(state: ComposeState): void {
+  const sure = state.template.sure;
+  if (sure === undefined) return;
   const ek = state.request.matter.ekBilgiler;
-  let text = slot.text ?? "";
+  const rawStart = ek?.[sure.baslangicKey];
+  if (typeof rawStart !== "string" || rawStart.trim() === "") return;
+  const label = fieldFor(state, sure.baslangicKey)?.label ?? sure.baslangicKey;
+  const start = dateSortKey(rawStart);
+  if (start === undefined) {
+    state.warnings.push(
+      `'${label}' tarih olarak okunamadı (${inline(rawStart)}); belgedeki süre ifadesi` +
+        " hesaplanan son günle karşılaştırılamadı — süreyi Süreler ekranında doğrulayın.",
+    );
+    return;
+  }
+  if (sure.kararKey !== undefined) {
+    const rawKarar = ek?.[sure.kararKey];
+    const kararDate = typeof rawKarar === "string" ? decisionDateOf(rawKarar) : undefined;
+    if (kararDate !== undefined && start < kararDate) {
+      state.warnings.push(
+        `⚠ TARİH TUTARSIZ: kararın tebliğ tarihi (${formatDateTr(start)}) kararın kendi` +
+          ` tarihinden (${formatDateTr(kararDate)}) önce görünüyor; bir karar verilmeden` +
+          " tebliğ edilemez. Tarihlerden biri yanlış yazılmış olabilir — tebliğ tarihini ve" +
+          " karar künyesini kontrol edin.",
+      );
+    }
+  }
+  let computed;
+  try {
+    computed = computeDeadline({ ruleId: sure.ruleId, startDate: start });
+  } catch {
+    // A date the engine cannot use (e.g. not a real calendar day) leaves the
+    // text as written; the engine's own screen will say why.
+    return;
+  }
+  const own = state.request.matter.tarih;
+  const docDate =
+    (own !== undefined && own.trim() !== "" ? dateSortKey(own) : undefined) ??
+    istanbulDateIso(state.now);
+  if (docDate <= computed.dueDate) return;
+  state.sureGecti = true;
+  state.warnings.push(
+    `⚠ SÜRE GEÇMİŞ GÖRÜNÜYOR: ${label} ${formatDateTr(start)}; ` +
+      `'${computed.rule?.title ?? sure.ruleId}' için hesaplanan son gün ${computed.dueDateTr},` +
+      ` belge tarihi ${formatDateTr(docDate)} bu günden sonradır. Taslak bu nedenle "süresi` +
+      ` içinde" DEMİYOR; süreyi ve varsa gecikme sebebini avukat kontrol etmelidir.` +
+      ` ${DEADLINE_DISCLAIMER}`,
+  );
+}
+
+/** Why a placeholder-only section is not in the draft (27.09.2026). */
+function omittedSectionWarning(state: ComposeState, section: TemplateSection): string {
+  const slot = section.slots.find((s) => s.kind === "liste" && s.omitSectionWhenEmpty === true);
+  const field = slot?.bilgiKey !== undefined ? fieldFor(state, slot.bilgiKey) : undefined;
+  const label = field?.label ?? section.title;
+  return (
+    `'${label}' alanı boş bırakıldığı için ${section.title} bölümü taslağa yazılmadı;` +
+    " gerekiyorsa alanı doldurup taslağı yeniden oluşturun." +
+    (field?.help !== undefined ? ` ${field.help}` : "")
+  );
+}
+
+function fillHukum(state: ComposeState, slot: TemplateSlot): FilledClause | undefined {
+  const ek = state.request.matter.ekBilgiler;
+  const authored =
+    state.sureGecti && slot.textSureGecti !== undefined ? slot.textSureGecti : (slot.text ?? "");
+  // Placeholders are taken from the AUTHORED text and from the missing-field
+  // form below — never from a value the lawyer typed ("[bkz. Ek-1]").
+  const placeholders = placeholderTokens(authored);
+  let text = authored;
   for (const key of slot.bilgi ?? []) {
+    if (!text.includes(`{${key}}`)) continue;
     const field = fieldFor(state, key);
     const label = field?.label ?? key;
     let value = bilgiString(ek, key);
     if (value !== undefined && field?.kind === "date") value = formatDateTr(value);
     if (value === undefined) {
+      if (slot.omitIfMissing === true) return undefined;
       // Human placeholder (W12): the field's label, never the machine key.
-      text = text.replaceAll(`{${key}}`, `[${label} — doldurun]`);
+      const token = missingFieldPlaceholder(label);
+      text = text.replaceAll(`{${key}}`, token);
+      placeholders.push(token);
       state.warnings.push(
-        `'${label}' alanı verilmedi; ilgili hüküm '[${label} — doldurun]' olarak bırakıldı.`,
+        `'${label}' alanı verilmedi; ilgili hüküm '${token}' olarak bırakıldı.`,
       );
     } else {
-      text = text.replaceAll(`{${key}}`, value);
+      text = fillPlaceholder(text, key, value);
     }
   }
-  return text;
+  return { text, placeholders };
 }
 
 /** True when the relevance gate parked this evidence id. */
@@ -447,6 +621,34 @@ function packUploads(state: ComposeState): DraftUploadInfo[] {
 
 // ---- party block (HMK m.119) ------------------------------------------------
 
+/** "av. ayşe kaya" for "Av. Ayşe Kaya" and "Ayşe Kaya": one person, one key. */
+function vekilKey(ad: string): string {
+  return avName(ad).toLocaleLowerCase("tr-TR").replace(/\s+/gu, " ");
+}
+
+/**
+ * The vekil printed under a party (HMK m.119/1-c: the vekil's ADDRESS is a
+ * mandatory element). 27.09.2026: a client-side party whose own record names
+ * the vekil (ad/baro/sicil, no address) used to shadow the matter-level vekil
+ * entirely, so `matter.vekil.adres` never reached the petition. When both
+ * records name the SAME lawyer they are merged, the party's own fields
+ * winning; a different lawyer on the party record is never given the other
+ * lawyer's address.
+ */
+function partyVekil(taraf: DraftParty, matterVekil: DraftVekil | undefined): DraftVekil | undefined {
+  const own = taraf.vekil;
+  if (matterVekil === undefined) return own;
+  if (own === undefined) return matterVekil;
+  if (!nonEmpty(own.ad) || !nonEmpty(matterVekil.ad) || vekilKey(own.ad) !== vekilKey(matterVekil.ad)) {
+    return own;
+  }
+  const merged: DraftVekil = { ...matterVekil };
+  for (const [key, value] of Object.entries(own) as [keyof DraftVekil, string | undefined][]) {
+    if (typeof value === "string" && value.trim() !== "") merged[key] = value;
+  }
+  return merged;
+}
+
 function partyParagraphs(state: ComposeState, sectionId: string): DraftParagraph[] {
   const { matter } = state.request;
   const out: DraftParagraph[] = [];
@@ -464,8 +666,7 @@ function partyParagraphs(state: ComposeState, sectionId: string): DraftParagraph
     else if (nonEmpty(taraf.vkn)) head += ` (Vergi No: ${inline(taraf.vkn)})`;
     add(head);
     if (nonEmpty(taraf.adres)) add(`Adres : ${inline(taraf.adres)}`);
-    const vekil =
-      taraf.vekil ?? (taraf === firstClient && matter.vekil !== undefined ? matter.vekil : undefined);
+    const vekil = partyVekil(taraf, taraf === firstClient ? matter.vekil : undefined);
     if (vekil !== undefined && nonEmpty(vekil.ad)) {
       add(`VEKİLİ : ${vekilLine(vekil)}`);
       if (nonEmpty(vekil.adres)) add(`Adres : ${inline(vekil.adres)}`);
@@ -477,7 +678,11 @@ function partyParagraphs(state: ComposeState, sectionId: string): DraftParagraph
 
 // ---- signature block -------------------------------------------------------
 
-function signatureParagraphs(state: ComposeState, sectionId: string): DraftParagraph[] {
+function signatureParagraphs(
+  state: ComposeState,
+  sectionId: string,
+  slot?: TemplateSlot,
+): DraftParagraph[] {
   const { matter } = state.request;
   const ek = matter.ekBilgiler;
   const date = nonEmpty(matter.tarih) ? formatDateTr(inline(matter.tarih)) : todayTr(state.now);
@@ -512,9 +717,21 @@ function signatureParagraphs(state: ComposeState, sectionId: string): DraftParag
     vekil = owner?.vekil;
   }
   if (vekil !== undefined) {
-    const role = owner !== undefined ? `${upperTr(inline(owner.rol))} VEKİLİ` : "VEKİL";
-    lines.push(nextParagraph(state, sectionId, "imza", role));
+    // 27.09.2026: `rolSatiri:false` (hukukî mütalaa) — the lawyer signs the
+    // opinion in their own name, not as "MÜTALAA İSTEYEN VEKİLİ".
+    if (slot?.rolSatiri !== false) {
+      const role = owner !== undefined ? `${upperTr(inline(owner.rol))} VEKİLİ` : "VEKİL";
+      lines.push(nextParagraph(state, sectionId, "imza", role));
+    }
     lines.push(nextParagraph(state, sectionId, "imza", `${vekilLine(vekil)} — (imza)`));
+    return lines;
+  }
+  if (slot?.rolSatiri === false) {
+    // A lawyer's own document with no lawyer named: never signed by a party
+    // (the old fallback signed a mütalaa as "MÜTALAA İSTEYEN — Mehmet
+    // Yılmaz"). A visible placeholder; the NİHAİ copy refuses it.
+    const token = missingFieldPlaceholder("Belgeyi imzalayan avukat");
+    lines.push(nextParagraph(state, sectionId, "imza", `${token} — (imza)`, { placeholders: [token] }));
     return lines;
   }
   // Legacy shape: a party whose role already says "vekili", else the first party.
@@ -538,7 +755,7 @@ function assessmentParagraph(
   // Paragraph text is the claim text itself: citation label + verbatim
   // quotes, exactly what RuleBasedDrafter emitted — never new prose. A
   // conflicted claim additionally carries the fixed pointer sentence.
-  const base = `Doğrulanmış kaynak uyarınca — ${sanitizeMarkdown(claim.text)}`;
+  const base = `Doğrulanmış kaynak uyarınca — ${draftPlainText(claim.text)}`;
   const text = claim.conflicted === true ? `${base} ${CONFLICT_POINTER_SENTENCE}` : base;
   const attached: string[] = [];
   let uploadOnly = true;
@@ -753,20 +970,32 @@ function slotParagraphs(
   switch (slot.kind) {
     case "baslik": {
       let text: string;
+      let placeholders: string[] = [];
       if (nonEmpty(matter.baslik)) text = inline(matter.baslik);
       else if (nonEmpty(matter.mahkeme) && state.template.kind === "dilekce") {
-        const merci = upperTr(inline(matter.mahkeme));
-        text = `${merci}${datifSuffix(merci)}`;
-      } else text = slot.text ?? "";
-      return text === "" ? [] : [nextParagraph(state, section.id, "baslik", text)];
+        // 27.09.2026: the court's own dative ("YARGITAY'A", not
+        // "YARGITAY'NA"), and an input that already carries one is not
+        // suffixed twice ("MAHKEMESİ'NE'NE").
+        text = addresseeDative(upperTr(inline(matter.mahkeme)));
+      } else {
+        // The template's default address ("[DAVANIN GÖRÜLDÜĞÜ] MAHKEMESİ'NE")
+        // is a placeholder until the lawyer names the court.
+        text = slot.text ?? "";
+        placeholders = placeholderTokens(text);
+      }
+      return text === "" ? [] : [nextParagraph(state, section.id, "baslik", text, { placeholders })];
     }
 
     case "taraflar":
       return partyParagraphs(state, section.id);
 
     case "konu": {
-      const text = bilgiString(ek, "konu") ?? slot.text ?? "";
-      return text === "" ? [] : [nextParagraph(state, section.id, "konu", text)];
+      const authored =
+        state.sureGecti && slot.textSureGecti !== undefined ? slot.textSureGecti : slot.text;
+      const own = bilgiString(ek, "konu");
+      const text = own ?? authored ?? "";
+      const placeholders = own === undefined ? placeholderTokens(authored) : [];
+      return text === "" ? [] : [nextParagraph(state, section.id, "konu", text, { placeholders })];
     }
 
     case "olaylar": {
@@ -835,6 +1064,9 @@ function slotParagraphs(
           nextParagraph(state, section.id, "hukukiDegerlendirme", legalGapText(state), {
             supported: false,
             note: NOTE_KAYNAKSIZ,
+            // The stub is an instruction to the lawyer, not court text: the
+            // NİHAİ copy refuses while it stands (placeholders.ts).
+            placeholders: [legalGapText(state)],
           }),
         ];
       }
@@ -850,9 +1082,8 @@ function slotParagraphs(
             state,
             section.id,
             "hukukiSebepler",
-            "Hukukî sebepler doğrulanmış bir mevzuat veya karar kaynağına bağlanamadı;" +
-              " dayanak mevzuat avukat tarafından eklenmelidir.",
-            { supported: false, note: NOTE_KAYNAKSIZ },
+            KAYNAKSIZ_STUB_SEBEPLER,
+            { supported: false, note: NOTE_KAYNAKSIZ, placeholders: [KAYNAKSIZ_STUB_SEBEPLER] },
           ),
         ];
       }
@@ -911,18 +1142,27 @@ function slotParagraphs(
     }
 
     case "imza":
-      return signatureParagraphs(state, section.id);
+      return signatureParagraphs(state, section.id, slot);
 
     case "hukum": {
-      const text = fillHukum(state, slot);
-      return text === "" ? [] : [nextParagraph(state, section.id, "hukum", text)];
+      const clause = fillHukum(state, slot);
+      if (clause === undefined || clause.text === "") return [];
+      return [
+        nextParagraph(state, section.id, "hukum", clause.text, { placeholders: clause.placeholders }),
+      ];
     }
 
     case "liste": {
       const items = slot.bilgiKey === undefined ? undefined : bilgiList(ek, slot.bilgiKey);
       if (items === undefined) {
         const empty = slot.emptyText ?? "";
-        return empty === "" ? [] : [nextParagraph(state, section.id, "liste", empty)];
+        if (empty === "") return [];
+        const placeholders = placeholderTokens(empty);
+        const paragraph = nextParagraph(state, section.id, "liste", empty, { placeholders });
+        if (slot.omitSectionWhenEmpty === true && placeholders.length > 0) {
+          state.emptyListParagraphs.add(paragraph.id);
+        }
+        return [paragraph];
       }
       return items.map((item, index) =>
         nextParagraph(state, section.id, "liste", `${index + 1}. ${item}`),
@@ -954,10 +1194,8 @@ function slotParagraphs(
 /** Wording of the mandatory-slot placeholder when no evidence was supplied. */
 function legalGapText(state: ComposeState): string {
   return state.pack === undefined || state.pack.claims.length === 0
-    ? "Hukukî değerlendirme için doğrulanmış kaynak sunulmamıştır; bu bölümün" +
-        " hukukî dayanağı avukat tarafından eklenmelidir."
-    : "Sunulan kaynaklardan hiçbiri doğrulama eşiğini geçemedi; hukukî" +
-        " değerlendirme avukat tarafından tamamlanmalıdır.";
+    ? KAYNAKSIZ_STUB_DEGERLENDIRME_KAYNAK_YOK
+    : KAYNAKSIZ_STUB_DEGERLENDIRME_ESIK;
 }
 
 /**
@@ -1096,6 +1334,10 @@ export function composeDraft(
   if (fieldIssues.length > 0) {
     throw new DraftValidationError("zorunlu şablon alanları eksik", fieldIssues);
   }
+  const ekIssues = validateEkBilgiler(template, request.matter.ekBilgiler);
+  if (ekIssues.length > 0) {
+    throw new DraftValidationError("ek bilgiler doğrulanamadı", ekIssues);
+  }
 
   const now = (options.now ?? (() => new Date()))();
   const createdAt = now.toISOString();
@@ -1110,7 +1352,14 @@ export function composeDraft(
     createdAt,
     now,
     relevance: new Map(),
+    sureGecti: false,
+    emptyListParagraphs: new Set(),
   };
+
+  // 27.09.2026: decided ONCE, before any slot is filled — the "süresi
+  // içinde" sentences and the tebliğ/karar date check read the matter's own
+  // dates through the deadlines engine (see assessTimeliness).
+  assessTimeliness(state);
 
   // Relevance gate (W12-FIX2): decided ONCE, before any slot is filled, from
   // the template's field of law, the matter's own words and its explicit
@@ -1133,9 +1382,16 @@ export function composeDraft(
       paragraphs.push(...slotParagraphs(state, section, slot));
     }
     // A section whose every slot produced nothing (all optional) is omitted.
-    if (paragraphs.length > 0) {
-      sections.push({ id: section.id, title: section.title, paragraphs });
+    if (paragraphs.length === 0) continue;
+    // 27.09.2026: a section whose ONLY content is an emptyText placeholder
+    // of a list that may be absent (KARŞI DAVA, DEF'İLER) does not exist in
+    // the document. It used to reach the NİHAİ copy as
+    // "[Karşı dava talebi varsa buraya yazın; yoksa bu bölümü silin]".
+    if (paragraphs.every((p) => state.emptyListParagraphs.has(p.id))) {
+      state.warnings.push(omittedSectionWarning(state, section));
+      continue;
     }
+    sections.push({ id: section.id, title: section.title, paragraphs });
   }
 
   // Contrary authority gets its own clearly-labeled section (contract A);
@@ -1227,6 +1483,10 @@ export function composeDraft(
         ` ${KAPSAM_SABIT_CUMLE} Her iki kapsamda da aynı doğrulama çalışır.`,
     );
   }
+  // 27.09.2026: one line while any system placeholder / KAYNAKSIZ stub is
+  // still in the text — the NİHAİ copy is refused until they are gone.
+  const openPlaceholders = placeholderWarning(findUnfilledPlaceholders({ sections }));
+  if (openPlaceholders !== undefined) warnings.push(openPlaceholders);
   if (request.instructions !== undefined && request.instructions.trim() !== "") {
     // Instructions steer template choice upstream; they are recorded so a
     // reviewer can see them, but they NEVER generate legal prose directly.

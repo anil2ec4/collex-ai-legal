@@ -74,6 +74,7 @@ from export.draft import (
     load_draft,
     paragraph_lines,
     parse_draft,
+    refuse_unfilled_placeholders,
     short_hash,
     verify_draft_or_refuse,
 )
@@ -811,6 +812,9 @@ def export_petition_docx(
     from export import __version__
 
     verify_draft_or_refuse(draft)
+    # 27.09.2026: the NİHAİ copy may not carry an unfilled system placeholder
+    # (an additional, filing-copy-only gate; the one above is unchanged).
+    refuse_unfilled_placeholders(draft, mode)
     # Local time with explicit offset: the human künye shows GG.AA.YYYY HH:MM
     # "(yerel saat)", the Teknik künye row keeps the full ISO stamp.
     stamp = generated_at or datetime.now().astimezone().isoformat(timespec="seconds")

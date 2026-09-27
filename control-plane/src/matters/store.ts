@@ -26,7 +26,7 @@ import {
   ISO_DATE_RE,
   deriveMatterSummary,
   isOpenDeadline,
-  isPlannedHearing,
+  isCalendarHearing,
   matterMatchesQuery,
   todayIso,
   type DeadlineRow,
@@ -619,7 +619,7 @@ export class InMemoryMatterStore implements MatterStore {
   }
 
   async listHearings(opts: { until?: string; from?: string } = {}): Promise<DeadlineRow[]> {
-    return this.listDated(opts, isPlannedHearing, "date");
+    return this.listDated(opts, isCalendarHearing, "date");
   }
 
   private listDated(

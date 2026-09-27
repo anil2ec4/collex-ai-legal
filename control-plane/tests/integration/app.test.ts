@@ -528,7 +528,9 @@ describe("drafting routes through the mounted app", () => {
     const draft = (await res.json()) as Draft;
     expect(draft.evidence.some((e) => e.source === "UPLOAD")).toBe(true);
     const deliller = draft.sections.find((s) => s.id === "deliller");
-    expect(deliller?.paragraphs.some((p) => p.text.includes("dilekce_ornek.docx"))).toBe(true);
+    // 27.09.2026: the DELİLLER line names the exhibit by its human title (no
+    // file extension); the full file name stays in EK — DOĞRULAMA.
+    expect(deliller?.paragraphs.some((p) => p.text.startsWith("Ek-1: dilekce_ornek ("))).toBe(true);
   });
 
   it("exports markdown with the review banner as the FIRST line", async () => {

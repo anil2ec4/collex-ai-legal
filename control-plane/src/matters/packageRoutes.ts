@@ -34,6 +34,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MatterStore } from "./types.js";
+import { encodeRfc8187 } from "../drafting/routes.js";
 
 /** Same exec seam the drafting router uses; tests inject a fake. */
 export interface PackageExecRequest {
@@ -133,10 +134,34 @@ function safeName(value: string, fallback: string): string {
   return cleaned === "" ? fallback : cleaned.slice(0, 120);
 }
 
-/** RFC 5987 disposition, same helper shape as the drafting router's. */
+/** RFC 6266/8187 disposition, same helper shape as the drafting router's. */
 function contentDisposition(name: string): string {
   const ascii = name.replace(/[^\x20-\x7e]/gu, "_").replace(/"/gu, "'");
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeRfc8187(name)}`;
+}
+
+/**
+ * A name no earlier entry of the same folder already took (27.09.2026).
+ *
+ * THE DEFECT. Two drafts of the same template and version were both planned
+ * as "<title> - v1.docx" and rendered to the same work path: one draft was
+ * silently lost and the manifest still verified. Two uploads called
+ * "dilekce.pdf" made zipfile write a duplicate member and the packager
+ * refused with a FALSE tampering message. Names are now unique per folder,
+ * deterministically — the second one gets " (2)" before its extension, in the
+ * order the matter lists its items — and compared case-insensitively, because
+ * the archive is unpacked on Windows.
+ */
+export function uniqueArchiveName(name: string, taken: Set<string>): string {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let candidate = name;
+  for (let n = 2; taken.has(candidate.toLocaleLowerCase("tr-TR")); n += 1) {
+    candidate = `${stem} (${n})${ext}`;
+  }
+  taken.add(candidate.toLocaleLowerCase("tr-TR"));
+  return candidate;
 }
 
 function isoDay(date: Date): string {
@@ -185,6 +210,9 @@ export function createMatterPackageRouter(deps: PackageRouterDeps): Hono {
     const documents: { fileName: string; sourcePath: string; sha256: string }[] = [];
     const drafts: { fileName: string; draftPath: string }[] = [];
     const answers: { fileName: string; bundlePath: string }[] = [];
+    // One name per archive folder (uniqueArchiveName).
+    const documentNames = new Set<string>();
+    const draftNames = new Set<string>();
 
     const workDir = await mkdtemp(join(tmpdir(), "collex-package-"));
     try {
@@ -244,7 +272,7 @@ export function createMatterPackageRouter(deps: PackageRouterDeps): Hono {
           continue;
         }
         documents.push({
-          fileName: safeName(ref.name, `${item.refId}${extension}`),
+          fileName: uniqueArchiveName(safeName(ref.name, `${item.refId}${extension}`), documentNames),
           sourcePath,
           sha256: ref.sha256,
         });
@@ -301,7 +329,7 @@ export function createMatterPackageRouter(deps: PackageRouterDeps): Hono {
         const title = typeof draft.title === "string" ? draft.title : item.refId;
         const version = typeof draft.version === "number" ? draft.version : 1;
         drafts.push({
-          fileName: `${safeName(title, `taslak-${draftIndex}`)} - v${version}.docx`,
+          fileName: uniqueArchiveName(`${safeName(title, `taslak-${draftIndex}`)} - v${version}.docx`, draftNames),
           draftPath,
         });
       }
@@ -361,10 +389,18 @@ export function createMatterPackageRouter(deps: PackageRouterDeps): Hono {
           {
             error: {
               kind: result.code === 2 ? "EXPORT_REFUSED" : "EXPORT_FAILED",
+              // 27.09.2026: the refusal has several causes (a document whose
+              // bytes no longer match its digest, a draft whose quote was
+              // altered, a colliding name); the old sentence named only the
+              // first and read as TAMPERING when two uploads merely shared a
+              // name. The sentence now claims only what is known; the finding
+              // itself stays in the server log (stderr never reaches a body).
               message:
                 result.code === 2
-                  ? "Paket REDDEDİLDİ: belgelerden birinin içeriği kayıtlı özetiyle" +
-                    " uyuşmuyor; hiçbir dosya yazılmadı."
+                  ? "Paket REDDEDİLDİ: paketteki kayıtlardan biri doğrulanamadı (örneğin" +
+                    " kayıtlı özetiyle uyuşmayan bir belge ya da alıntısı değiştirilmiş bir" +
+                    " taslak); hiçbir dosya yazılmadı. Hangi kaydın reddedildiği sunucu" +
+                    " günlüğünde bu kayıt numarasıyla yazılı."
                   : "Paketleyici beklenmedik biçimde sonlandı; dosya üretilmedi.",
               detail:
                 "Ayrıntı sunucu günlüğünde bu numarayla kayıtlı:" +

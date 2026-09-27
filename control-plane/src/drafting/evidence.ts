@@ -475,7 +475,16 @@ export async function resolveDraftEvidence(
         message: "dosya deposu bu örnekte yapılandırılmamış; dosya kanıtı kullanılamaz",
       });
     } else {
-      const chunks = await deps.files.getChunks(evidence.fileIds, LOCAL_TENANT_ID);
+      // 27.09.2026: Ek-n numbering follows the LAWYER's order — the order of
+      // `evidence.fileIds` — never the store's. The Pg port used to answer in
+      // `external_id` (hex fileId) order, so "Ek-1" was whichever file hashed
+      // lowest. Stable sort: a file's chunks keep their ordinal order.
+      const position = new Map(evidence.fileIds.map((fileId, index) => [fileId, index] as const));
+      const chunks = [...(await deps.files.getChunks(evidence.fileIds, LOCAL_TENANT_ID))].sort(
+        (a, b) =>
+          (position.get(a.fileId) ?? Number.MAX_SAFE_INTEGER) -
+          (position.get(b.fileId) ?? Number.MAX_SAFE_INTEGER),
+      );
       const seenFileIds = new Set(chunks.map((chunk) => chunk.fileId));
       for (const fileId of evidence.fileIds) {
         if (!seenFileIds.has(fileId)) {

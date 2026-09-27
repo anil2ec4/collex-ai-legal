@@ -67,6 +67,7 @@ import {
   type FilesReadStore,
 } from "./store.js";
 import { databaseDownHintTr } from "../platform/operatorHints.js";
+import { encodeRfc8187 } from "../drafting/routes.js";
 
 /**
  * Upload cap in MiB. MIRRORS `intake/quarantine.py` `UPLOAD_CAP_MIB` — that
@@ -195,7 +196,7 @@ export function withTransferableDates(
 /** Content-Disposition value for a download, ASCII fallback + UTF-8 form. */
 export function attachmentDisposition(fileName: string): string {
   const safe = fileName.replace(/[^\x20-\x7e]/gu, "_").replace(/["\\]/gu, "_");
-  return `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+  return `attachment; filename="${safe}"; filename*=UTF-8''${encodeRfc8187(fileName)}`;
 }
 
 /**
@@ -920,6 +921,16 @@ export function createFilesRouter(deps: FilesRouterDeps): Hono {
           { error: { kind: "NOT_SUPPORTED", message: FILTER_UNSUPPORTED_MESSAGE_TR } },
           501,
         );
+      }
+      // 27.09.2026: an id with no document behind it is 404 like on every
+      // other file route. It used to answer 200 with empty lists — which the
+      // delete dialog reads as "nothing depends on this document".
+      const exists =
+        store.originalRef !== undefined
+          ? (await store.originalRef(fileId)) !== undefined
+          : (await store.showFile(fileId, undefined, { offset: 0, limit: 1 })) !== undefined;
+      if (!exists) {
+        return c.json({ error: { kind: "NOT_FOUND", message: "Belge kaydı bulunamadı." } }, 404);
       }
       const usage = await store.fileUsage(fileId);
       const warnings: string[] = [];

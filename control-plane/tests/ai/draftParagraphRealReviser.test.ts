@@ -58,6 +58,8 @@ function composed(): AiDraftLike {
 async function write(
   evidenceIds: string[],
   placement: { paragraphId?: string; insertAfter?: string } = {},
+  text: string = TEXT,
+  savedText: string = text,
 ) {
   const draft = composed();
   const idsBefore = paragraphIds(draft);
@@ -65,7 +67,7 @@ async function write(
   const config = resolveAiConfig({ [AI_ENV.apiKey]: KEY })!;
   const reply: ReplyFn = (body) => {
     const tool = body.tools[0]!.name;
-    if (tool === "write_paragraph") return { toolInput: { text: TEXT, evidenceIds } };
+    if (tool === "write_paragraph") return { toolInput: { text, evidenceIds } };
     return { toolInput: { entails: true, score: 0.95, rationale: "uyuyor" } };
   };
   const fake = fakeAnthropic(reply);
@@ -101,7 +103,7 @@ async function write(
   const saved = store.get(draft.draftId)!;
   const savedParagraph = saved.sections
     .find((s) => s.id === SECTION)!
-    .paragraphs.find((p) => p.text === TEXT)!;
+    .paragraphs.find((p) => p.text === savedText)!;
   return { draft, idsBefore, body, saved, savedParagraph };
 }
 
@@ -165,6 +167,19 @@ describe("W21 · draft-paragraph with the product reviser: `kaynakli` is the SAV
     expect(dropped).toContain("ev-karsit");
     expect(dropped).not.toContain("ev-tck157");
     expect(saved.warnings).toContain(JUDGED_LINE);
+  });
+
+  it("27.09.2026: a model text carrying '&' is saved as plain text and still found — sourced", async () => {
+    // The route sanitizes model output ("&" -> "&amp;"); the product reviser
+    // now stores PLAIN text (the escape folded back). The saved paragraph
+    // must still be located, or a sourced paragraph is reported unsourced.
+    const withAmp = "5237 sayılı Kanun m. 157 & m. 158 uyarınca fiil dolandırıcılık suçunu oluşturur.";
+    const { idsBefore, body, savedParagraph } = await write(["ev-tck157"], {}, withAmp, withAmp);
+    expect(savedParagraph).toBeDefined();
+    expect(idsBefore.has(savedParagraph.id)).toBe(false);
+    expect(savedParagraph.supported).toBe(true);
+    expect(body["kaynakli"]).toBe(true);
+    expect(body["paragraph"]["id"]).toBe(savedParagraph.id);
   });
 
   for (const [label, placement] of [

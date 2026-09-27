@@ -711,7 +711,9 @@ export class PostgresFilesStore implements FilesReadStore {
       where d.scope = 'tenant' and d.source = 'UPLOAD'
         and d.tenant_id = ${tenantId}
         and d.external_id = any(${[...fileIds]})
-      order by d.external_id, c.ordinal`;
+      order by array_position(${[...fileIds]}::text[], d.external_id), c.ordinal`;
+    // 27.09.2026: the CALLER's order (Ek-n numbering is the lawyer's order),
+    // not `external_id` — a hex digest prefix ordered the exhibits before.
     return rows.map((row: SqlRow): DraftFileChunk => {
       const meta = uploadMeta(row["metadata"]);
       const fileName = metaString(meta, "name") || String(row["title"] ?? "");
