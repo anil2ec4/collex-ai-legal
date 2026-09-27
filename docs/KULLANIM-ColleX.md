@@ -1138,6 +1138,26 @@ dosyayı **adıyla** söyler.
 şifreleme yok. Yedeği **siz** almalısınız. Ayarlar'daki yedek satırı hiç
 yedek alınmadıysa kırmızı, yedek yedi günden eskiyse turuncu görünür.
 
+
+### Bu bilgisayarda doğrulama (ColleX-Dogrula)
+
+ColleX'in resmî kaynaklara gerçekten ulaşıp ulaşmadığını **kendi
+bilgisayarınızda** ölçmek için, ColleX açıkken masaüstündeki
+`ColleX-Dogrula.cmd` dosyasına çift tıklayın (Mac'te
+`deploy/macos/collex-verify.sh`). Birkaç dakika sürer ve şunları yapar:
+
+1. 26 resmî kaynağın her birinde sırayla, aralıklı bir arama yapar;
+2. sonuç gelen her kaynaktan bir kararın tam metnini getirir ve metnin
+   **parmak izini** yeniden hesaplayıp bozulmadan geldiğini denetler;
+3. ayarlı bir yerel yapay zekâ modeli varsa onu yalnız örnek cümlelerle
+   dener;
+4. Mac'te bilgisayarın kendisini (sürüm, işlemci, bellek) yazar.
+
+Dosyalarınıza, taslaklarınıza ve cevaplarınıza **hiçbir şey yazmaz**. Sonuç
+`dogrulama` klasöründe tarihli bir rapordur; her kaynak için "ulaşıldı,
+sonuç geldi", "ulaşıldı ama bu sorguya sonuç yok" ya da **"ULAŞILAMADI"**
+yazar. Rapor müvekkil verisi içermez; isterseniz geliştiriciye
+gönderebilirsiniz. Rapor **erişimi** ölçer, sonuçların isabetini ölçmez.
 ---
 
 ## 11. Ayarlar
