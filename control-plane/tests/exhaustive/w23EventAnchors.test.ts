@@ -134,6 +134,31 @@ describe("W23 · the investigator's whole file: every işe giriş pair is compar
     expect(countFound(salary)).toBe(8);
   });
 
+  it("net ücret 45.000 / 32.000 with the bordro: 12 of 12 pairs (9 on extract-v9), paired by the wage, never with the gross wage", () => {
+    const withBordro = crossPairs(
+      withValue(observations, "4500000", ["01", "03", "04", "06"]),
+      withValue(observations, "3200000", ["02", "05", "09"]),
+    );
+    expect(withBordro).toHaveLength(12);
+    expect(countFound(withBordro)).toBe(12);
+    const [bordro] = withValue(observations, "3200000", ["09"]);
+    expect(bordro!.statement).toBe("Davacının 2023 Aralık ayı bordrosunda net ücret 32.000,00 TL olarak gösterilmiştir.");
+    expect(parsePredicate(bordro!.predicate).event).toBe("net_ucret");
+    const [brut] = withValue(observations, "6184211", ["03"]);
+    expect(parsePredicate(brut!.predicate).event).toBe("brut_ucret");
+    const netAgainstGross = shownRelations(observations).filter((relation) =>
+      [relation.left, relation.right].some((side) => side.normalizedValue === "6184211"),
+    );
+    expect(netAgainstGross).toEqual([]);
+    const relation = shownRelations(observations).find(
+      (candidate) => [candidate.left.observationId, candidate.right.observationId].includes(bordro!.observationId) &&
+        [candidate.left.normalizedValue, candidate.right.normalizedValue].includes("4500000"),
+    );
+    expect(relation?.pairedBy).toBe("event");
+    expect(relation?.rationale).toContain("“net ücret” için iki farklı tutar var");
+    expect(relation?.rationale).toContain("aynı döneme ilişkinse");
+  });
+
   it("no false contradiction: every reported pair is one of the file's real conflicts", () => {
     // işe giriş, tebliğ, and the net salary said as 45.000 / 32.000 / 33.500 (the ek beyan contradicts
     // the same witness's first statement). Never a decision date, a partial claim, the SGK
@@ -249,6 +274,77 @@ describe("W23 · what must NOT become an employment start (negative)", () => {
   });
 });
 
+/** The wage event of the one amount of `value` in `text`. */
+function wageOf(text: string, value: string) {
+  const found = extractPropositions(text).filter((draft) => draft.kind === "amount" && draft.normalizedValue === value);
+  expect(found, `${value} in: ${text}`).toHaveLength(1);
+  return parsePredicate(found[0]!.predicate);
+}
+
+describe("W23 · an amount labelled as the wage (generalising)", () => {
+  it.each([
+    ["a payroll label line", "Net Ücret : 32.000,00 TL", "3200000", "net_ucret"],
+    ["an upper-case payroll line", "NET ÖDENEN 28.500,00 TL", "2850000", "net_ucret"],
+    ["'net ele geçen'", "Net ele geçen: 30.000 TL", "3000000", "net_ucret"],
+    ["a witness's 'aylık net maaşı'", "İşçinin aylık net maaşı 27.000 TL idi.", "2700000", "net_ucret"],
+    ["a petition's 'son aylık net ücreti'", "Müvekkilin son aylık net ücreti 41.000 TL olup elden ödenmiştir.", "4100000", "net_ucret"],
+    ["a gross label line", "Brüt Ücret : 43.529,41 TL", "4352941", "brut_ucret"],
+    ["'brüt maaşı'", "Davacının brüt maaşı 50.000 TL olarak bildirilmiştir.", "5000000", "brut_ucret"],
+  ])("%s → %s", (_label, text, value, wage) => {
+    expect(wageOf(text, value).event).toBe(wage);
+  });
+
+  it.each([
+    ["a claim for overtime, 'net' in front", "Davacının net fazla çalışma ücreti alacağı 147.905,20 TL olarak hesaplanmıştır.", "14790520"],
+    ["a severance figure", "Davacının net kıdem tazminatı alacağı 203.412,67 TL'dir.", "20341267"],
+    ["another kind of pay between 'net' and the noun", "Net fazla mesai ücreti 5.000 TL olarak ödenmiştir.", "500000"],
+    ["the SGK 'prime esas kazanç'", "Son Ay Prime Esas Kazanç : 43.529,41 TL", "4352941"],
+    ["a wage word that is not the label of this amount", "Net ücret dışında 3.000 TL yol yardımı ödenmiştir.", "300000"],
+  ])("%s → no wage", (_label, text, value) => {
+    expect(wageOf(text, value).event).toBeUndefined();
+  });
+
+  it("a partial claim of wage keeps its never-compared tag", () => {
+    expect(wageOf("Fazlaya ilişkin haklarımız saklı kalmak kaydıyla şimdilik net ücret 5.000 TL talep ederiz.", "500000")).toMatchObject({
+      neverCompared: true,
+      tag: "kismi_talep",
+    });
+  });
+
+  it("a net and a gross wage in two documents are never set against each other", () => {
+    const observations = census([
+      { name: "01-bordro", text: "Brüt Ücret : 43.529,41 TL" },
+      { name: "02-dava", text: "Müvekkilin son aylık net ücreti 32.000 TL olup bankaya yatırılmıştır." },
+    ]);
+    expect(shownRelations(observations)).toEqual([]);
+  });
+
+  it("two documents naming the net wage in unrelated words are compared by the wage", () => {
+    const observations = census([
+      { name: "01-bordro", text: "NET ÖDENEN 28.500,00 TL" },
+      { name: "02-tanik", text: "Tanık beyanında: \"İşçinin aylık net maaşı 35.000 TL idi.\"" },
+    ]);
+    const [relation] = shownRelations(observations);
+    expect(relation?.relation).toBe("CONTRADICTION");
+    expect(relation?.pairedBy).toBe("event");
+    expect(relation?.event).toBe("net_ucret");
+  });
+
+  it("two net wages said for explicitly different years are two periods, not one conflict", () => {
+    const observations = census([
+      { name: "01-bordro", text: "2019 yılı Ocak bordrosunda net ücret 20.000 TL gösterilmiştir." },
+      { name: "02-dava", text: "Davacının 2023 Aralık ayında aylık net maaşı 45.000 TL idi." },
+    ]);
+    expect(shownRelations(observations)).toEqual([]);
+    // The same two sentences without their years are one question.
+    const undated = census([
+      { name: "01-bordro", text: "Bordroda net ücret 20.000 TL gösterilmiştir." },
+      { name: "02-dava", text: "Davacının aylık net maaşı 45.000 TL idi." },
+    ]);
+    expect(shownRelations(undated).map((relation) => relation.pairedBy)).toEqual(["event"]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Part two: the rule lane of full_review and red_team is LIMITED too.
 // ---------------------------------------------------------------------------
@@ -311,7 +407,8 @@ function finished(task: AnalysisTask, finalized = true) {
     evidenceItemsTotal: 0,
     modelAvailable: true,
     finalized,
-    valueComparison: { values: 51, valuesNeverCompared: 5, candidatePairs: 567, pairsComparedByEvent: 58, pairsComparedByTopic: 27 },
+    valueComparison: { values: 51, valuesNeverCompared: 5, candidatePairs: 567, pairsComparedByEvent: 58, pairsComparedByTopic: 27,
+      byKind: { date: { candidatePairs: 491, pairsCompared: 61 }, amount: { candidatePairs: 76, pairsCompared: 24 } } },
   });
 }
 
@@ -349,7 +446,26 @@ describe("W23 · full_review and red_team say what their rule lane compared", ()
     });
   }
 
-  it("the contradictions task's sentence and chip are unchanged; claim_evidence and chronology can still be COMPLETE", () => {
+  it("chronology is LIMITED too: its sentence counts DATE pairs only, and its chip and refusal name date conflicts", () => {
+    const overall = deriveAnalysisCompleteness({ task: "chronology", source, extraction, intelligence: finished("chronology"), active: false });
+    expect(overall.state).toBe("LIMITED");
+    expect(overall.complete).toBe(false);
+    expect(overall.analysisLimited).toBe(true);
+    const sentence =
+      "Tarih çelişkileri yalnız aynı olayı anan ya da konu anahtarı örtüşen tarihler arasında arandı:" +
+      " 491 tarih çiftinden 61 çift karşılaştırıldı; farklı kelimelerle anlatılan aynı olay kaçabilir.";
+    expect(overall.comparisonLimitTr).toBe(sentence);
+    expect(overall.sectionsTr.analysis).toBe(sentence);
+    expect(overall.refusedBecause).toBe(`"Tüm tarih çelişkileri" söylenemez: ${sentence}`);
+    expect(overall.headlineTr).toBe(
+      "\"Kronolojiyi çıkar\" bitti: seçilen belgelerin tamamı okundu ve tanınan biçimlerde yazılmış tarihler zaman" +
+        " sırasına dizildi; ancak tarih çelişkileri yalnız eşleşen tarih çiftleri arasında arandı, bu yüzden sonuç" +
+        " \"tüm tarih çelişkileri\" olarak okunamaz.",
+    );
+    expect(analysisLabelTr(overall, "chronology")).toBe("kronoloji bitti; tarih çelişkileri yalnız eşleşen tarih çiftleri arasında arandı");
+  });
+
+  it("the contradictions task's sentence and chip are unchanged; claim_evidence can still be COMPLETE", () => {
     const contradictions = deriveAnalysisCompleteness({ task: "contradictions", source, extraction, intelligence: finished("contradictions"), active: false });
     expect(contradictions.state).toBe("LIMITED");
     expect(contradictions.comparisonLimitTr).toBe(
@@ -357,17 +473,15 @@ describe("W23 · full_review and red_team say what their rule lane compared", ()
         " farklı kelimelerle anlatılan aynı olay kaçabilir.",
     );
     expect(analysisLabelTr(contradictions, "contradictions")).toBe("inceleme bitti; yalnız eşleşen değer çiftleri karşılaştırıldı");
-    for (const task of ["claim_evidence", "chronology"] as const) {
-      const overall = deriveAnalysisCompleteness({ task, source, extraction, intelligence: finished(task), active: false });
-      expect(overall.state, task).toBe("COMPLETE");
-      expect(overall.complete).toBe(true);
-      expect(overall.comparisonLimitTr).toBeNull();
-    }
+    const evidence = deriveAnalysisCompleteness({ task: "claim_evidence", source, extraction, intelligence: finished("claim_evidence"), active: false });
+    expect(evidence.state).toBe("COMPLETE");
+    expect(evidence.complete).toBe(true);
+    expect(evidence.comparisonLimitTr).toBeNull();
   });
 
-  it("every task whose result reads the rule lane's contradictions, except chronology, is matched-pairs-only", () => {
+  it("every task whose result reads the rule lane's contradictions is matched-pairs-only", () => {
     // buildDeterministicIntel adds rule-lane contradiction items for every task but claim_evidence.
     const flagged = (Object.keys(TASK_SPECS) as AnalysisTask[]).filter((task) => TASK_SPECS[task].matchedPairsOnly === true).sort();
-    expect(flagged).toEqual(["contradictions", "full_review", "red_team"]);
+    expect(flagged).toEqual(["chronology", "contradictions", "full_review", "red_team"]);
   });
 });

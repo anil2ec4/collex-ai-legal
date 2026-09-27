@@ -43,7 +43,7 @@ import {
   type ValueComparisonStats,
 } from "./contradictions.js";
 import { MODEL_EXTRACTOR_VERSION } from "./modelExtractor.js";
-import { DATE_EVENT_TR, EXTRACTOR_VERSION, parsePredicate, type PropositionKind } from "./observations.js";
+import { EXTRACTOR_VERSION, parsePredicate, VALUE_EVENT_TR, type PropositionKind } from "./observations.js";
 import { SUPPORT_UNIVERSE_KINDS } from "./stageTypes.js";
 import { TASK_SPECS, type AnalysisTask, type IntelItemKind } from "./tasks.js";
 
@@ -373,7 +373,7 @@ function buildEvents(observations: readonly StoredObservation[]): IntelItemDraft
               topicKey: basis.subject,
               documents: files.size,
               mentions: members.length,
-              ...(event !== undefined ? { event, eventTr: DATE_EVENT_TR[event] } : {}),
+              ...(event !== undefined ? { event, eventTr: VALUE_EVENT_TR[event] } : {}),
             },
           },
         ),
@@ -436,7 +436,7 @@ function buildRelationItems(
           subjectOverlap: Number(relation.subjectOverlap.toFixed(3)),
           detector: relation.detector,
           ...(relation.pairedBy !== undefined ? { pairedBy: relation.pairedBy } : {}),
-          ...(relation.event !== undefined ? { event: relation.event, eventTr: DATE_EVENT_TR[relation.event] } : {}),
+          ...(relation.event !== undefined ? { event: relation.event, eventTr: VALUE_EVENT_TR[relation.event] } : {}),
         },
       },
     );

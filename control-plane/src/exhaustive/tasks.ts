@@ -101,10 +101,10 @@ export interface TaskSpec {
    * buildAnalyticalState) runs with the same pairing rule, and its
    * contradictions are reported (full_review) or synthesized (red_team); a
    * run of either was COMPLETE while that lane had compared, say, 85 of 567
-   * pairs. Every task whose result reads the rule lane's contradictions
-   * carries this flag except chronology, whose product is the timeline and
-   * whose limits already say that date conflicts are searched only among
-   * matched statements.
+   * pairs. And chronology: its timeline is whole, but the date conflicts it
+   * reports were looked for only among matched date pairs, and a finished
+   * run read "tamamlandı". Every task whose result reads the rule lane's
+   * contradictions carries this flag; claim_evidence reads none.
    */
   readonly matchedPairsOnly?: true;
 }
@@ -116,7 +116,7 @@ export interface TaskSpec {
  */
 export const MATCHED_VALUE_PAIRS_LIMIT_TR =
   "Tarih, tutar ve oranlar kurallı olarak yalnız eşleşen çiftler arasında karşılaştırılır: aynı olayı" +
-  " (işe giriş, işten çıkış, tebliğ, ihtarname tarihi) anan tarihler ya da çevresindeki kelimeler" +
+  " (işe giriş, işten çıkış, tebliğ, ihtarname tarihi) anan tarihler, aynı ücreti (net ya da brüt ücret) anan tutarlar ya da çevresindeki kelimeler" +
   " (konu anahtarı) örtüşen değerler. Farklı kelimelerle anlatılan aynı olay kaçabilir; bu yüzden sonuç" +
   " \"tüm çelişkiler\" olarak okunamaz.";
 
@@ -150,7 +150,7 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
         " içermeyen serbest metin çelişkileri bu incelemenin kapsamı dışındadır; onları" +
         " \"Dosyanın tamamını incele\" yerel modelle ayrıca karşılaştırır.",
       "Yalnız eşleşen değer çiftleri karşılaştırılır: aynı olayı (işe giriş, işten çıkış," +
-        " tebliğ, ihtarname tarihi) anan tarihler ya da çevresindeki kelimeler (konu anahtarı)" +
+        " tebliğ, ihtarname tarihi) anan tarihler, aynı ücreti (net ya da brüt ücret) anan tutarlar ya da çevresindeki kelimeler (konu anahtarı)" +
         " örtüşen değerler. Farklı kelimelerle anlatılan aynı olay kaçabilir; bu yüzden sonuç" +
         " \"tüm çelişkiler\" olarak okunamaz ve her eşleşme kaynaktan doğrulanmalıdır.",
       "Atıf yapılan mahkeme kararlarının tarihleri ile \"şimdilik\" istenen kısmi talep" +
@@ -166,6 +166,7 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
     requiresModel: false,
     modelKinds: [],
     produces: ["event", "contradiction", "question"],
+    matchedPairsOnly: true,
     limitsTr: [
       "Yalnız metinde açıkça yazılı tarihler kullanılır; tarihi yazılmamış" +
         " olaylar kronolojide yer almaz.",

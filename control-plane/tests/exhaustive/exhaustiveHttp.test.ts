@@ -362,7 +362,8 @@ describe("W22 · what a run says about itself", () => {
     const matter = await matters.create({ title: "Sonradan belge eklenen" });
     await linkFiles(matters, matter.id, ["aaaa1111"]);
     const { started, run } = await analyze(matter.id, { task: "chronology" });
-    expect(run.analysisCompleteness.state).toBe("COMPLETE");
+    // W23: a finished chronology is LIMITED (its date conflicts compare only matched pairs), never COMPLETE.
+    expect(run.analysisCompleteness.state).toBe("LIMITED");
     await linkFiles(matters, matter.id, ["ffff6666"]);
 
     const view = (await get(app, `/v1/matters/${matter.id}/analysis/${started.runId}`)).body;

@@ -83,8 +83,13 @@ import { LOCAL_TENANT_ID } from "../exhaustive/store.js";
  * counts are read by the same rules as extract-v8, so a grid-v7 census is
  * still current (CURRENT_CENSUS_VERSIONS) and a grid-v7 answer cell was
  * checked the same way (QUESTION_CHECKED_VERSIONS).
+ *
+ * grid-v9 (W23): cells as in grid-v8; the census extractor moved to
+ * extract-v10, which changed only WHICH WAGE an amount is tagged with (net /
+ * brüt ücret). The values are read as before, so grid-v7 and grid-v8 cells
+ * stay current.
  */
-export const REVIEW_TABLE_GENERATOR_VERSION = "grid-v8";
+export const REVIEW_TABLE_GENERATOR_VERSION = "grid-v9";
 
 /**
  * W22: the answer status of a cell whose claim is verified against its quote,
@@ -103,7 +108,7 @@ export const QUOTE_ONLY_SUPPORT_TR = "alıntı doğrulandı; soruyu karşıladı
  * version must move as well, or census cells counted under the old rules are
  * shown as current (the grid-v4 residual of the third verifier round).
  */
-export const CENSUS_EXTRACTOR_VERSION = "extract-v9";
+export const CENSUS_EXTRACTOR_VERSION = "extract-v10";
 
 /**
  * Versions whose abstention sentences were checked against the whole pinned
@@ -117,6 +122,7 @@ const WHOLE_TEXT_CHECKED_VERSIONS: ReadonlySet<string> = new Set([
   "grid-v5",
   "grid-v6",
   "grid-v7",
+  "grid-v8",
   REVIEW_TABLE_GENERATOR_VERSION,
 ]);
 
@@ -127,8 +133,9 @@ const WHOLE_TEXT_CHECKED_VERSIONS: ReadonlySet<string> = new Set([
  * here; when the extractor changes, do not: its census cells are re-stated.
  */
 const CURRENT_CENSUS_VERSIONS: ReadonlySet<string> = new Set([
-  // grid-v7 counted with extract-v8, whose VALUES extract-v9 reads alike (W23).
+  // grid-v7 / grid-v8 counted with extract-v8 / -v9, whose VALUES extract-v10 reads alike (W23).
   "grid-v7",
+  "grid-v8",
   REVIEW_TABLE_GENERATOR_VERSION,
 ]);
 
@@ -137,7 +144,7 @@ const CURRENT_CENSUS_VERSIONS: ReadonlySet<string> = new Set([
  * grid-v7 does (the claim carrying the question's core words; a passage
  * lacking one is QUESTION_NOT_CHECKED). A version outside it is re-stated.
  */
-const QUESTION_CHECKED_VERSIONS: ReadonlySet<string> = new Set(["grid-v7", REVIEW_TABLE_GENERATOR_VERSION]);
+const QUESTION_CHECKED_VERSIONS: ReadonlySet<string> = new Set(["grid-v7", "grid-v8", REVIEW_TABLE_GENERATOR_VERSION]);
 
 /**
  * W21 R2-22 (third verifier round): versions whose census cells were scoped

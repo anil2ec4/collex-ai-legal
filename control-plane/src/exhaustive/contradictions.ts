@@ -35,7 +35,7 @@
  * the two passages and can overrule the machine.
  */
 
-import { DATE_EVENT_TR, parsePredicate, type DateEvent, type PropositionKind } from "./observations.js";
+import { parsePredicate, VALUE_EVENT_TR, type PropositionKind, type ValueEvent } from "./observations.js";
 
 export type ObservationRelation =
   | "CONTRADICTION"
@@ -73,7 +73,7 @@ export interface RelationVerdict {
    */
   readonly pairedBy?: "event" | "topic" | undefined;
   /** The event both dates belong to, when pairedBy is "event". */
-  readonly event?: DateEvent | undefined;
+  readonly event?: ValueEvent | undefined;
 }
 
 /**
@@ -87,7 +87,15 @@ export interface RelationVerdict {
  * (ValueComparisonStats), so the analysis can say how many pairs it compared
  * instead of implying it compared them all.
  */
-export const DETECTOR_VERSION = "contradiction-v3";
+/*
+ * contradiction-v4 (W23). Two amounts of the same named wage (net ücret,
+ * brüt ücret; observations.ts AmountEvent) are compared whatever their other
+ * words, as two dates of one event are; a net and a gross wage never are;
+ * two wage amounts said for explicitly different years are not paired by
+ * their label (differentPeriods). The stats also count per value kind
+ * (ValueComparisonStats.byKind).
+ */
+export const DETECTOR_VERSION = "contradiction-v4";
 
 /**
  * How much of the two topic keys must overlap before a pair is COMPARED.
@@ -116,16 +124,16 @@ const ROUNDING_TOLERANCE = 0.01;
 function compareValues(
   left: ComparableObservation,
   right: ComparableObservation,
-  event: DateEvent | undefined,
+  event: ValueEvent | undefined,
 ): { relation: ObservationRelation; rationale: string } {
-  const eventTr = event === undefined ? undefined : DATE_EVENT_TR[event];
+  const eventTr = event === undefined ? undefined : VALUE_EVENT_TR[event];
   if (left.normalizedValue === right.normalizedValue) {
     return {
       relation: "CORROBORATION",
       rationale:
         eventTr === undefined
           ? "İki belge aynı değeri söylüyor; ifadeler birbirini doğruluyor."
-          : `İki belge “${eventTr}” için aynı tarihi söylüyor; ifadeler birbirini doğruluyor.`,
+          : `İki belge “${eventTr}” için aynı ${left.kind === "date" ? "tarihi" : "tutarı"} söylüyor; ifadeler birbirini doğruluyor.`,
     };
   }
 
@@ -188,6 +196,16 @@ function compareValues(
   }
 
   const unit = left.kind === "amount" ? "tutar" : "oran";
+  if (eventTr !== undefined) {
+    // contradiction-v4: two amounts of one named wage (net / brüt ücret).
+    // A wage can change over time, so the sentence says so.
+    return {
+      relation: "CONTRADICTION",
+      rationale:
+        `“${eventTr}” için iki farklı ${unit} var: ${describe(left)} ve ${describe(right)}.` +
+        " İkisi birden doğru olamaz — aynı döneme ilişkinse; bağlamı kaynaktan doğrulayın.",
+    };
+  }
   return {
     relation: "CONTRADICTION",
     rationale:
@@ -257,6 +275,40 @@ export interface ValueComparisonStats {
   readonly pairsComparedByEvent: number;
   /** Pairs compared because their topic keys overlapped at the threshold. */
   readonly pairsComparedByTopic: number;
+  /**
+   * contradiction-v4 (additive): the same counts per value kind, so a task
+   * that reports only DATE conflicts (chronology) can say how many date pairs
+   * it compared. Absent on stats stored before contradiction-v4.
+   */
+  readonly byKind?: Partial<Record<PropositionKind, KindComparisonStats>> | undefined;
+}
+
+/** Candidate and compared pairs of one value kind (contradiction-v4). */
+export interface KindComparisonStats {
+  readonly candidatePairs: number;
+  readonly pairsCompared: number;
+}
+
+/** The four-digit years a statement names outside its dates ("2023 Aralık ayı", "2019 yılı"). */
+function yearsNamed(statement: string): Set<string> {
+  const withoutDates = statement.replace(/\d{1,2}[./-]\d{1,2}[./-]\d{4}|\d{4}-\d{1,2}-\d{1,2}/gu, " ");
+  return new Set(withoutDates.match(/(?<![\p{N}.,/])(?:19|20)\d{2}(?![\p{N}]|[.,/]\d)/gu) ?? []);
+}
+
+/**
+ * Two amounts of one named wage said for explicitly DIFFERENT years ("2019
+ * yılı net ücreti" / "2023 Aralık ayı bordrosunda net ücret") are two
+ * periods' wages, not two answers to one question (contradiction-v4). Only
+ * when both statements name a year and they share none; they may still be
+ * compared by their topic keys, as any two amounts are.
+ */
+function differentPeriods(left: ComparableObservation, right: ComparableObservation): boolean {
+  if (left.kind !== "amount") return false;
+  const a = yearsNamed(left.statement);
+  const b = yearsNamed(right.statement);
+  if (a.size === 0 || b.size === 0) return false;
+  for (const year of a) if (b.has(year)) return false;
+  return true;
 }
 
 /**
@@ -287,6 +339,8 @@ export function compareValueObservations(
   let candidatePairs = 0;
   let pairsComparedByEvent = 0;
   let pairsComparedByTopic = 0;
+  const byKind: Partial<Record<PropositionKind, { candidatePairs: number; pairsCompared: number }>> = {};
+  const kindTally = (kind: PropositionKind) => (byKind[kind] ??= { candidatePairs: 0, pairsCompared: 0 });
 
   for (let i = 0; i < sorted.length; i += 1) {
     const leftParts = parts[i]!;
@@ -306,17 +360,20 @@ export function compareValueObservations(
         continue;
       }
       candidatePairs += 1;
+      kindTally(left.kind).candidatePairs += 1;
       // Two dates of two DIFFERENT named events are never compared (an işe
       // giriş date and a tebliğ date answer different questions); two dates
       // of the SAME event always are.
       if (leftParts.event !== undefined && rightParts.event !== undefined && leftParts.event !== rightParts.event) {
         continue;
       }
-      const sameEvent = leftParts.event !== undefined && leftParts.event === rightParts.event;
+      const sameEvent =
+        leftParts.event !== undefined && leftParts.event === rightParts.event && !differentPeriods(left, right);
       const overlap = subjectOverlap(left.subject, right.subject);
       if (!sameEvent && overlap < threshold) continue;
       if (sameEvent) pairsComparedByEvent += 1;
       else pairsComparedByTopic += 1;
+      kindTally(left.kind).pairsCompared += 1;
 
       const event = sameEvent ? leftParts.event : undefined;
       const { relation, rationale } = compareValues(left, right, event);
@@ -357,6 +414,7 @@ export function compareValueObservations(
       candidatePairs,
       pairsComparedByEvent,
       pairsComparedByTopic,
+      byKind,
     },
   };
 }

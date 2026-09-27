@@ -650,6 +650,16 @@ export function comparisonLimitTr(task: AnalysisTask, intelligence: Intelligence
   if (spec.matchedPairsOnly !== true) return null;
   const stats = intelligence.valueComparison;
   const tail = "; farklı kelimelerle anlatılan aynı olay kaçabilir.";
+  if (task === "chronology") {
+    // W23: the chronology reports only DATE conflicts, so it counts only
+    // date pairs (ValueComparisonStats.byKind, contradiction-v4). A run
+    // stored before that has no per-kind count and says so without a number.
+    const lead = "Tarih çelişkileri yalnız aynı olayı anan ya da konu anahtarı örtüşen tarihler arasında arandı";
+    const dates = stats?.byKind?.date;
+    return dates === undefined
+      ? `${lead}${tail}`
+      : `${lead}: ${dates.candidatePairs} tarih çiftinden ${dates.pairsCompared} çift karşılaştırıldı${tail}`;
+  }
   // W23: in a model task the rule lane is one lane among several; the
   // sentence names it, so "yalnız … karşılaştırıldı" is never read as the
   // whole task. The contradictions task's sentence is unchanged.
@@ -735,6 +745,13 @@ export function deriveAnalysisCompleteness(input: {
     headlineTr =
       `"${title}" tamamlandı: seçilen belgelerin tamamı okundu, çıkarım ve analiz` +
       " aşamalarının hepsi bitti.";
+  } else if (limited && input.task === "chronology") {
+    // W23: the timeline is whole; its date conflicts were looked for only
+    // among matched date pairs.
+    headlineTr =
+      `"${title}" bitti: seçilen belgelerin tamamı okundu ve tanınan biçimlerde yazılmış tarihler zaman sırasına` +
+      " dizildi; ancak tarih çelişkileri yalnız eşleşen tarih çiftleri arasında arandı, bu yüzden sonuç" +
+      " \"tüm tarih çelişkileri\" olarak okunamaz.";
   } else if (limited && TASK_SPECS[input.task].requiresModel) {
     // W23: full_review / red_team finished every stage, but their rule lane
     // compared only matched value pairs.
@@ -788,7 +805,7 @@ export function deriveAnalysisCompleteness(input: {
     refusedBecause: complete
       ? null
       : limited
-        ? `"Tüm çelişkiler" söylenemez: ${limit}`
+        ? `${input.task === "chronology" ? "\"Tüm tarih çelişkileri\"" : "\"Tüm çelişkiler\""} söylenemez: ${limit}`
         : `Tam inceleme söylenemez: ${reasons.join(", ")}.`,
   };
 }

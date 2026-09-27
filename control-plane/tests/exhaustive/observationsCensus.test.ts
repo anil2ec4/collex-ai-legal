@@ -87,7 +87,8 @@ describe("R2-22 · every Turkish month name is read, however it is written", () 
     // partial claims) and money-shaped numbers that were not read are named (tests/exhaustive/w22File.test.ts).
     // extract-v9 (W23): which EVENT a date is tagged with changed (a witness's "sorumlu olarak geldi" is an
     // işe giriş; a witness's own first-person start is not the case's) — tests/exhaustive/w23EventAnchors.test.ts.
-    expect(EXTRACTOR_VERSION).toBe("extract-v9");
+    // extract-v10 (W23): an amount labelled as the net / gross wage carries that wage as its event.
+    expect(EXTRACTOR_VERSION).toBe("extract-v10");
   });
 
   for (const [month, mm] of MONTHS) {

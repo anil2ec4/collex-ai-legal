@@ -173,8 +173,20 @@ export interface PropositionDraft {
  * işe giriş or işten çıkış in the first person singular ("… tarihinde işe
  * başladım") tells the witness's own date, never the case's (a party's own
  * first-person statement still is).
+ *
+ * extract-v10 (W23, the same file). The values read are those of v8/v9;
+ * what an AMOUNT is the amount of changed. v9 compared net ücret 45.000 /
+ * 32.000 in 9 of the 12 cross-document pairs once the bordro was counted:
+ * "Davacının 2023 Aralık ayı bordrosunda net ücret 32.000,00 TL olarak
+ * gösterilmiştir" shares only "net" and "ücret" with "son aylık net ücreti
+ * 45.000 TL" (topic overlap 2 of 6). An amount whose own label is the net
+ * or the gross wage ("net ücret", "aylık net maaşı", "Net Ödenen :", "Brüt
+ * Ücret :") now carries that wage as its event ("tutar#olay:net_ucret",
+ * AmountEvent), so two net wages are compared whatever their other words,
+ * and a net and a gross wage never are. "net fazla çalışma ücreti alacağı"
+ * and "net kıdem tazminatı" are claims, not the wage, and carry no label.
  */
-export const EXTRACTOR_VERSION = "extract-v9";
+export const EXTRACTOR_VERSION = "extract-v10";
 
 /** How many characters around a value become its quote. */
 const QUOTE_RADIUS = 160;
@@ -716,9 +728,30 @@ export const DATE_EVENT_TR: Readonly<Record<DateEvent, string>> = {
 };
 
 /**
- * A predicate's tag after "#": an event ("olay:teblig"), or a value that is
- * never compared ("karar" — the date of a cited court decision;
- * "kismi_talep" — an amount claimed as a partial claim).
+ * What an amount is the amount OF, when its own label says so (extract-v10):
+ * the net or the gross wage. "son aylık net ücreti 45.000 TL", "aylık net
+ * maaşı 32.000 TL" and a payroll line "net ücret 32.000,00 TL" / "Net Ödenen :
+ * 32.000,00 TL" answer ONE question whatever their other words, and a gross
+ * wage ("Brüt Ücret : 43.529,41 TL") never answers it. A CLOSED list, like
+ * DateEvent; an amount not matched stays a plain "tutar" and is compared by
+ * its topic key as before.
+ */
+export type AmountEvent = "net_ucret" | "brut_ucret";
+
+/** Every named event a value can be the value of: a date's or an amount's. */
+export type ValueEvent = DateEvent | AmountEvent;
+
+/** The event's name on screen, for dates and amounts. */
+export const VALUE_EVENT_TR: Readonly<Record<ValueEvent, string>> = {
+  ...DATE_EVENT_TR,
+  net_ucret: "net ücret",
+  brut_ucret: "brüt ücret",
+};
+
+/**
+ * A predicate's tag after "#": an event ("olay:teblig", "olay:net_ucret"), or
+ * a value that is never compared ("karar" — the date of a cited court
+ * decision; "kismi_talep" — an amount claimed as a partial claim).
  */
 export const DECISION_DATE_TAG = "karar";
 export const PARTIAL_CLAIM_TAG = "kismi_talep";
@@ -727,14 +760,14 @@ const EVENT_TAG_PREFIX = "olay:";
 export interface PredicateParts {
   /** What is compared for equality: "tarih", "tutar", "tutar:EUR", "oran". */
   readonly base: string;
-  /** The event a date is the date of, when one was recognised. */
-  readonly event?: DateEvent | undefined;
+  /** The event a date (or, extract-v10, an amount) is the value of, when one was recognised. */
+  readonly event?: ValueEvent | undefined;
   /** True for a value that is never compared (a decision date, a partial claim). */
   readonly neverCompared: boolean;
   readonly tag?: string | undefined;
 }
 
-const DATE_EVENTS: ReadonlySet<string> = new Set(Object.keys(DATE_EVENT_TR));
+const DATE_EVENTS: ReadonlySet<string> = new Set(Object.keys(VALUE_EVENT_TR));
 
 /** Split a stored predicate into its comparable base and its tag. */
 export function parsePredicate(predicate: string): PredicateParts {
@@ -745,7 +778,7 @@ export function parsePredicate(predicate: string): PredicateParts {
   if (tag.startsWith(EVENT_TAG_PREFIX)) {
     const event = tag.slice(EVENT_TAG_PREFIX.length);
     return DATE_EVENTS.has(event)
-      ? { base, event: event as DateEvent, neverCompared: false, tag }
+      ? { base, event: event as ValueEvent, neverCompared: false, tag }
       : { base, neverCompared: false, tag };
   }
   return { base, neverCompared: tag === DECISION_DATE_TAG || tag === PARTIAL_CLAIM_TAG, tag };
@@ -980,6 +1013,38 @@ function isPartialClaim(text: string, at: number, length: number): boolean {
   return PARTIAL_CLAIM.test(asciiFold(text.slice(sentence.start, at)));
 }
 
+/**
+ * How far before an amount its label is looked for (UTF-16 units), and the
+ * label itself (extract-v10), ASCII-folded: "net" or "brüt", at most one of
+ * "aylık / son / toplam" between it and the wage noun (ücret, maaş, ödenen,
+ * ele geçen), then the amount — right after the noun, or after a label's
+ * ":" / "=". "son aylık net ücreti 45.000 TL", "aylık net maaşı 32.000 TL",
+ * "Net Ücret : 32.000,00 TL", "NET ÖDENEN 32.000,00 TL".
+ *
+ * The noun must be the LAST word before the amount, so "net fazla çalışma
+ * ücreti alacağı 147.905,20 TL" (a claim, not a wage), "net kıdem tazminatı
+ * 203.412,67 TL" and "prime esas kazanç" carry no label. And a word naming
+ * another kind of pay between "net" and the noun ("net fazla mesai ücreti",
+ * "net ikramiye") is not the wage either.
+ */
+const WAGE_LABEL_WINDOW = 60;
+const WAGE_LABEL = new RegExp(
+  String.raw`\b(net|brut)\s+(?:(?:aylik|son|toplam)\s+){0,2}` +
+    String.raw`(?:ucret(?:i|in)?|maas(?:i|in)?|odenen|ele\s+gecen)\s*(?:[:=]\s*)?$`,
+  "u",
+);
+
+/** The wage an amount is labelled as, or undefined (see WAGE_LABEL). */
+function wageLabelOf(text: string, at: number, length: number): AmountEvent | undefined {
+  const clause = spanAround(text, at, length, isClauseEnd, 400);
+  // A label line ("Net Ücret : 32.000,00") ends its clause at the colon's
+  // line; the amount's own line is enough.
+  const before = asciiFold(text.slice(Math.max(clause.start, at - WAGE_LABEL_WINDOW), at)).replace(/\s+/gu, " ");
+  const found = before.match(WAGE_LABEL);
+  if (found === null) return undefined;
+  return found[1] === "net" ? "net_ucret" : "brut_ucret";
+}
+
 function isoOrUndefined(year: number, month: number, day: number): string | undefined {
   if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -1162,12 +1227,16 @@ export function extractPropositions(unitText: string, options: ExtractOptions = 
     // extract-v8: an amount claimed "şimdilik" is a partial claim, never a
     // statement of what is owed, and is never compared.
     const partial = isPartialClaim(unitText, amount.at, amount.length);
+    // extract-v10: an amount labelled as the net or gross wage is the value
+    // of that wage (a partial claim is never compared, so it keeps its tag).
+    const wage = partial ? undefined : wageLabelOf(unitText, amount.at, amount.length);
+    const tag = partial ? PARTIAL_CLAIM_TAG : wage !== undefined ? `${EVENT_TAG_PREFIX}${wage}` : undefined;
     push({
       kind: "amount",
       statement: sentenceOf(unitText, amount.at, amount.length, quote),
       subject: topicKeyAround(unitText, amount.at, amount.length),
       // A foreign amount is compared only with amounts in the same currency.
-      predicate: tagged(domestic ? "tutar" : `tutar:${amount.currency}`, partial ? PARTIAL_CLAIM_TAG : undefined),
+      predicate: tagged(domestic ? "tutar" : `tutar:${amount.currency}`, tag),
       normalizedValue: domestic ? String(amount.minorUnits) : `${amount.minorUnits} ${amount.currency}`,
       startChar,
       endChar,

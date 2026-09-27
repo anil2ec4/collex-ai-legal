@@ -97,9 +97,10 @@ describe("W22 · such a cell is never labelled 'kaynağıyla doğrulandı'", () 
   });
 });
 
-describe("W23 · grid-v8 moved only because extract-v9 re-tags events", () => {
-  it("a grid-v7 census and a grid-v7 verified answer are still current, shown as stored", () => {
-    // extract-v9 changed which event a date is tagged with, not which values are read.
+describe("W23 · grid-v8 and grid-v9 moved only because extract-v9 / -v10 re-tag events", () => {
+  it("grid-v7 and grid-v8 censuses and verified answers are still current, shown as stored", () => {
+    // extract-v9 changed which event a date is tagged with, extract-v10 which wage an amount
+    // is tagged with — not which values are read.
     const census: ReviewCell = {
       rowNo: 1,
       columnNo: 2,
@@ -114,10 +115,14 @@ describe("W23 · grid-v8 moved only because extract-v9 re-tags events", () => {
       generatorVersion: "grid-v7",
       error: null,
     };
-    expect(REVIEW_TABLE_GENERATOR_VERSION).toBe("grid-v8");
-    expect(presentStoredCell(census)).toBe(census);
+    expect(REVIEW_TABLE_GENERATOR_VERSION).toBe("grid-v9");
+    for (const generatorVersion of ["grid-v7", "grid-v8"]) {
+      const stored: ReviewCell = { ...census, generatorVersion };
+      expect(presentStoredCell(stored), generatorVersion).toBe(stored);
+      const answered: ReviewCell = { ...census, columnNo: 1, answerText: ALI, supportState: "verified", generatorVersion };
+      expect(presentStoredCell(answered), generatorVersion).toBe(answered);
+    }
     const verified: ReviewCell = { ...census, columnNo: 1, answerText: ALI, supportState: "verified", generatorVersion: "grid-v7" };
-    expect(presentStoredCell(verified)).toBe(verified);
     // A cell of the version before still is not.
     expect(presentStoredCell({ ...verified, generatorVersion: "grid-v6" }).answerStatus).toBe(QUESTION_NOT_CHECKED_STATUS);
   });

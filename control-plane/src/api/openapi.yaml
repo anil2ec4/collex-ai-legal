@@ -11800,12 +11800,27 @@ components:
       properties:
         valueComparison:
           type: object
-          additionalProperties: { type: integer }
           description: >-
             W22 (additive) — how much of the value census the deterministic
             lane compared: values, valuesNeverCompared (cited-decision dates,
             partial-claim amounts), candidatePairs, pairsComparedByEvent,
             pairsComparedByTopic. Absent on coverage stored before W22.
+            W23 (additive) — byKind: the candidate and compared pairs per
+            value kind (date, amount, ratio); the chronology's sentence counts
+            date pairs only. Absent on coverage stored before W23.
+          properties:
+            values: { type: integer, minimum: 0 }
+            valuesNeverCompared: { type: integer, minimum: 0 }
+            candidatePairs: { type: integer, minimum: 0 }
+            pairsComparedByEvent: { type: integer, minimum: 0 }
+            pairsComparedByTopic: { type: integer, minimum: 0 }
+            byKind:
+              type: object
+              additionalProperties:
+                type: object
+                properties:
+                  candidatePairs: { type: integer, minimum: 0 }
+                  pairsCompared: { type: integer, minimum: 0 }
         requiredStages:
           type: array
           items:
@@ -11862,7 +11877,7 @@ components:
           description: >-
             W22 LIMITED — every layer finished, but the task compares only the
             value pairs its pairing rule matched (the "contradictions" task;
-            W23: also the rule lane of full_review and red_team); complete is
+            W23: also the rule lane of full_review and red_team, and chronology); complete is
             false and refusedBecause says what was compared.
         sourceComplete: { type: boolean }
         extractionComplete: { type: boolean }
@@ -11876,7 +11891,7 @@ components:
           description: >-
             W23 (additive) — the "N of M value pairs compared" sentence of a
             task whose rule lane compares only matched pairs (contradictions,
-            full_review, red_team), once the comparison has run; null for any
+            full_review, red_team, chronology — date pairs only), once the comparison has run; null for any
             other task or before the run is finalized. The same sentence ends
             sectionsTr.analysis.
         complete: { type: boolean }

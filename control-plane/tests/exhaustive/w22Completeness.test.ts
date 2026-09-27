@@ -118,7 +118,10 @@ describe("W22 · a matched-pairs comparison never licenses 'tüm çelişkiler'",
     expect(overall.refusedBecause).toContain("konu anahtarı örtüşen değer çiftleri");
   });
 
-  it("a task whose method is not matched-pairs-only is still COMPLETE", () => {
+  it("W23: the chronology is matched-pairs-only too — LIMITED, and a run without per-kind counts names no number", () => {
+    // W22 kept the chronology COMPLETE. Its date conflicts use the same pairing
+    // rule, so W23 flags it; a task that is not matched-pairs-only (claim_evidence)
+    // is still COMPLETE — tests/exhaustive/w23EventAnchors.test.ts.
     const overall = deriveAnalysisCompleteness({
       task: "chronology",
       source,
@@ -126,8 +129,12 @@ describe("W22 · a matched-pairs comparison never licenses 'tüm çelişkiler'",
       intelligence: finishedIntelligence("chronology"),
       active: false,
     });
-    expect(overall.state).toBe("COMPLETE");
-    expect(overall.refusedBecause).toBeNull();
+    expect(overall.state).toBe("LIMITED");
+    expect(overall.complete).toBe(false);
+    expect(overall.refusedBecause).toBe(
+      "\"Tüm tarih çelişkileri\" söylenemez: Tarih çelişkileri yalnız aynı olayı anan ya da konu anahtarı örtüşen" +
+        " tarihler arasında arandı; farklı kelimelerle anlatılan aynı olay kaçabilir.",
+    );
   });
 });
 

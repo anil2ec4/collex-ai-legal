@@ -213,6 +213,7 @@ export function analysisLabelTr(completeness: AnalysisCompleteness | null, task?
   if (completeness === null) return "inceleme eksik kaldı";
   if (completeness.complete) return "inceleme tamamlandı";
   if (completeness.state === "LIMITED") {
+    if (task === "chronology") return "kronoloji bitti; tarih çelişkileri yalnız eşleşen tarih çiftleri arasında arandı";
     return task !== undefined && TASK_SPECS[task].requiresModel
       ? "inceleme bitti; tarih, tutar ve oranlarda yalnız eşleşen değer çiftleri karşılaştırıldı"
       : "inceleme bitti; yalnız eşleşen değer çiftleri karşılaştırıldı";
