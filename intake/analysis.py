@@ -44,6 +44,19 @@ FEW_SIGNALS_WARNING = (
 # Signal count below which the honesty warning above is emitted.
 FEW_SIGNALS_THRESHOLD = 3
 
+#: The talep list is a PREVIEW the lawyer reads row by row (each row has a
+#: "Taslağa talep olarak aktar" button). A long upload can carry thousands of
+#: talep sentences; past this many the list stops and a warning says how many
+#: exist — never a silent cut. The full text stays searchable in the document.
+MAX_PREVIEW_CLAIMS = 200
+
+
+def claims_capped_warning(total: int) -> str:
+    return (
+        f"talep listesi ilk {MAX_PREVIEW_CLAIMS} cümleyle sınırlandı; belgede"
+        f" {total} talep cümlesi bulundu — tamamı belge metninde duruyor"
+    )
+
 _ROLE_WORDS = {
     "davacı": "davacı",
     "davacılar": "davacı",
@@ -143,7 +156,9 @@ _LONG_DATE_RE = re.compile(
 )
 
 _CLAIM_MARKERS = (
-    "talep",           # talep, talebi, talep ederiz, talep olunur
+    "talep",           # talep, talepleri, talep ederiz, talep olunur
+    "taleb",           # talebi, talebimiz, talebin — consonant softening;
+                       # the comment above used to claim "talep" matched these
     "isteminde",
     "istemiyle",
     "davanın kabulü",
@@ -164,13 +179,74 @@ _CLAIM_MARKER_RE = re.compile(
 # vekil speaks for that party.
 _CLAIM_PARTY_RE = re.compile(
     r"(?<![^\W\d_])(davacı|davalı|müşteki|şikayetçi|sanık|katılan|alacaklı|borçlu"
-    r"|kiracı|kiralayan|kiraya veren|işçi|işveren)(?:[\w']*)"
+    r"|kiracı|kiralayan|kiraya veren|işçi|işveren)([\w']*)(?![\w'])(\s+aleyh)?"
 )
+
+#: The only suffixes under which a role word names the side that SPEAKS:
+#: the bare nominative ("Davacı vekili … talep etmektedir") and its plural.
+#: A case-marked role word names the side the demand is aimed AT —
+#: "davalıdan tahsiline" (ablative), "davalıya yükletilmesine" (dative),
+#: "davacının talebinin reddine" (genitive) — and used to be reported as the
+#: speaker: the davacı's own SONUÇ VE İSTEM came back tagged "davalı".
+_CLAIM_PARTY_SPEAKER_SUFFIXES = frozenset({"", "lar", "ler"})
 
 #: Two-word / synonym role forms folded onto the canonical role word.
 _CLAIM_ROLE_ALIASES = {"kiraya veren": "kiralayan", "şikayetçi": "müşteki"}
 
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|\n{2,}")
+#: Words whose trailing dot is an ABBREVIATION, never a sentence end
+#: (compared after turkish_lower). A split there cut "1475 sayılı Kanun m. 14
+#: uyarınca kıdem … talep edilmektedir." into "14 uyarınca kıdem …", and the
+#: document page's "Taslağa talep olarak aktar" copied that stump into the
+#: lawyer's draft with its statutes gone.
+_ABBREVIATIONS = frozenset({
+    "m", "md", "mad", "mdd", "maddesi", "no", "nu", "nolu", "sy", "sayılı",
+    "av", "dr", "prof", "doç", "yrd", "öğr", "gör", "bkz", "krş", "vb", "vs",
+    "vd", "vdv", "s", "sh", "c", "bk", "ek", "hd", "cd", "hgk", "cgk", "ibk",
+    "iddk", "ybk", "d", "daire", "yarg", "e", "k", "t", "ltd", "şti", "tic",
+    "san", "a", "ş", "sk", "sok", "cad", "mah", "apt", "blv", "kat", "tel",
+})
+_SPLIT_CANDIDATE_RE = re.compile(r"[.!?;]\s+|\n{2,}")
+_TOKEN_BEFORE_DOT_RE = re.compile(r"(\S+)\.$")
+
+
+def _is_abbreviation_dot(text: str, dot_index: int) -> bool:
+    """True when the "." at ``dot_index`` closes an abbreviation or an
+    ordinal ("m.", "E.", "A.Ş.", "Av.", "9. HD", "HGK.") rather than a
+    sentence. Wrongly keeping two sentences together costs a longer claim;
+    wrongly splitting one costs its statute — so the doubt merges."""
+    m = _TOKEN_BEFORE_DOT_RE.search(text, max(0, dot_index - 40), dot_index + 1)
+    if m is None:
+        return False
+    token = m.group(1).lstrip("(\"'“‘«[")
+    if not token:
+        return False
+    if "." in token:                       # A.Ş, T.C, Ltd.Şti
+        return True
+    if token.isdigit():                    # ordinal: "9. Hukuk Dairesi"
+        return len(token) <= 3
+    if len(token) == 1:                    # single letter: "E.", "K."
+        return True
+    if token.isupper() and len(token) <= 5:  # HD, HGK, İBK, TCK
+        return True
+    return turkish_lower(token) in _ABBREVIATIONS
+
+
+def split_sentences(text: str) -> list[str]:
+    """Sentences of ``text`` for the claim heuristics, abbreviation-aware.
+
+    Cuts after ".", "!", "?", ";" plus whitespace, and at blank lines —
+    except that a "." closing an
+    abbreviation or an ordinal is not a cut."""
+    pieces: list[str] = []
+    start = 0
+    for m in _SPLIT_CANDIDATE_RE.finditer(text):
+        if text[m.start()] == "." and _is_abbreviation_dot(text, m.start()):
+            continue
+        cut = m.start() + 1 if text[m.start()] in ".!?;" else m.start()
+        pieces.append(text[start:cut])
+        start = m.end()
+    pieces.append(text[start:])
+    return pieces
 
 _WS_RE = re.compile(r"\s+")
 
@@ -602,6 +678,9 @@ def claim_party(sentence: str) -> str | None:
     roles = {
         _CLAIM_ROLE_ALIASES.get(m.group(1), _ROLE_WORDS.get(m.group(1), m.group(1)))
         for m in _CLAIM_PARTY_RE.finditer(turkish_lower(sentence))
+        # Only a bare nominative role word names the speaker; "davalı
+        # aleyhine" and every case-marked form name the side addressed.
+        if m.group(2) in _CLAIM_PARTY_SPEAKER_SUFFIXES and m.group(3) is None
     }
     return next(iter(roles)) if len(roles) == 1 else None
 
@@ -688,8 +767,9 @@ def extract_claims(text: str) -> list[dict]:
     item, so the same demand is never listed twice.
     """
     claims: list[dict] = extract_demand_items(text)
-    seen: set[str] = {turkish_lower(c["text"]) for c in claims}
-    for raw in _SENTENCE_SPLIT_RE.split(text):
+    demand_items: list[str] = [turkish_lower(c["text"]) for c in claims]
+    seen: set[str] = set(demand_items)
+    for raw in split_sentences(text):
         sentence = _collapse(raw)
         if not (15 <= len(sentence) <= 600):
             continue
@@ -699,8 +779,10 @@ def extract_claims(text: str) -> list[dict]:
         if low in seen:
             continue
         # A sentence that merely re-wraps the demand block (it contains an
-        # item verbatim) adds nothing.
-        if any(item in low for item in seen):
+        # item verbatim) adds nothing. Checked against the demand ITEMS only:
+        # checking every earlier sentence was quadratic, and a 30 000-
+        # paragraph upload spent a minute here.
+        if any(item in low for item in demand_items):
             continue
         seen.add(low)
         claim: dict = {"text": sentence, "source": "heuristic"}
@@ -730,6 +812,9 @@ def analyze(text: str) -> tuple[dict, list[str]]:
         "claims": extract_claims(text),
     }
     warnings: list[str] = []
+    if len(analysis["claims"]) > MAX_PREVIEW_CLAIMS:
+        warnings.append(claims_capped_warning(len(analysis["claims"])))
+        analysis["claims"] = analysis["claims"][:MAX_PREVIEW_CLAIMS]
     signal_count = sum(len(v) for v in analysis.values())
     if signal_count < FEW_SIGNALS_THRESHOLD:
         warnings.append(FEW_SIGNALS_WARNING)

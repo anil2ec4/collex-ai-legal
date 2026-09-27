@@ -2072,6 +2072,12 @@ body.editing .wrap { max-width: 1380px; }
   .topbar .brandmini { justify-self: start; }
   .topbar .tools { justify-self: end; margin: 0; gap: 6px; }
   .topbar .themebtn { margin: 0; padding: 0 10px; font-size: 13px; height: 30px; }
+  /* 390 px: brand (~100 px) + Ara + Yardım + "◐ Tema: açık" needed ~386 px in a
+     366 px header, so the grid spilled 14 px and dragged the file picker's ?
+     button and the page itself past the screen edge. Only the ◐ mark stays
+     visible; the full name is the button's text (screen readers) and title. */
+  .topbar .themebtn { font-size: 0; width: 34px; padding: 0; text-align: center; }
+  .topbar .themebtn::before { content: "◐"; font-size: 15px; line-height: 1; }
   .helpbtn { height: 30px; padding: 0 10px; }
   .topbar .matterwrap { width: 100%; }
   select.matterpick { max-width: none; width: auto; flex: 1 1 auto; min-width: 0; font-size: 13px; height: 34px; padding: 0 28px 0 12px; }
@@ -4277,6 +4283,20 @@ details.tech .techline {
     });
   }
 
+  /* parseJson WITHOUT the dead-active-matter notice, for a route probe that
+     asks about a nil matter id ON PURPOSE and expects MATTER_NOT_FOUND.
+     Through parseJson that expected answer cleared the lawyer's active
+     matter the first time any matter page opened (measured 27.09.2026: a new
+     matter's page said "aktif dosya", the picker said "Dosyasız çalışma",
+     and the next upload from Belgeler went unlinked). */
+  function parseJsonQuiet(response) {
+    return response.json().then(function (body) {
+      return { status: response.status, body: body };
+    }, function () {
+      return { status: response.status, body: null };
+    });
+  }
+
   /* W14 B-10 (UXAUDIT P1-3): ölü aktif dosya. Konsol MATTER_NOT_FOUND'u
      sessizce yutuyordu; localStorage'daki ölü kimlik yüzünden SONRAKİ HER
      araştırma düşüyordu. Artık her yanıt tek noktadan süzülür: hata gövdesi
@@ -4344,8 +4364,12 @@ details.tech .techline {
   }
 
   function updateThemeButton() {
-    document.getElementById("themebtn").textContent =
-      "◐ Tema: " + (currentTheme() === "dark" ? "koyu" : "açık");
+    var label = "◐ Tema: " + (currentTheme() === "dark" ? "koyu" : "açık");
+    var btn = document.getElementById("themebtn");
+    btn.textContent = label;
+    // At 390 px the button shows only its ◐ mark (CSS); the tooltip keeps
+    // the whole name readable there, and the text keeps it for readers.
+    btn.title = label.slice(2) + " — değiştirmek için tıklayın";
   }
 
   (function themeInit() {
@@ -18852,7 +18876,7 @@ details.tech .techline {
   function probePackageRoute() {
     if (pkgState.probed) { return Promise.resolve(pkgState.mounted); }
     pkgState.probed = true;
-    return fetch("/v1/matters/" + PKG_NIL_ID + "/package", { method: "POST" }).then(parseJson).then(function (res) {
+    return fetch("/v1/matters/" + PKG_NIL_ID + "/package", { method: "POST" }).then(parseJsonQuiet).then(function (res) {
       var matterMissing = res.status === 404 && res.body && res.body.error && res.body.error.kind === "MATTER_NOT_FOUND";
       pkgState.mounted = res.status !== 404 || !!matterMissing;
       return pkgState.mounted;

@@ -214,6 +214,36 @@ def ingest(dsn: str) -> dict[str, Any]:
 # stage 2 — build + run the TypeScript retrieval driver
 # --------------------------------------------------------------------------
 
+# Magic numbers of the native executables esbuild's installer may leave at
+# `bin/esbuild`: ELF (Linux) and the Mach-O variants (macOS, incl. fat).
+_NATIVE_MAGIC = (
+    b"\x7fELF",
+    b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe",
+    b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce",
+    b"\xca\xfe\xba\xbe",
+)
+
+
+def esbuild_command(node: str, esbuild: Path = ESBUILD_JS) -> list[str]:
+    """How to invoke the control-plane's own esbuild on THIS platform.
+
+    On Windows `bin/esbuild` is a JavaScript shim and must be run through
+    node. On Linux and macOS esbuild's postinstall REPLACES that shim with the
+    native binary itself, and `node <ELF file>` dies with "SyntaxError:
+    Invalid or unexpected token" — the eval gate could never run on the Mac
+    mini production host. Decide from the file's first bytes, not from the
+    platform name: the installer, not the OS, chooses what lands there.
+    """
+    try:
+        with esbuild.open("rb") as fh:
+            head = fh.read(4)
+    except OSError:
+        head = b""
+    if head in _NATIVE_MAGIC:
+        return [str(esbuild)]
+    return [node, str(esbuild)]
+
+
 def build_driver(
     workdir: Path,
     driver_ts: Path = DRIVER_TS,
@@ -233,8 +263,8 @@ def build_driver(
             " first (this script never installs packages)."
         )
     bundle = workdir / bundle_name
-    cmd = [
-        node, str(ESBUILD_JS), str(driver_ts),
+    cmd = esbuild_command(node) + [
+        str(driver_ts),
         "--bundle", "--platform=node", "--format=esm", "--target=node22",
         f"--outfile={bundle}",
     ]

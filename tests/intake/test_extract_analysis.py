@@ -320,3 +320,62 @@ def test_claims_are_tagged_with_the_party_they_speak_for():
     assert by_text["Davacı ve davalı ortak bir talep sunmamıştır."] is None
     assert analysis.claim_party("Kiracı tahliyeyi kabul etmedi.") == "kiracı"
     assert analysis.claim_party("Kiraya veren tahliye istedi.") == "kiralayan"
+
+
+# ---------------------------------------------------------------------------
+# 27.09.2026 — found by uploading a real (OCR'd) iş davası dilekçesi.
+# ---------------------------------------------------------------------------
+
+def test_a_claim_is_never_cut_at_an_abbreviation_dot():
+    # The splitter cut after "m." and the talep came back as "14 uyarınca
+    # kıdem …" — the stump the "Taslağa talep olarak aktar" button copied
+    # into the lawyer's draft, with both statutes gone.
+    text = (
+        "3- 4857 sayılı İş Kanunu m. 17 ve 1475 sayılı Kanun m. 14 uyarınca\n"
+        "kıdem ve ihbar tazminatı talep edilmektedir. Yargıtay 9. HD. "
+        "2019/1234 E., 2020/55 K. sayılı ilamında da Av. Mehmet Öztürk'ün "
+        "Örnek A.Ş. yönünden talep ettiği alacak kabul edilmiştir."
+    )
+    texts = [c["text"] for c in analysis.extract_claims(text)]
+    assert texts[0].startswith("3- 4857 sayılı İş Kanunu m. 17 ve 1475 sayılı Kanun m. 14 uyarınca kıdem")
+    assert not any(t.startswith(("14 ", "17 ", "HD", "2019/", "Mehmet", "Örnek A.Ş")) for t in texts), texts
+    assert any("Yargıtay 9. HD. 2019/1234 E., 2020/55 K." in t for t in texts), texts
+
+
+def test_split_sentences_still_splits_real_sentence_ends():
+    parts = [p.strip() for p in analysis.split_sentences(
+        "Ödeme yapılmamıştır. Fesih haksızdır! Neden? Talep ederiz; ayrıca\n\nYENİ PARAGRAF"
+    )]
+    assert parts == ["Ödeme yapılmamıştır.", "Fesih haksızdır!", "Neden?", "Talep ederiz;", "ayrıca", "YENİ PARAGRAF"]
+
+
+def test_a_case_marked_role_word_is_the_addressee_not_the_speaker():
+    # "davalıdan tahsiline" is the DAVACI's demand; it used to be tagged
+    # "davalı" — the side the money is taken FROM.
+    assert analysis.claim_party(
+        "Şimdilik 10.000 TL kıdem tazminatının davalıdan tahsiline karar verilmesini talep ederiz."
+    ) is None
+    assert analysis.claim_party("Yargılama giderlerinin davalıya yükletilmesini talep ederiz.") is None
+    assert analysis.claim_party("Davacının taleplerinin reddine karar verilmesini talep ederiz.") is None
+    assert analysis.claim_party("Davalı aleyhine hükmedilmesini talep ederiz.") is None
+    # The nominative still names the speaker, singular and plural.
+    assert analysis.claim_party("Davacı vekili tazminata hükmedilmesini talep etmektedir.") == "davacı"
+    assert analysis.claim_party("Davalılar davanın reddini talep etmiştir.") == "davalı"
+
+
+def test_the_talep_preview_is_capped_with_a_warning_never_silently():
+    text = "\n\n".join(
+        f"{n}. Davalı, {n % 28 + 1}.05.2024 tarihli sözleşme uyarınca {n} TL tazminat borcu doğmuştur."
+        for n in range(1, analysis.MAX_PREVIEW_CLAIMS + 51)
+    )
+    result, warnings = analysis.analyze(text)
+    assert len(result["claims"]) == analysis.MAX_PREVIEW_CLAIMS
+    assert analysis.claims_capped_warning(analysis.MAX_PREVIEW_CLAIMS + 50) in warnings
+    assert f"{analysis.MAX_PREVIEW_CLAIMS + 50} talep cümlesi" in warnings[0]
+
+
+def test_the_softened_talep_stem_is_a_claim_marker():
+    # "talebi" / "talebimizin" never matched the "talep" marker.
+    claims = analysis.extract_claims("Müvekkilin talebimizin kabulüne karar verilmesi yönündeki istemi açıktır. Davalının talebi yerinde değildir.")
+    assert any("talebimizin kabulüne" in c["text"] for c in claims), claims
+    assert any("Davalının talebi yerinde değildir." == c["text"] for c in claims), claims
