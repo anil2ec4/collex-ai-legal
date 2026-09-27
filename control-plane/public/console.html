@@ -1647,6 +1647,7 @@ button.subtab .cnt { font-variant-numeric: lining-nums tabular-nums; font-family
 .itemrow .ptext { white-space: pre-wrap; overflow-wrap: anywhere; }
 .inlineform { display: grid; gap: 10px; margin: 12px 0 6px; }
 .inlineform .row { display: grid; grid-template-columns: 170px 1fr auto; gap: 10px; align-items: start; }
+.inlineform .hearinggrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .checkline { display: inline-flex; gap: 9px; align-items: center; font-size: 14px; color: var(--ink-soft); cursor: pointer; }
 .checkline input { width: 16px; height: 16px; margin: 0; accent-color: var(--seal); }
 
@@ -11220,7 +11221,10 @@ details.tech .techline {
       b.setAttribute("aria-selected", matterPageState.tab === t[0] ? "true" : "false");
       b.setAttribute("aria-controls", "mtab-panel");
       b.appendChild(document.createTextNode(t[1]));
-      if (t[2]) { b.appendChild(el("span", "cnt", String((items[t[2]] || []).length))); }
+      if (t[2]) {
+        var n = (items[t[2]] || []).length + (t[0] === "sureler" ? (items.hearings || []).length : 0);
+        b.appendChild(el("span", "cnt", String(n)));
+      }
       b.addEventListener("click", function () { switchMatterTab(t[0]); });
       tabs.appendChild(b);
     });
@@ -11872,7 +11876,7 @@ details.tech .techline {
   function sourceOfItem(source) {
     var s = String(source || "manual");
     if (s === "manual") { return { label: "elle eklendi", tone: "mute", fileId: null }; }
-    if (s === "ai") { return { label: "AI · kaynaklı", tone: "warn", fileId: null }; }
+    if (s === "ai") { return { label: "yapay zekâ · kaynaklı", tone: "warn", fileId: null }; }
     var m = s.match(/^belge:([^:]+)(?::(.*))?$/);
     var tail = m && m[2] ? m[2] : "";
     return {
@@ -11950,8 +11954,96 @@ details.tech .techline {
     });
   }
 
-  function renderMatterDeadlines(panel) {
+  /* 27.09.2026: the calendar's empty state told the lawyer to add a hearing
+     "from the matter page's Süreler tab" — a form that did not exist, while
+     POST /v1/matters/{id}/items has accepted kind "hearing" since W14 B-17
+     and the calendar and .ics already draw them. The hearing section below
+     is that form and that list. */
+  function renderMatterHearings(panel) {
     var d = matterPageState.data;
+    var rows = ((d.items && d.items.hearings) || []).slice().sort(function (a, b) {
+      var ka = String(a.payload.date) + " " + String(a.payload.time || "");
+      var kb = String(b.payload.date) + " " + String(b.payload.time || "");
+      return ka.localeCompare(kb);
+    });
+    panelHead(panel, "Duruşmalar ve keşifler");
+    var form = el("div", "inlineform");
+    form.hidden = true;
+    var grid = el("div", "hearinggrid");
+    var hDate = dateInput("");
+    labelInput(grid, "Tarih", hDate, "hr-date");
+    var hTime = document.createElement("input");
+    hTime.type = "time";
+    hTime.className = "tin";
+    hTime.value = "09:30";
+    labelInput(grid, "Saat", hTime, "hr-time");
+    var hKind = selectInput([["durusma", "Duruşma"], ["kesif", "Keşif"], ["e-durusma", "e-Duruşma"]], "durusma");
+    labelInput(grid, "Tür", hKind, "hr-kind");
+    var hCourt = textInput("", "Örn. İstanbul Anadolu 5. İş Mahkemesi");
+    hCourt.value = (d.matter && d.matter.court) || "";
+    labelInput(grid, "Mahkeme / yer", hCourt, "hr-court");
+    var hSalon = textInput("", "Örn. 12 no.lu salon");
+    labelInput(grid, "Salon", hSalon, "hr-salon");
+    form.appendChild(grid);
+    var hNote = textInput("", "Not — tanık, bilirkişi, getirilecek belgeler…");
+    labelInput(form, "Not", hNote, "hr-note");
+    var hErr = el("div", "fielderr");
+    hErr.setAttribute("role", "alert");
+    form.appendChild(hErr);
+    var hActs = el("div", "actions");
+    var hSave = ghostBtn("Duruşmayı kaydet", function () {
+      hErr.textContent = "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(hDate.value)) { hErr.textContent = "Duruşma tarihini seçin."; hDate.focus(); return; }
+      if (!/^\d{2}:\d{2}$/.test(hTime.value)) { hErr.textContent = "Saati SS:DD biçiminde girin (örn. 09:30)."; hTime.focus(); return; }
+      var payload = { date: hDate.value, time: hTime.value, kind: hKind.value, court: hCourt.value.trim(),
+        salon: hSalon.value.trim(), note: hNote.value.trim(), status: "planlandi" };
+      hSave.disabled = true;
+      postMatterItem(d.matter.id, { kind: "hearing", payload: payload },
+        "Duruşma kaydedildi: " + fmtDateTR(payload.date) + " " + payload.time + ".").then(function () { hSave.disabled = false; });
+    }, "primary");
+    hActs.appendChild(hSave);
+    hActs.appendChild(ghostBtn("Vazgeç", function () { form.hidden = true; addBtn.hidden = false; }));
+    form.appendChild(hActs);
+    var addBtn = ghostBtn("Duruşma ekle", function () { form.hidden = false; addBtn.hidden = true; hDate.focus(); }, "primary");
+    var intro = el("div", "actions");
+    intro.appendChild(addBtn);
+    panel.appendChild(intro);
+    panel.appendChild(form);
+    if (!rows.length) { emptyLine(panel, "Bu dosyada kayıtlı duruşma yok."); return; }
+    rows.forEach(function (it) {
+      var p = it.payload || {};
+      var row = el("div", "itemrow");
+      row.appendChild(el("div", "when", fmtDateTR(p.date) + (p.time ? " " + p.time : "")));
+      var g = el("div", "grow");
+      var line = el("div");
+      line.appendChild(document.createTextNode((p.title || HEARING_KIND_TR[p.kind] || "Duruşma") + " "));
+      var st = p.status || "planlandi";
+      line.appendChild(chip(HEARING_STATUS_TR[st] || st, st === "ertelendi" ? "warn" : st === "yapildi" ? "mute" : "ok"));
+      g.appendChild(line);
+      var bits = [];
+      if (p.court) { bits.push(p.court); }
+      if (p.salon) { bits.push(p.salon); }
+      if (bits.length) { g.appendChild(el("div", "sub", bits.join(" · "))); }
+      if (p.note) { g.appendChild(el("div", "ptext", p.note)); }
+      row.appendChild(g);
+      var acts = el("div", "actions");
+      var stSel = selectInput([["planlandi", "Planlandı"], ["yapildi", "Yapıldı"], ["ertelendi", "Ertelendi"]], st);
+      stSel.setAttribute("aria-label", "Duruşmanın durumu");
+      stSel.addEventListener("change", function () {
+        patchMatterItem(d.matter.id, it.itemId, { payload: { status: stSel.value } },
+          "Duruşma durumu: " + (HEARING_STATUS_TR[stSel.value] || stSel.value) + ".");
+      });
+      acts.appendChild(stSel);
+      acts.appendChild(ghostBtn("Sil", function () { removeMatterItem(d.matter.id, it.itemId, "Duruşma silindi."); }, "small danger"));
+      row.appendChild(acts);
+      panel.appendChild(row);
+    });
+  }
+
+  function renderMatterDeadlines(panel) {
+    renderMatterHearings(panel);
+    var d = matterPageState.data;
+    panelHead(panel, "Süreler");
     var rows = ((d.items && d.items.deadlines) || []).slice().sort(function (a, b) {
       return String(a.payload.dueDate).localeCompare(String(b.payload.dueDate));
     });
@@ -12043,7 +12135,7 @@ details.tech .techline {
       g.appendChild(el("div", "ptext", p.text || ""));
       var src = sourceOfItem(p.source);
       var sub = el("div", "sub");
-      sub.appendChild(chip(p.source === "ai" ? "AI · kaynaklı · " + fmtDateTR(it.createdAt) : src.label, src.tone));
+      sub.appendChild(chip(p.source === "ai" ? "yapay zekâ · kaynaklı · " + fmtDateTR(it.createdAt) : src.label, src.tone));
       if (it.updatedAt && it.updatedAt !== it.createdAt) { sub.appendChild(document.createTextNode(" · düzenlendi " + fmtDateTimeTR(it.updatedAt))); }
       g.appendChild(sub);
       row.appendChild(g);
