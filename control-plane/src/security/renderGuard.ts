@@ -401,3 +401,76 @@ function sanitizeCore(md: string, structuralBlockquotes: boolean): string {
 
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Plain text shown literally inside a Markdown document (drafting export)
+// ---------------------------------------------------------------------------
+//
+// WHY A THIRD ENTRY POINT. A draft paragraph is the lawyer's PLAIN TEXT: it
+// is stored raw and every surface escapes it for its own medium — the console
+// assigns it with `textContent`, python-docx writes XML text runs, the UDF
+// writer wraps it in CDATA. Storing it already run through `sanitizeMarkdown`
+// printed the guard's entity escapes into the FILED documents: a party named
+// "Yılmaz & Kaya İnşaat" came out of the DOCX, the UDF and the NİHAİ copy as
+// "Yılmaz &amp; Kaya İnşaat" (drafting audit, 27.09.2026). The Markdown
+// export is the one surface a Markdown renderer may read, so the escaping for
+// it happens HERE, at render time, and nowhere else.
+//
+// This is not `sanitizeMarkdown`: its input is text, not markdown, so nothing
+// is COLLAPSED (a `[x](y)` the lawyer typed stays visible as typed) and
+// ordinary legal punctuation is left alone — a bare `&`, a `<` or `>` that
+// cannot open markup ("%9 > yasal faiz", "<%5>") pass through unchanged. What
+// it guarantees on the rendered page:
+//  - no raw HTML, comment, processing instruction or autolink can open: every
+//    `<` followed by a letter, digit, `/`, `!` or `?` is escaped;
+//  - an `&` that would start an entity reference is escaped, so text reads as
+//    written ("&lt;" typed by the lawyer shows as "&lt;");
+//  - no inline link or image can form: every `](` is escaped;
+//  - no link reference definition can open, and no line can open as a
+//    blockquote (a forged "> Dayanak [K-1]: …" citation line);
+//  - bare URLs and GFM `www.` hosts off the allowlist are defanged exactly as
+//    `sanitizeMarkdown` defangs them.
+// Character hygiene (controls, zero-width/BiDi) is the same as the guard's.
+
+/** `&` that WOULD start an entity reference — the only `&` that needs escaping. */
+const ENTITY_START = /&(?=(?:[a-zA-Z][a-zA-Z0-9]{1,31}|#\d{1,7}|#[xX][0-9a-fA-F]{1,6});)/g;
+
+/** `<` that can open raw HTML, a comment/PI/declaration or an autolink. */
+const MARKUP_OPEN = /<(?=[A-Za-z0-9/!?])/g;
+
+/** Line-leading blockquote marker (up to three spaces of indent). */
+const LINE_LEADING_GT = /^([ \t]{0,3})>/gm;
+
+/** Line-leading reference-definition opener `[label]:` (after an escaped `>`, too). */
+const LINE_LEADING_DEFINITION = /^([ \t]{0,3}(?:&gt;)?[ \t]{0,3}\[[^\]\n]{1,512}\]):/gm;
+
+/**
+ * Character hygiene only: CR/LF and U+2028/U+2029 normalized to `\n`,
+ * NUL/controls and zero-width/BiDi characters removed. No escaping — for text
+ * that is STORED as plain text and escaped by each renderer for its medium.
+ */
+export function plainTextHygiene(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(LINE_SEPARATORS, "\n")
+    .replace(DISALLOWED_CONTROLS, "")
+    .replace(INVISIBLE_CHARS, "");
+}
+
+/**
+ * Escape PLAIN TEXT so a Markdown renderer shows it literally and inertly.
+ * See the section comment above for the exact guarantees.
+ */
+export function escapeMarkdownText(value: string): string {
+  let out = plainTextHygiene(value)
+    .replace(ENTITY_START, "&amp;")
+    .replace(MARKUP_OPEN, "&lt;")
+    .replace(RESIDUAL_LINK_OPEN, "]&#40;")
+    .replace(LINE_LEADING_GT, "$1&gt;");
+  out = out.replace(BARE_URL, (url) => (isSafeRenderTarget(url) ? url : defangUrl(url)));
+  out = out.replace(BARE_WWW_HOST, (host) =>
+    isAllowedSourceHost(host.toLowerCase()) ? host : host.replace(".", "&#46;"),
+  );
+  return out.replace(LINE_LEADING_DEFINITION, "$1&#58;");
+}

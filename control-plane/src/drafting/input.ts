@@ -75,23 +75,83 @@ export function formatTimestampTr(iso: string): string {
   );
 }
 
-/** Today's date (from `now`) as GG.AA.YYYY. */
+const ISTANBUL_CALENDAR = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Istanbul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * The civil date in Türkiye (Europe/Istanbul) at instant `now`, as
+ * YYYY-MM-DD (27.09.2026). `toISOString()` is UTC, three hours behind the
+ * lawyer's wall clock: a dilekçe drafted between 00:00 and 03:00 was dated
+ * the day before.
+ */
+export function istanbulDateIso(now: Date): string {
+  return ISTANBUL_CALENDAR.format(now);
+}
+
+/** Today's date in Türkiye (from `now`) as GG.AA.YYYY. */
 export function todayTr(now: Date): string {
-  return formatDateTr(now.toISOString().slice(0, 10));
+  return formatDateTr(istanbulDateIso(now));
+}
+
+const BACK_VOWELS = "aıou";
+const FRONT_VOWELS = "eiöü";
+const HIGH_VOWELS = "ıiuü";
+
+/** An existing dative after an apostrophe: "…Mahkemesi'ne", "…Yargıtay'a". */
+const APOSTROPHE_DATIVE = /\s*['’‘`´]\s*[YyNn]?[AaEe]$/u;
+/** An existing possessive dative written without one: "…MAHKEMESİNE". */
+const BARE_POSSESSIVE_DATIVE = /(?<=[SsĞğ][IıİiUuÜü])[Nn][AaEe]$/u;
+
+/**
+ * Turkish dative suffix for an addressee name that carries none yet.
+ *
+ *  - after a consonant: 'A / 'E by vowel harmony ("YARGITAY'A",
+ *    "DANIŞTAY'A");
+ *  - after the third-person possessive of a compound name (-ı/-i/-u/-ü:
+ *    "MAHKEMESİ", "DAİRESİ", "BAŞKANLIĞI", "HAKİMLİĞİ", "MÜDÜRLÜĞÜ"):
+ *    the buffer is N — 'NA / 'NE;
+ *  - after any other vowel: the buffer is Y — 'YA / 'YE ("ANKARA'YA");
+ *  - an abbreviation with no vowel is read by its letter names, which end in
+ *    "e": 'YE ("HD'YE").
+ *
+ * 27.09.2026: the old rule ('NA/'NE after the last vowel, whatever came
+ * after it) produced "YARGITAY'NA" in a filed document. The lawyer reviews.
+ */
+export function datifSuffix(word: string): string {
+  const lower = word.trim().toLocaleLowerCase("tr-TR");
+  const words = lower.match(/\p{L}+/gu) ?? [];
+  const last = words[words.length - 1] ?? "";
+  const letters = [...last];
+  const vowels = letters.filter((ch) => BACK_VOWELS.includes(ch) || FRONT_VOWELS.includes(ch));
+  if (vowels.length === 0) return "'YE";
+  const harmony = BACK_VOWELS.includes(vowels[vowels.length - 1] as string) ? "A" : "E";
+  const final = letters[letters.length - 1] as string;
+  const finalIsVowel = BACK_VOWELS.includes(final) || FRONT_VOWELS.includes(final);
+  if (!finalIsVowel) return `'${harmony}`;
+  const possessive =
+    HIGH_VOWELS.includes(final) && (words.length > 1 || /[sğ][ıiuü]$/u.test(last));
+  return possessive ? `'N${harmony}` : `'Y${harmony}`;
 }
 
 /**
- * Turkish dative suffix for an addressee line: "…MAHKEMESİ'NE",
- * "…BAŞKANLIĞI'NA". Vowel harmony on the last vowel; the lawyer reviews.
+ * The addressee line of a dilekçe: the name plus its dative, with any dative
+ * the lawyer already typed removed first ("…Mahkemesi'ne" used to come out
+ * "…MAHKEMESİ'NE'NE"). Upper-case names get an upper-case suffix.
  */
-export function datifSuffix(word: string): string {
-  const lower = word.toLocaleLowerCase("tr-TR");
-  for (let i = lower.length - 1; i >= 0; i -= 1) {
-    const ch = lower[i] as string;
-    if ("aıou".includes(ch)) return "'NA";
-    if ("eiöü".includes(ch)) return "'NE";
-  }
-  return "'NE";
+export function addresseeDative(name: string): string {
+  const base = name
+    .trim()
+    .replace(APOSTROPHE_DATIVE, "")
+    .replace(BARE_POSSESSIVE_DATIVE, "")
+    .trimEnd();
+  if (base === "") return name.trim();
+  const suffix = datifSuffix(base);
+  const upper = base === base.toLocaleUpperCase("tr-TR");
+  return `${base}${upper ? suffix : suffix.toLocaleLowerCase("tr-TR")}`;
 }
 
 /** "Rol : Ad" / "Rol: Ad" / "Ad (Rol)" → party; undefined when unparseable. */

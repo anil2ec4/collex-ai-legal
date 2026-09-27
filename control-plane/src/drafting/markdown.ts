@@ -8,10 +8,15 @@
  *     the synthetic fixture corpus.
  *  3. Every unsupported paragraph is prefixed "⚠ KAYNAKSIZ — ": an unsourced
  *     legal claim is shown loudly, never silently included.
- *  4. Paragraph text was sanitized at compose time (renderGuard). Roles whose
- *     text BEGINS with user content (başlık, taraflar, konu, imza) are
- *     additionally emitted bold, so an injected "SYSTEM: ..." can never open
- *     a top-level line — it always sits inside emphasized, labeled context.
+ *  4. Paragraph text is stored as PLAIN TEXT (27.09.2026) and escaped HERE,
+ *     at render time, by `escapeMarkdownText` — the one surface a Markdown
+ *     renderer may read. (It used to be escaped at compose time, and the
+ *     entity escapes were printed into the filed DOCX/UDF.) Legacy escapes in
+ *     drafts stored before that are folded first, so an old draft renders
+ *     "Yılmaz & Kaya", not "Yılmaz &amp;amp; Kaya". Roles whose text BEGINS
+ *     with user content (başlık, taraflar, konu, imza) are additionally
+ *     emitted bold, so an injected "SYSTEM: ..." can never open a top-level
+ *     line — it always sits inside emphasized, labeled context.
  *  5. Citations render under their paragraph as "Dayanak [K-n]: label" —
  *     no hash and no evidence UUID inside the court text (W12). The
  *     machine-owned `ek-dogrulama` section (part of the draft) carries the
@@ -19,8 +24,15 @@
  *     KAYNAKLARI appendix after the document.
  */
 
+import { escapeMarkdownText } from "../security/renderGuard.js";
 import { formatTimestampTr } from "./input.js";
-import { evidenceNumbering, evidenceRef, sourceLabelTr } from "./appendix.js";
+import { foldGuardEntities } from "./quoteIntegrity.js";
+import {
+  evidenceNumbering,
+  evidenceRef,
+  sourceLabelTr,
+  unmarkedParagraphText,
+} from "./appendix.js";
 import {
   DEFAULT_EXPORT_MODE,
   EK_DOGRULAMA_SECTION_ID,
@@ -47,6 +59,11 @@ const SYNTHETIC_LINE =
   " için üretilmiş örnek metinlerdir, gerçek Türk mevzuatı veya mahkeme" +
   " kararı değildir.";
 
+/** Stored plain text (legacy escapes folded) as literal, inert Markdown. */
+function mdText(value: string): string {
+  return escapeMarkdownText(foldGuardEntities(value));
+}
+
 function findEvidence(draft: Draft, evidenceId: string): DraftEvidence | undefined {
   return draft.evidence.find((entry) => entry.evidenceId === evidenceId);
 }
@@ -60,7 +77,8 @@ function renderParagraph(
 ): void {
   const marks = showsMarks(mode);
   const annex = includesAnnex(mode);
-  let text = paragraph.text;
+  // B-02 marks=none also drops the DELİLLER screen note (27.09.2026).
+  let text = mdText(marks ? paragraph.text : unmarkedParagraphText(paragraph));
   if (BOLD_ROLES.has(paragraph.role) && text !== "") {
     text = text
       .split("\n")
@@ -69,11 +87,11 @@ function renderParagraph(
   }
   if (!paragraph.supported && marks) {
     text = `${KAYNAKSIZ_PREFIX} — ${text}`;
-    if (paragraph.note !== undefined) text = `${text}\n(${paragraph.note})`;
+    if (paragraph.note !== undefined) text = `${text}\n(${mdText(paragraph.note)})`;
   } else if (paragraph.role === "karsiIctihat" && paragraph.note !== undefined) {
     // Contract A: the avukat-decides note travels VISIBLY with every
     // contrary-authority paragraph, on every surface and in every mode.
-    text = `${text}\n(⚠ ${paragraph.note})`;
+    text = `${text}\n(⚠ ${mdText(paragraph.note)})`;
   }
   out.push("", text);
   for (const evidenceId of paragraph.evidenceIds) {
@@ -83,7 +101,7 @@ function renderParagraph(
     // B-02: with no appendix there is nothing for a [K-n] to point at, so the
     // line reads as a Turkish petition citation: "Dayanak: <künye>".
     const ref = annex ? ` [${evidenceRef(numbering, evidenceId)}]` : "";
-    out.push(`> ${prefix}${ref}: ${entry.label}`);
+    out.push(`> ${prefix}${ref}: ${mdText(entry.label)}`);
   }
 }
 
@@ -100,25 +118,25 @@ export function renderDraftMarkdown(draft: Draft, options: RenderDraftMarkdownOp
   const out: string[] = [DRAFT_REVIEW_BANNER];
   if (draft.synthetic) {
     out.push("", SYNTHETIC_LINE);
-    if (draft.syntheticNotice !== undefined) out.push(`(${draft.syntheticNotice})`);
+    if (draft.syntheticNotice !== undefined) out.push(`(${mdText(draft.syntheticNotice)})`);
   }
   // B-36: while any review box is unticked, the document says so — in every
   // mode, because that is exactly the sentence a filing copy must not hide.
   if (!isReviewComplete(draft.reviewChecklist)) out.push("", VERIFICATION_INCOMPLETE_LINE);
 
   const version = typeof draft.version === "number" ? draft.version : 1;
-  out.push("", `# ${draft.title} (${modeLabel(mode)})`);
+  out.push("", `# ${mdText(draft.title)} (${modeLabel(mode)})`);
   if (annex) {
     out.push(
       "",
-      `- Belge türü: ${draft.title}`,
+      `- Belge türü: ${mdText(draft.title)}`,
       `- Sürüm: ${version}`,
       `- Oluşturulma: ${formatTimestampTr(draft.createdAt)}`,
     );
     if (draft.updatedAt !== undefined) out.push(`- Son düzenleme: ${formatTimestampTr(draft.updatedAt)}`);
     if (draft.matterId !== undefined && draft.matterId !== null) {
       const title = options.matterTitle?.trim();
-      out.push(`- Dosya: ${title !== undefined && title !== "" ? title : draft.matterId}`);
+      out.push(`- Dosya: ${mdText(title !== undefined && title !== "" ? title : draft.matterId)}`);
     }
     out.push(
       `- Hukukî dayanağı doğrulanamayan paragraf sayısı: ${draft.unsupportedCount}` +
@@ -130,14 +148,14 @@ export function renderDraftMarkdown(draft: Draft, options: RenderDraftMarkdownOp
 
     if (draft.warnings.length > 0) {
       out.push("", "## Uyarılar", "");
-      for (const warning of draft.warnings) out.push(`- ${warning}`);
+      for (const warning of draft.warnings) out.push(`- ${mdText(warning)}`);
     }
   }
 
   const numbering = evidenceNumbering(draft.evidence);
   for (const section of draft.sections) {
     if (section.id === EK_DOGRULAMA_SECTION_ID && !annex) continue;
-    if (section.title !== "") out.push("", `## ${section.title}`);
+    if (section.title !== "") out.push("", `## ${mdText(section.title)}`);
     for (const paragraph of section.paragraphs) {
       renderParagraph(draft, numbering, paragraph, out, mode);
     }
@@ -164,8 +182,8 @@ export function renderDraftMarkdown(draft: Draft, options: RenderDraftMarkdownOp
   } else {
     draft.evidence.forEach((entry, index) => {
       out.push(
-        `${index + 1}. [K-${index + 1}] ${entry.label}`,
-        `   - Kaynak: ${sourceLabelTr(entry.source)}`,
+        `${index + 1}. [K-${index + 1}] ${mdText(entry.label)}`,
+        `   - Kaynak: ${mdText(sourceLabelTr(entry.source))}`,
       );
       if (entry.direction !== undefined) out.push(`   - Yönü: ${entry.direction}`);
       // W15: görünen satır avukat Türkçesidir; onu DENETLENEBİLİR kılan değer

@@ -132,6 +132,27 @@ export function directionOfStance(stance: string | undefined): DraftEvidenceDire
 /** Visible marker prefixed to every unsupported paragraph in exports. */
 export const KAYNAKSIZ_PREFIX = "⚠ KAYNAKSIZ";
 
+/**
+ * The KAYNAKSIZ STUB sentences a mandatory legal slot gets when nothing could
+ * be bound (27.09.2026: named constants, because the NİHAİ copy must refuse
+ * while one is still in the text — each is an instruction to the lawyer, not
+ * court text, and `marks=none` printed it as plain body text).
+ */
+export const KAYNAKSIZ_STUB_SEBEPLER =
+  "Hukukî sebepler doğrulanmış bir mevzuat veya karar kaynağına bağlanamadı;" +
+  " dayanak mevzuat avukat tarafından eklenmelidir.";
+export const KAYNAKSIZ_STUB_DEGERLENDIRME_KAYNAK_YOK =
+  "Hukukî değerlendirme için doğrulanmış kaynak sunulmamıştır; bu bölümün" +
+  " hukukî dayanağı avukat tarafından eklenmelidir.";
+export const KAYNAKSIZ_STUB_DEGERLENDIRME_ESIK =
+  "Sunulan kaynaklardan hiçbiri doğrulama eşiğini geçemedi; hukukî" +
+  " değerlendirme avukat tarafından tamamlanmalıdır.";
+export const KAYNAKSIZ_STUBS: readonly string[] = Object.freeze([
+  KAYNAKSIZ_STUB_SEBEPLER,
+  KAYNAKSIZ_STUB_DEGERLENDIRME_KAYNAK_YOK,
+  KAYNAKSIZ_STUB_DEGERLENDIRME_ESIK,
+]);
+
 export type DraftKind = "dilekce" | "sozlesme";
 
 /**
@@ -206,6 +227,15 @@ export interface DraftParagraph {
   role: SlotKind;
   /** Additive (W12): how the evidence ids were bound (absent = lexical). */
   binding?: DraftBinding;
+  /**
+   * Additive (27.09.2026): the exact SYSTEM placeholder strings this paragraph
+   * still carries — "[Kararın özeti — doldurun]", a template's
+   * "[DAVANIN GÖRÜLDÜĞÜ]" address, or a whole KAYNAKSIZ stub sentence
+   * ("… avukat tarafından eklenmelidir."). A token counts only while it is
+   * still present in `text`; the NİHAİ (filing) copy is refused while any is
+   * (see `placeholders.ts`). Absent = none. Never set from user input.
+   */
+  placeholders?: string[];
 }
 
 export interface DraftSection {

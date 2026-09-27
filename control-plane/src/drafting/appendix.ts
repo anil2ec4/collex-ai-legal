@@ -15,8 +15,9 @@
  * the renderers print after the document.
  */
 
-import { sanitizeMarkdown } from "../security/renderGuard.js";
+import { plainTextHygiene } from "../security/renderGuard.js";
 import { formatDateTr } from "./input.js";
+import { foldGuardEntities } from "./quoteIntegrity.js";
 import {
   EK_DOGRULAMA_SECTION_ID,
   EK_DOGRULAMA_SECTION_TITLE,
@@ -69,9 +70,26 @@ export function sourceLabelTr(source: string): string {
   return SOURCE_LABEL_TR[source] ?? source;
 }
 
-/** Sanitize a user/evidence string for a single-line context. */
+/**
+ * A user/evidence string as the PLAIN TEXT a draft stores (27.09.2026).
+ *
+ * Draft text used to be stored through `sanitizeMarkdown`, and the guard's
+ * entity escapes went straight into the filed documents: "Yılmaz & Kaya" was
+ * printed "Yılmaz &amp; Kaya" in the DOCX, the UDF and the NİHAİ copy, in the
+ * party block AND the signature. Text is now stored as the lawyer wrote it:
+ * character hygiene only (controls, zero-width/BiDi dropped, line endings
+ * normalized) and the legacy escapes folded, so a re-saved old draft heals.
+ * Every surface escapes for its own medium — the console uses `textContent`,
+ * python-docx and the UDF CDATA writer escape XML, and the Markdown export
+ * runs `escapeMarkdownText` at render time.
+ */
+export function draftPlainText(value: string): string {
+  return plainTextHygiene(foldGuardEntities(value));
+}
+
+/** `draftPlainText`, folded to one line (names, titles, list items). */
 export function inlineText(value: string): string {
-  return sanitizeMarkdown(value).replace(/\s*\n+\s*/g, " ").trim();
+  return draftPlainText(value).replace(/\s*\n+\s*/g, " ").trim();
 }
 
 /** "K-n" reference numbers: 1-based position in the draft's evidence list. */
@@ -98,17 +116,52 @@ export function directionWording(direction: DraftEvidenceDirection | undefined):
 
 /** HUKUKÎ SEBEPLER line for one entry: label + verbatim quote, no hash. */
 export function sebeplerParagraphText(entry: DraftEvidence): string {
-  return `Dayanak: ${sanitizeMarkdown(entry.label)} — "${sanitizeMarkdown(entry.quote)}"`;
+  return `Dayanak: ${draftPlainText(entry.label)} — "${draftPlainText(entry.quote)}"`;
 }
 
 /** Karşı içtihat line for one entry: label + verbatim quote, no hash. */
 export function karsiIctihatParagraphText(entry: DraftEvidence): string {
-  return `${sanitizeMarkdown(entry.label)} — "${sanitizeMarkdown(entry.quote)}"`;
+  return `${draftPlainText(entry.label)} — "${draftPlainText(entry.quote)}"`;
 }
 
-/** DELİLLER line for one uploaded file (contract: 'Ek-n: <dosya> (dosyaya eklediğiniz belge)'). */
+/**
+ * The screen note after an uploaded exhibit's DELİLLER line. It tells the
+ * LAWYER where the line came from; it is not court text, so the unmarked
+ * copies (`marks=none`, the NİHAİ copy among them) drop it — TS
+ * (`markdown.ts`) and Python (`export/draft.py::paragraph_lines`) alike.
+ * Mirrored by `UPLOAD_DELIL_NOTE` in `export/draft.py`; change both or neither.
+ */
+export const UPLOAD_DELIL_NOTE = " (dosyaya eklediğiniz belge)";
+
+/** Document file extensions a DELİLLER title does not need. */
+const EXHIBIT_EXTENSION = /\.(?:pdf|docx?|txt|udf|rtf|odt|tiff?|jpe?g|png)$/iu;
+
+/**
+ * The human title of an uploaded exhibit: its file name without the file
+ * extension ("tanik-bom.txt" → "tanik-bom"). 27.09.2026: the court copy
+ * listed "Ek-1: tanik-bom.txt (dosyaya eklediğiniz belge)". The full file
+ * name stays in the EK — DOĞRULAMA section, which identifies the exact file.
+ */
+export function exhibitTitle(fileName: string): string {
+  const flat = inlineText(fileName);
+  const bare = flat.replace(EXHIBIT_EXTENSION, "").trim();
+  return bare === "" ? flat : bare;
+}
+
+/** DELİLLER line for one uploaded file (contract: 'Ek-n: <belge adı> (dosyaya eklediğiniz belge)'). */
 export function uploadDelillerLine(index: number, upload: DraftUploadInfo): string {
-  return `Ek-${index}: ${inlineText(upload.fileName)} (dosyaya eklediğiniz belge)`;
+  return `Ek-${index}: ${exhibitTitle(upload.fileName)}${UPLOAD_DELIL_NOTE}`;
+}
+
+/**
+ * The text an unmarked copy prints for a paragraph: the DELİLLER screen note
+ * is dropped from an exhibit line; everything else is printed as stored.
+ */
+export function unmarkedParagraphText(paragraph: { role: string; text: string }): string {
+  if (paragraph.role === "deliller" && paragraph.text.endsWith(UPLOAD_DELIL_NOTE)) {
+    return paragraph.text.replace(/ \(dosyaya eklediğiniz belge\)$/u, "");
+  }
+  return paragraph.text;
 }
 
 /** Group UPLOAD evidence entries into one summary per file (chunk order kept). */

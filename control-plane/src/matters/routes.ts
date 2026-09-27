@@ -38,6 +38,7 @@ import { z } from "zod";
 import { summarizeStoredAnswer, type AnswerStore } from "../api/answerService.js";
 import { fieldIssues } from "../api/zodIssues.js";
 import { HEARING_DEFAULT_MINUTES, buildIcs, hearingSummary, type IcsEvent } from "./ics.js";
+import { encodeRfc8187 } from "../drafting/routes.js";
 import { ContactService, createContactsRouter, type ContactStore } from "./contactsRoutes.js";
 import { HEARING_SCHEMA_MESSAGE_TR, ItemKindUnsupportedError, isUuid } from "./store.js";
 import { createRecordsRouter, type DraftAdminPort } from "./recordsRoutes.js";
@@ -612,12 +613,17 @@ export function createMattersRouter(deps: MattersRouterDeps): Hono {
       const court = typeof row.payload["court"] === "string" ? row.payload["court"] : "";
       const salon = typeof row.payload["salon"] === "string" ? row.payload["salon"] : "";
       const note = typeof row.payload["note"] === "string" ? row.payload["note"] : "";
+      const title = typeof row.payload["title"] === "string" ? row.payload["title"] : "";
+      // 27.09.2026: a postponed hearing used to be emitted STATUS:CONFIRMED
+      // on its old date. It is now CANCELLED there, and says so.
+      const postponed = row.payload["status"] === "ertelendi";
       events.push({
         uid: `${row.itemId}@collex.local`,
         kind: "hearing",
         date: String(row.payload["date"]),
         time: typeof row.payload["time"] === "string" ? row.payload["time"] : "09:00",
-        summary: hearingSummary(row.matterTitle, kind, court),
+        summary: hearingSummary(row.matterTitle, kind, court, { title, postponed }),
+        ...(postponed ? { status: "CANCELLED" as const } : {}),
         description: [`Dosya: ${row.matterTitle}`, salon === "" ? "" : `Salon: ${salon}`, note]
           .filter((p) => p !== "")
           .join("\n"),
@@ -628,7 +634,7 @@ export function createMattersRouter(deps: MattersRouterDeps): Hono {
     const body = buildIcs(events, { calendarName, dtstamp: now() });
     return c.body(body, 200, {
       "content-type": "text/calendar; charset=utf-8",
-      "content-disposition": `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      "content-disposition": `attachment; filename="${fileName}"; filename*=UTF-8''${encodeRfc8187(fileName)}`,
       "cache-control": "no-store",
     });
   };

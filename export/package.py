@@ -251,9 +251,13 @@ def _render_drafts(plan: PackagePlan, work: Path) -> list[tuple[str, Path]]:
     from export.petition import export_petition_docx
 
     out: list[tuple[str, Path]] = []
-    for planned in plan.drafts:
+    for index, planned in enumerate(plan.drafts, start=1):
         draft = load_draft(planned.draft_path)
-        target = work / planned.file_name
+        # 27.09.2026: a work path of its OWN per draft. Rendering to
+        # ``work / planned.file_name`` let two drafts that shared a name
+        # overwrite each other on disk — one draft silently lost while the
+        # manifest (computed from the survivor) still verified.
+        target = work / f"taslak-{index}.docx"
         # `export_petition_docx` calls `verify_draft_or_refuse` first: quote
         # hashes, citation closure and the B-01 quote-integrity check. An
         # unverifiable draft raises ExportRefused and the package dies with it.
@@ -268,18 +272,49 @@ def _render_answers(plan: PackagePlan, work: Path) -> list[tuple[str, Path]]:
     from export.bundle_docx import export_docx
 
     out: list[tuple[str, Path]] = []
-    for planned in plan.answers:
+    for index, planned in enumerate(plan.answers, start=1):
         stem = Path(planned.file_name).stem
         bundle = load_bundle(planned.bundle_path)
-        json_target = work / f"{stem}.json"
+        # Own work paths per entry (see _render_drafts).
+        json_target = work / f"arastirma-{index}.json"
         json_target.write_bytes(Path(planned.bundle_path).read_bytes())
-        docx_target = work / f"{stem}.docx"
+        docx_target = work / f"arastirma-{index}.docx"
         # Same discipline: the bundle writer re-verifies every quote hash and
         # offset before writing, and refuses otherwise.
         export_docx(bundle, docx_target)
         out.append((f"{RESEARCH_DIR}/{stem}.json", json_target))
         out.append((f"{RESEARCH_DIR}/{stem}.docx", docx_target))
     return out
+
+
+def _refuse_duplicate_paths(entries: list[tuple[str, Path]]) -> None:
+    """Two entries may never share an archive path (27.09.2026).
+
+    ``zipfile`` writes a duplicate member with only a warning; the self-check
+    then read one of the two and reported a digest mismatch, which the HTTP
+    layer turned into "a document's content does not match its recorded
+    digest" — a FALSE tampering message for two uploads that merely shared a
+    file name. The planner now names entries uniquely; this is the honest
+    refusal for a plan that still collides. Compared case-insensitively: the
+    archive is unpacked on Windows.
+    """
+    seen: dict[str, str] = {}
+    duplicates: list[str] = []
+    for archive_path, _source in entries:
+        key = archive_path.casefold()
+        if key in seen:
+            duplicates.append(
+                f"YINELENEN_AD: '{archive_path}' adı pakette birden çok kez kullanılıyor"
+                f" (ilk: '{seen[key]}')"
+            )
+        else:
+            seen[key] = archive_path
+    if duplicates:
+        raise ExportRefused(
+            "paket yazılmadı: iki kayıt pakette aynı dosya adını taşıyor; biri"
+            " sessizce kaybolurdu",
+            duplicates,
+        )
 
 
 def export_matter_package(
@@ -330,6 +365,7 @@ def export_matter_package(
 
         entries.extend(_render_drafts(plan, work))
         entries.extend(_render_answers(plan, work))
+        _refuse_duplicate_paths(entries)
 
         manifest = {
             "schema": MANIFEST_SCHEMA,

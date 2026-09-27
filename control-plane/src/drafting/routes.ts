@@ -53,6 +53,12 @@ import {
   parseExportMode,
   type ExportMode,
 } from "./exportMode.js";
+import {
+  PLACEHOLDER_UNFILLED,
+  findUnfilledPlaceholders,
+  placeholderRefusalMessage,
+  withLivePlaceholders,
+} from "./placeholders.js";
 import { auditDraftCitations } from "../contracts/draftAudit.js";
 import { InMemoryDraftStore, type DraftStore } from "./store.js";
 import { DRAFT_TEMPLATES, FIELD_GROUPS, labelForPath } from "./templates.js";
@@ -148,9 +154,23 @@ export function asciiSafe(value: string): string {
     .trim();
 }
 
+/**
+ * RFC 8187 `value-chars` for an ext-value: every octet outside `attr-char`
+ * percent-encoded. `encodeURIComponent` leaves `'`, `(`, `)` and `*`
+ * unescaped, and none of them is an attr-char — "Dilekçe (v2).docx" produced
+ * a `filename*` a strict parser rejects (27.09.2026). `!` is an attr-char and
+ * may stay.
+ */
+export function encodeRfc8187(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()*]/gu,
+    (ch) => `%${(ch.codePointAt(0) as number).toString(16).toUpperCase().padStart(2, "0")}`,
+  );
+}
+
 /** RFC 6266 Content-Disposition with an ASCII filename and a UTF-8 filename*. */
 export function contentDisposition(name: { ascii: string; utf8: string }): string {
-  return `attachment; filename="${name.ascii}"; filename*=UTF-8''${encodeURIComponent(name.utf8)}`;
+  return `attachment; filename="${name.ascii}"; filename*=UTF-8''${encodeRfc8187(name.utf8)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -801,6 +821,41 @@ export function createDraftingRouter(deps: DraftingDependencies = {}): Hono {
       );
     }
 
+    // 27.09.2026: the NİHAİ (filing) copy may not carry a system placeholder
+    // ("[Kararın özeti — doldurun]", "[DAVANIN GÖRÜLDÜĞÜ] MAHKEMESİ'NE") or a
+    // KAYNAKSIZ stub addressed to the lawyer. Refused BEFORE any format is
+    // produced, like the quote-integrity gate above; the Python exporter
+    // applies the identical test to the tokens written into its JSON
+    // (`export/draft.py::refuse_unfilled_placeholders`). The TASLAK copies are
+    // untouched: they print the placeholders, visibly.
+    if (isFinalCopy(mode) && format !== AUDIT_FORMAT) {
+      const open = findUnfilledPlaceholders(draft);
+      if (open.length > 0) {
+        const correlationId = randomUUID();
+        log(
+          `[collex] EXPORT_REFUSED id=${correlationId} draftId=${draft.draftId} format=${format}` +
+            ` reason=${PLACEHOLDER_UNFILLED} paragraphs=${JSON.stringify(open.map((f) => f.paragraphId))}`,
+        );
+        return c.json(
+          {
+            error: {
+              kind: "EXPORT_REFUSED",
+              message: placeholderRefusalMessage(open),
+              code: PLACEHOLDER_UNFILLED,
+              placeholders: open.map((finding) => ({
+                paragraphId: finding.paragraphId,
+                sectionId: finding.sectionId,
+                text: finding.text,
+              })),
+              detail: exportFailureDetail(correlationId),
+              correlationId,
+            },
+          },
+          409,
+        );
+      }
+    }
+
     const matterTitle = await matterTitleOf(draft);
     if (format === "md") {
       const markdown = renderDraftMarkdown(draft, {
@@ -839,10 +894,14 @@ export function createDraftingRouter(deps: DraftingDependencies = {}): Hono {
         );
       } else {
         // `matterTitle` is additive on the wire JSON; the Python parser reads
-        // it for the "Dosya" meta row and ignores it otherwise.
+        // it for the "Dosya" meta row and ignores it otherwise. Every
+        // paragraph's `placeholders` is normalized to its UNFILLED set (legacy
+        // drafts included), so the exporter's NİHAİ gate decides on exactly
+        // the tokens the check above decided on.
+        const wire = withLivePlaceholders(draft);
         await writeFile(
           jsonPath,
-          JSON.stringify(matterTitle !== undefined ? { ...draft, matterTitle } : draft),
+          JSON.stringify(matterTitle !== undefined ? { ...wire, matterTitle } : wire),
           "utf8",
         );
       }

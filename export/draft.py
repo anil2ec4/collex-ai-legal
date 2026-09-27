@@ -51,6 +51,11 @@ DIRECTION_KARSIT = "karşıt"
 #: Source value of uploaded (tenant) documents.
 SOURCE_UPLOAD = "UPLOAD"
 
+#: Screen note after an uploaded exhibit's DELİLLER line — a note to the
+#: lawyer, dropped by ``marks=none`` (27.09.2026). Mirrors ``UPLOAD_DELIL_NOTE``
+#: in ``control-plane/src/drafting/appendix.ts``; change both or neither.
+UPLOAD_DELIL_NOTE = " (dosyaya eklediğiniz belge)"
+
 # --------------------------------------------------------------------------
 # Presentation mode (W14 · B-02) — "taslak kopyası" vs "nihai dosyalama kopyası"
 # --------------------------------------------------------------------------
@@ -213,11 +218,30 @@ _ENTITY_FOLDS: tuple[tuple[str, str], ...] = (
 )
 
 
-def canonical_quote_text(value: str) -> str:
-    """Canonical comparison form of draft text (mirrors the TS function)."""
+def fold_guard_entities(value: str) -> str:
+    """Fold the TS render guard's entity escapes back to their characters.
+
+    Mirrors ``foldGuardEntities`` in ``control-plane/src/drafting/quoteIntegrity.ts``
+    and is step 1 of :func:`canonical_quote_text` (same table, so the
+    comparison is unchanged).
+
+    WHY IT IS ALSO A DISPLAY STEP (27.09.2026). Draft text used to be stored
+    through ``sanitizeMarkdown``; the writers printed the escapes verbatim and
+    a party named "Yılmaz & Kaya İnşaat" was FILED as "Yılmaz &amp; Kaya
+    İnşaat" — DOCX, UDF and the NİHAİ copy, party block and signature alike.
+    New drafts store plain text; drafts stored before that still carry the
+    escapes, so every line a writer prints goes through this fold. It is a
+    presentation step only: the integrity checks keep reading the raw text.
+    """
     out = value
     for entity, literal in _ENTITY_FOLDS:
         out = out.replace(entity, literal)
+    return out
+
+
+def canonical_quote_text(value: str) -> str:
+    """Canonical comparison form of draft text (mirrors the TS function)."""
+    out = fold_guard_entities(value)
     out = _INVISIBLE_CHARS.sub("", out)
     out = unicodedata.normalize("NFC", out)
     return _WHITESPACE.sub(" ", out).strip()
@@ -248,6 +272,11 @@ class DraftParagraph:
     supported: bool
     note: str
     role: str
+    #: Additive (27.09.2026): the SYSTEM placeholder strings the producer
+    #: recorded on this paragraph ("[Kararın özeti — doldurun]", a KAYNAKSIZ
+    #: stub). One counts only while it is still in ``text``; see
+    #: :func:`refuse_unfilled_placeholders`. Absent on older drafts.
+    placeholders: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -515,9 +544,19 @@ def parse_draft(payload: Any) -> Draft:
             note = paragraph.get("note", "")
             if not isinstance(note, str):
                 raise DraftFormatError(f"{p_where}: 'note' metin değil")
+            # Display-only field: legacy entity escapes are folded here, once,
+            # so no writer can print "&amp;" (see fold_guard_entities).
+            note = fold_guard_entities(note)
             role = paragraph.get("role", "govde")
             if not isinstance(role, str):
                 raise DraftFormatError(f"{p_where}: 'role' metin değil")
+            placeholders = paragraph.get("placeholders", [])
+            if placeholders is None:
+                placeholders = []
+            if not isinstance(placeholders, list) or not all(
+                isinstance(p, str) and p for p in placeholders
+            ):
+                raise DraftFormatError(f"{p_where}: 'placeholders' geçersiz")
             paragraphs.append(
                 DraftParagraph(
                     paragraph_id=_require_str(paragraph, "id", where=p_where),
@@ -526,12 +565,13 @@ def parse_draft(payload: Any) -> Draft:
                     supported=supported,
                     note=note,
                     role=role,
+                    placeholders=tuple(placeholders),
                 )
             )
         sections.append(
             DraftSection(
                 section_id=_require_str(section, "id", where=where),
-                title=title,
+                title=fold_guard_entities(title),
                 paragraphs=tuple(paragraphs),
             )
         )
@@ -554,9 +594,11 @@ def parse_draft(payload: Any) -> Draft:
         evidence.append(
             DraftEvidence(
                 evidence_id=_require_str(entry, "evidenceId", where=e_where),
-                label=label,
+                # Display-only (never hashed): legacy escapes folded. The
+                # QUOTE is integrity-bearing and stays exactly as stored.
+                label=fold_guard_entities(label),
                 source=_require_str(entry, "source", where=e_where),
-                title=title,
+                title=fold_guard_entities(title),
                 quote=_require_str(entry, "quote", where=e_where),
                 quote_sha256=_require_str(entry, "quoteSha256", where=e_where),
                 content_sha256=_require_str(entry, "contentSha256", where=e_where),
@@ -598,11 +640,14 @@ def parse_draft(payload: Any) -> Draft:
     title = payload.get("title", "")
     if not isinstance(title, str) or title == "":
         title = _require_str(payload, "template", where="taslak")
+    title = fold_guard_entities(title)
 
     # N-3: the exported document shows the Turkish first and the evidence id
     # in parentheses at most. Normalized HERE so every exporter inherits it.
     numbering = {entry.evidence_id: index for index, entry in enumerate(evidence, start=1)}
-    warnings = tuple(presentable_warning(w, numbering) for w in warnings_raw)
+    warnings = tuple(
+        presentable_warning(fold_guard_entities(w), numbering) for w in warnings_raw
+    )
 
     return Draft(
         draft_id=_require_str(payload, "draftId", where="taslak"),
@@ -615,11 +660,11 @@ def parse_draft(payload: Any) -> Draft:
         unsupported_count=unsupported_count,
         warnings=warnings,
         synthetic=synthetic,
-        synthetic_notice=synthetic_notice,
+        synthetic_notice=fold_guard_entities(synthetic_notice),
         version=version,
         matter_id=matter_id,
         updated_at=updated_at,
-        matter_title=matter_title,
+        matter_title=fold_guard_entities(matter_title),
         review_checklist=review_checklist,
         evidence_review=evidence_review,
     )
@@ -702,6 +747,58 @@ def verify_draft_or_refuse(draft: Draft) -> None:
         )
 
 
+#: Machine code of the NİHAİ-copy placeholder refusal. Mirrors
+#: ``PLACEHOLDER_UNFILLED`` in ``control-plane/src/drafting/placeholders.ts``.
+PLACEHOLDER_UNFILLED = "PLACEHOLDER_UNFILLED"
+
+
+def unfilled_placeholders(draft: Draft) -> list[tuple[str, str, str]]:
+    """``(paragraph_id, section_title, token)`` for every recorded system
+    placeholder still present in its paragraph's text (document order)."""
+    out: list[tuple[str, str, str]] = []
+    for section in draft.sections:
+        if section.section_id == EK_DOGRULAMA_SECTION_ID:
+            continue
+        for paragraph in section.paragraphs:
+            for token in dict.fromkeys(paragraph.placeholders):
+                if token and token in paragraph.text:
+                    out.append((paragraph.paragraph_id, section.title, token))
+    return out
+
+
+def refuse_unfilled_placeholders(draft: Draft, mode: ExportMode) -> None:
+    """Refuse the NİHAİ (filing) copy while a system placeholder remains.
+
+    27.09.2026 — the drafting audit found the clean filing copy printing
+    "[Karşı dava talebi varsa buraya yazın; yoksa bu bölümü silin]",
+    "[Kararın özeti — doldurun]" and the KAYNAKSIZ stub "… avukat tarafından
+    eklenmelidir." as ordinary body text. This is the SECOND layer of that
+    gate (the first is the TypeScript pre-check, which writes each
+    paragraph's unfilled tokens into the JSON handed to this exporter), and it
+    applies the identical test: a recorded token still present in the text.
+
+    It is deliberately NOT part of :func:`verify_draft_or_refuse`, which runs
+    identically in every mode (ADR-024): this gate only ever makes the filing
+    copy STRICTER. The TASLAK copies print placeholders, visibly.
+    """
+    if not mode.is_final:
+        return
+    open_tokens = unfilled_placeholders(draft)
+    if not open_tokens:
+        return
+    findings = [
+        f"YER_TUTUCU ({PLACEHOLDER_UNFILLED}): {paragraph_id} paragrafında"
+        f" ({title or 'başlık/imza satırı'}) doldurulmamış yer tutucu veya avukata"
+        f" not satırı duruyor: {token!r}"
+        for paragraph_id, title, token in open_tokens
+    ]
+    raise ExportRefused(
+        "nihai kopya yazılmadı: taslakta doldurulmamış yer tutucu veya avukata not"
+        " satırı var; doldurun ya da paragrafı silin",
+        findings,
+    )
+
+
 def paragraph_lines(paragraph: DraftParagraph, *, marks: bool = True) -> list[str]:
     """The exact document lines a draft paragraph becomes (KAYNAKSIZ aware).
 
@@ -710,7 +807,15 @@ def paragraph_lines(paragraph: DraftParagraph, *, marks: bool = True) -> list[st
     export gate are untouched — the clean filing copy still cannot be produced
     from a draft whose citations do not verify.
     """
-    lines = paragraph.text.split("\n")
+    # 27.09.2026: legacy entity escapes are folded for DISPLAY here — the one
+    # function every writer AND every self-check prints paragraph text through,
+    # so the two can never disagree. The raw text still feeds the gate.
+    text = fold_guard_entities(paragraph.text)
+    if not marks and paragraph.role == "deliller" and text.endswith(UPLOAD_DELIL_NOTE):
+        # The exhibit line's "(dosyaya eklediğiniz belge)" is a note to the
+        # LAWYER; the unmarked (filing) copy prints the exhibit alone.
+        text = text[: -len(UPLOAD_DELIL_NOTE)]
+    lines = text.split("\n")
     if not paragraph.supported and marks:
         lines[0] = f"{KAYNAKSIZ_PREFIX} — {lines[0]}"
     return lines

@@ -11,7 +11,8 @@
  *  - sections must be known to the template (plus the composer-appended
  *    `karsi-ictihat` / `ek-dogrulama`) and keep the template's order;
  *  - paragraph ids either exist in the draft or are generated; text is
- *    sanitized through the render guard;
+ *    stored as plain text (character hygiene only; every renderer escapes
+ *    for its own medium — see appendix.ts::draftPlainText);
  *  - every evidence id must be in the draft's evidence OR unusedEvidence
  *    (citing an unused entry pulls it into the document);
  *  - a lexical binding (the default) must pass `evidenceOverlaps` — the
@@ -33,7 +34,6 @@
  * surface.
  */
 
-import { sanitizeMarkdown } from "../security/renderGuard.js";
 import {
   DraftValidationError,
   countUnsupported,
@@ -42,11 +42,18 @@ import {
   partitionEvidence,
 } from "./composer.js";
 import { QUOTE_ALTERED, quoteAlteredMessage } from "./quoteIntegrity.js";
+import {
+  PLACEHOLDER_WARNING_PREFIX,
+  findUnfilledPlaceholders,
+  placeholderWarning,
+} from "./placeholders.js";
 import { REVIEW_CHECKLIST_IDS, type ReviewMark } from "./exportMode.js";
 import {
   buildEkDogrulamaSection,
+  draftPlainText,
   evidenceNumbering,
   evidenceRef,
+  inlineText,
   sebeplerParagraphText,
 } from "./appendix.js";
 import { formatTimestampTr } from "./input.js";
@@ -61,6 +68,8 @@ import {
   NOTE_KARSIT,
   NOTE_KAYNAKLI,
   NOTE_KAYNAKSIZ,
+  NOTE_OLAY_ANLATISI,
+  KAYNAKSIZ_STUB_SEBEPLER,
   SLOT_KINDS,
   type Draft,
   type DraftBinding,
@@ -161,10 +170,10 @@ function applyReviewMarks(
       continue;
     }
     const entry: ReviewMark = { checked: true, at: now.toISOString() };
-    const by = mark.by === undefined ? "" : sanitizeMarkdown(mark.by).replace(/\s+/gu, " ").trim();
+    const by = mark.by === undefined ? "" : draftPlainText(mark.by).replace(/\s+/gu, " ").trim();
     if (by !== "") entry.by = by;
     const note =
-      mark.note === undefined ? "" : sanitizeMarkdown(mark.note).replace(/\s+/gu, " ").trim();
+      mark.note === undefined ? "" : draftPlainText(mark.note).replace(/\s+/gu, " ").trim();
     if (note !== "") entry.note = note;
     out[key] = entry;
   }
@@ -189,6 +198,7 @@ function isRecomputedWarning(warning: string): boolean {
     /^\d+ doğrulanmış kaynak taslakta kullanılmadı/u.test(warning) ||
     warning.startsWith("Düzenleme uyarısı:") ||
     warning.startsWith("Düzenleme notu:") ||
+    warning.startsWith(PLACEHOLDER_WARNING_PREFIX) ||
     /^Sürüm \d+:/u.test(warning)
   );
 }
@@ -319,7 +329,7 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
     const paragraphs: DraftParagraph[] = [];
     patchSection.paragraphs.forEach((patchParagraph, pIndex) => {
       const path = `sections.${sIndex}.paragraphs.${pIndex}`;
-      const text = sanitizeMarkdown(patchParagraph.text ?? "").trim();
+      const text = draftPlainText(patchParagraph.text ?? "").trim();
       if (text === "") {
         issues.push({ path: `${path}.text`, message: "Boş paragraf atlandı." });
         return;
@@ -390,9 +400,29 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
       const legal = LEGAL_ROLES.has(role) || patchSection.id === "hukuki-sebepler";
       const attached: string[] = [];
       let acceptedBinding: DraftBinding | undefined;
-      for (const evidenceId of [...new Set(patchParagraph.evidenceIds ?? [])]) {
+      // ADR-021: the olay anlatısı is the lawyer's own statement and "can
+      // never become a Dayanak by any later path" — not by a save either.
+      const narrative = existing?.paragraph.note === NOTE_OLAY_ANLATISI;
+      if (narrative && (patchParagraph.evidenceIds ?? []).length > 0) {
+        issues.push({
+          path: `${path}.evidenceIds`,
+          message:
+            "Olay anlatısı paragrafı sizin beyanınızdır; bir kaynağa dayanak olarak bağlanamaz" +
+            " (atıf yazılmadı). Kaynağa bağlı bir cümle için ayrı bir paragraf ekleyin.",
+        });
+      }
+      // 27.09.2026 (drafting audit): set when a citation the text ASKED for
+      // could not be bound because the TEXT no longer supports it — an
+      // altered quote (QUOTE_ALTERED), an id that is not in the draft, an
+      // entailment this path may not accept or an invalid one. NOT set by a
+      // policy refusal (a karşıt decision or an upload offered as a legal
+      // dayanak): that source is kept out of the legal role, and the other
+      // citations of the paragraph still stand (W21 reviser contract).
+      let bindingFailed = false;
+      for (const evidenceId of narrative ? [] : [...new Set(patchParagraph.evidenceIds ?? [])]) {
         const entry = allEvidence.get(evidenceId);
         if (entry === undefined) {
+          bindingFailed = true;
           issues.push({
             path: `${path}.evidenceIds`,
             message: `'${evidenceId}' taslağın kanıt listesinde yok; atıf yazılmadı.`,
@@ -439,6 +469,7 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
           // floor let "üç yıldan yedi yıla" become "beş yıldan on yıla" under
           // an intact [K-n] chip (W13-UXAUDIT P0-1).
           if (!evidenceBindingHolds(text, entry.quote)) {
+            bindingFailed = true;
             issues.push({
               path: `${path}.evidenceIds`,
               message: quoteAlteredMessage(evidenceId, refLabel(numbering, evidenceId)),
@@ -451,6 +482,7 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
         }
         // Entailment binding: only a trusted server-side judge may vouch.
         if (!opts.trustEntailment) {
+          bindingFailed = true;
           issues.push({
             path: `${path}.binding`,
             message:
@@ -468,6 +500,7 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
           typeof binding.judge !== "string" ||
           binding.judge.trim() === ""
         ) {
+          bindingFailed = true;
           issues.push({
             path: `${path}.binding`,
             message: `'${evidenceId}' için entailment bağlaması geçersiz (skor 0-1 ve yargıç adı gerekir).`,
@@ -481,14 +514,32 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
         );
       }
 
+      // 27.09.2026 (drafting audit): a failed binding (see `bindingFailed`)
+      // leaves text that states something no verified source backs. The
+      // issue message has always said "paragraf KAYNAKSIZ işaretlendi"; for a
+      // non-legal role it was not true: the paragraph stayed supported:true
+      // "beyan/İRADE", the count did not move and the DOCX carried no ⚠. It
+      // is now marked, whatever the role.
       const paragraph: DraftParagraph = {
         id,
         text,
         evidenceIds: attached,
-        supported: LEGAL_ROLES.has(role) ? attached.length > 0 : true,
+        supported: bindingFailed
+          ? false
+          : LEGAL_ROLES.has(role)
+            ? attached.length > 0
+            : true,
         role,
       };
-      if (LEGAL_ROLES.has(role)) {
+      if (narrative && !LEGAL_ROLES.has(role)) {
+        // ADR-021 / W16 şerit E: the lawyer's own account stays what it is on
+        // every save — supported:false, its own note. A no-op PUT used to
+        // turn it into supported:true "beyan".
+        paragraph.supported = false;
+        paragraph.note = NOTE_OLAY_ANLATISI;
+      } else if (bindingFailed) {
+        paragraph.note = NOTE_KAYNAKSIZ;
+      } else if (LEGAL_ROLES.has(role)) {
         paragraph.note = attached.length > 0 ? NOTE_KAYNAKLI : NOTE_KAYNAKSIZ;
       } else if (role === "karsiIctihat") {
         paragraph.note = NOTE_KARSIT;
@@ -496,6 +547,10 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
         paragraph.note = NOTE_BEYAN;
       }
       if (acceptedBinding !== undefined) paragraph.binding = acceptedBinding;
+      // The system placeholders this paragraph still carries (placeholders.ts):
+      // a token survives a save only while it is still in the text.
+      const carried = (existing?.paragraph.placeholders ?? []).filter((token) => text.includes(token));
+      if (carried.length > 0) paragraph.placeholders = carried;
       paragraphs.push(paragraph);
     });
     if (paragraphs.length > 0) {
@@ -615,13 +670,12 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
         usedIds.add(id);
         section.paragraphs.push({
           id,
-          text:
-            "Hukukî sebepler doğrulanmış bir mevzuat veya karar kaynağına bağlanamadı;" +
-            " dayanak mevzuat avukat tarafından eklenmelidir.",
+          text: KAYNAKSIZ_STUB_SEBEPLER,
           evidenceIds: [],
           supported: false,
           note: NOTE_KAYNAKSIZ,
           role: "hukukiSebepler",
+          placeholders: [KAYNAKSIZ_STUB_SEBEPLER],
         });
       }
       if (section.paragraphs.length === 0) sections.splice(index, 1);
@@ -644,6 +698,8 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
     );
   }
   warnings.push(...draft.warnings.filter((w) => !isRecomputedWarning(w)));
+  const openPlaceholders = placeholderWarning(findUnfilledPlaceholders({ sections }));
+  if (openPlaceholders !== undefined) warnings.push(openPlaceholders);
   if (unusedEvidence.length > 0) {
     warnings.push(
       `${unusedEvidence.length} doğrulanmış kaynak taslakta kullanılmadı: hiçbir tespit ve` +
@@ -655,7 +711,7 @@ export function reviseDraft(draft: Draft, patch: DraftPatch, opts: ReviseOptions
     `Sürüm ${version}: ${opts.trustEntailment ? "sunucu tarafı yazıcı" : "avukat düzenlemesi"} (${formatTimestampTr(now.toISOString())}).`,
   );
   if (patch.note !== undefined && patch.note.trim() !== "") {
-    warnings.push(`Düzenleme notu: ${sanitizeMarkdown(patch.note).replace(/\s*\n+\s*/g, " ").trim()}`);
+    warnings.push(`Düzenleme notu: ${inlineText(patch.note)}`);
   }
   for (const issue of issues) warnings.push(`Düzenleme uyarısı: ${issue.message}`);
 

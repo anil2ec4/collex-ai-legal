@@ -306,6 +306,13 @@ describe("B-30: GET /v1/files/{id}/original", () => {
     expect(value).toContain("filename*=UTF-8''");
     expect(/filename="[\x20-\x7e]*"/u.test(value)).toBe(true);
   });
+
+  it("attachmentDisposition percent-encodes ( ) ' * in filename* (RFC 8187 attr-char)", () => {
+    const value = attachmentDisposition("Bilirkişi Raporu (Ek-3) 'son'.pdf");
+    const star = value.split("filename*=UTF-8''")[1] as string;
+    expect(star).not.toMatch(/[()'*]/u);
+    expect(star).toContain("%28Ek-3%29");
+  });
 });
 
 describe("B-18 (files half): analysis.dates[] is transferable as-is", () => {
@@ -357,6 +364,15 @@ describe("B-26: deleting a document does not leave dangling records", () => {
     expect(body.warnings).toHaveLength(3);
     expect(body.warnings[0]).toContain("1 dava dosyasında kayıtlı");
     expect(body.warnings[1]).toContain("2 taslak");
+  });
+
+  it("GET /v1/files/{unknownId}/usage is 404 like every other file route (27.09.2026)", async () => {
+    // It used to be 200 with empty lists — which the delete dialog reads as
+    // "nothing depends on this document".
+    const { json } = makeApp(fullStore());
+    const res = await json(`/v1/files/${"f".repeat(16)}/usage`);
+    expect(res.status).toBe(404);
+    expect((res.body as ErrorBody).error.kind).toBe("NOT_FOUND");
   });
 
   it("DELETE drops the matter records that referenced the file", async () => {

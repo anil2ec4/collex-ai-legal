@@ -62,6 +62,37 @@ export interface TemplateSlot {
   /** For "talepler": the closing line after the items; "" drops it. */
   kapanis?: string;
   /**
+   * For "hukum"/"konu" (27.09.2026): the wording used INSTEAD of `text` when
+   * the draft's own dates show the statutory period (`DraftTemplate.sure`)
+   * has already run out. It keeps the facts (the tebliğ date) and drops the
+   * sentence that says the filing is "süresi içinde" — the document may not
+   * assert a timeliness its own dates contradict.
+   */
+  textSureGecti?: string;
+  /**
+   * For "hukum" (27.09.2026): when any `bilgi` key is missing the slot writes
+   * NOTHING instead of a "[Alan — doldurun]" placeholder. For clauses that
+   * exist only when the fact exists (HMK m.364/2-ç "ilk derece kararı" is
+   * needed only for a direnme / bozma-sonrası decision; a duruşma istemi is
+   * made or not made).
+   */
+  omitIfMissing?: boolean;
+  /**
+   * For "liste" (27.09.2026): when the key is absent and `emptyText` is a
+   * placeholder, the WHOLE section is left out of the draft (and a warning
+   * says so) instead of printing "[… varsa buraya yazın; yoksa bu bölümü
+   * silin]" into a document headed for the court. Only for sections that
+   * genuinely do not exist without their content (KARŞI DAVA, DEF'İLER).
+   */
+  omitSectionWhenEmpty?: boolean;
+  /**
+   * For "imza" (27.09.2026): false = the signature block names the lawyer
+   * only, with no "<PARTY ROLE> VEKİLİ" line. A hukukî mütalaa is signed by
+   * the lawyer who GIVES the opinion; "MÜTALAA İSTEYEN VEKİLİ" signed it as
+   * the client's representative.
+   */
+  rolSatiri?: boolean;
+  /**
    * Evidence-bound slots: true = KAYNAKSIZ placeholder when no evidence.
    * On a "karsiIctihat" slot it means the ALEYHE section may never be empty:
    * with no contrary source the composer writes the fixed
@@ -146,6 +177,22 @@ export interface DraftTemplate {
   /** Additive (contract B): human-labeled input fields for the console. */
   fields: TemplateField[];
   sections: TemplateSection[];
+  /**
+   * Additive (27.09.2026): the statutory period the document's "süresi
+   * içinde" sentences rest on. The composer computes the last day with the
+   * deadlines engine (`computeDeadline`, the SAME rule the Süreler screen
+   * uses) from `ekBilgiler[baslangicKey]`; when the document's own date is
+   * after it, every slot with a `textSureGecti` switches to that wording and a
+   * loud warning is written. `kararKey` names the ekBilgiler field holding the
+   * decision's künye, whose date a tebliğ may not precede.
+   */
+  sure?: TemplateSure;
+}
+
+export interface TemplateSure {
+  ruleId: string;
+  baslangicKey: string;
+  kararKey?: string;
 }
 
 /** Shorthand for building a TemplateField. */
@@ -583,8 +630,11 @@ const CEVAP_DILEKCESI: DraftTemplate = {
           kind: "liste",
           bilgiKey: "defiler",
           // Never an affirmative "we raise no defence" sentence: an empty
-          // field must not read as a signed waiver.
+          // field must not read as a signed waiver. 27.09.2026: and never a
+          // "[… doldurun]" line in the filed text either — with no def'i the
+          // section is left out and a warning (HMK m.141/1) reminds the lawyer.
           emptyText: "[Def'iler (zamanaşımı, takas, hapis hakkı …) — doldurun veya bu bölümü silin]",
+          omitSectionWhenEmpty: true,
         },
       ],
     },
@@ -601,6 +651,9 @@ const CEVAP_DILEKCESI: DraftTemplate = {
           kind: "liste",
           bilgiKey: "karsiDava",
           emptyText: "[Karşı dava talebi varsa buraya yazın; yoksa bu bölümü silin]",
+          // 27.09.2026: a cevap dilekçesi without a counterclaim has no KARŞI
+          // DAVA section at all; the placeholder used to reach the NİHAİ copy.
+          omitSectionWhenEmpty: true,
         },
       ],
     },
@@ -632,6 +685,7 @@ const ISTINAF_BASVURU: DraftTemplate = {
     " sebepleri (olgu + doğrulanmış kanıta bağlı hukukî değerlendirme) ve kararın" +
     " kaldırılması/düzeltilmesi istemi.",
   requiredFields: ["taraflar", "olaylar", "talepler", "ekBilgiler.karar", "ekBilgiler.tebligTarihi"],
+  sure: { ruleId: "hmk-istinaf", baslangicKey: "tebligTarihi", kararKey: "karar" },
   fields: [
     ...courtFields(),
     partyField("Taraflar (ad ve rol: İstinaf Eden / Karşı Taraf)", PARTY_HELP_DILEKCE),
@@ -706,6 +760,10 @@ const ISTINAF_BASVURU: DraftTemplate = {
             "Süresi içinde istinaf kanun yoluna başvurumuz ile aşağıda arz edilen" +
             " sebeplerle kararın kaldırılması/düzeltilerek yeniden hüküm kurulması" +
             " istemidir (HMK m.353).",
+          textSureGecti:
+            "İstinaf kanun yoluna başvurumuz ile aşağıda arz edilen sebeplerle" +
+            " kararın kaldırılması/düzeltilerek yeniden hüküm kurulması istemidir" +
+            " (HMK m.353).",
         },
       ],
     },
@@ -741,6 +799,7 @@ const TEMYIZ_DILEKCESI: DraftTemplate = {
     " (m.364/2-d), KARARIN ÖZETİ (m.364/2-e), duruşma istemi ve" +
     " bozma/onama istemi. Temyiz edilemeyen kararlar (HMK m.362) için kullanılmaz.",
   requiredFields: ["taraflar", "olaylar", "talepler", "ekBilgiler.karar", "ekBilgiler.tebligTarihi"],
+  sure: { ruleId: "hmk-temyiz", baslangicKey: "tebligTarihi", kararKey: "karar" },
   fields: [
     ...courtFields(),
     partyField("Taraflar (ad ve rol: Temyiz Eden / Karşı Taraf)", PARTY_HELP_DILEKCE),
@@ -806,13 +865,30 @@ const TEMYIZ_DILEKCESI: DraftTemplate = {
           // W14 (B-25 / W13-COPY L18): app instruction + raw rule id removed
           // from the filed document body; they live in the field help now.
           kind: "hukum",
-          text: "Temyiz edilen bölge adliye mahkemesi kararı: {karar}. İlk derece kararı: {ilkDereceKarar}. Karar tarafımıza {tebligTarihi} tarihinde tebliğ edilmiştir; iki haftalık temyiz süresi (HMK m.361/1) bu tarihten hesaplanır.",
-          bilgi: ["karar", "ilkDereceKarar", "tebligTarihi"],
+          text: "Temyiz edilen bölge adliye mahkemesi kararı: {karar}.",
+          bilgi: ["karar"],
+        },
+        {
+          // 27.09.2026: HMK m.364/2-ç asks for the first-instance decision
+          // only when a direnme / bozma-sonrası decision is appealed. Absent,
+          // the sentence is left out — it used to be filed as
+          // "İlk derece kararı: [… — doldurun]".
+          kind: "hukum",
+          text: "İlk derece kararı: {ilkDereceKarar}.",
+          bilgi: ["ilkDereceKarar"],
+          omitIfMissing: true,
         },
         {
           kind: "hukum",
+          text: "Karar tarafımıza {tebligTarihi} tarihinde tebliğ edilmiştir; iki haftalık temyiz süresi (HMK m.361/1) bu tarihten hesaplanır.",
+          bilgi: ["tebligTarihi"],
+        },
+        {
+          // A duruşma istemi is made or not made; no choice = no sentence.
+          kind: "hukum",
           text: "{durusma} (HMK m.369).",
           bilgi: ["durusma"],
+          omitIfMissing: true,
         },
       ],
     },
@@ -831,6 +907,9 @@ const TEMYIZ_DILEKCESI: DraftTemplate = {
           text:
             "Süresi içinde temyiz kanun yoluna başvurumuz ile aşağıda arz edilen" +
             " sebeplerle kararın BOZULMASI istemidir (HMK m.371).",
+          textSureGecti:
+            "Temyiz kanun yoluna başvurumuz ile aşağıda arz edilen sebeplerle" +
+            " kararın BOZULMASI istemidir (HMK m.371).",
         },
       ],
     },
@@ -916,7 +995,15 @@ const IHTARNAME: DraftTemplate = {
       id: "ihtar",
       title: "İHTAR EDİLEN HUSUSLAR",
       slots: [
-        { kind: "talepler" },
+        {
+          // 27.09.2026: an ihtarname is addressed to the OTHER PARTY, not to a
+          // court. The default petition wrapper closed it with "karar
+          // verilmesini saygıyla arz ve talep ederiz"; the clause below
+          // already carries the ihtar's own closing ("ihtaren bildiririz").
+          kind: "talepler",
+          giris: "Yukarıda açıklanan nedenlerle aşağıdaki hususlar tarafınıza ihtar olunur:",
+          kapanis: "",
+        },
         {
           kind: "hukum",
           text:
@@ -965,6 +1052,7 @@ const ICRA_ITIRAZ: DraftTemplate = {
     " takipte itiraz BEŞ gün içinde İCRA MAHKEMESİNE yapılır (İİK m.168-169) — bu" +
     " şablon o yol için kullanılmaz.",
   requiredFields: ["taraflar", "talepler", "ekBilgiler.itirazlar"],
+  sure: { ruleId: "iik-odeme-emri-itiraz", baslangicKey: "tebligTarihi" },
   fields: [
     field("matter.mahkeme", "İcra müdürlüğü", {
       placeholder: "İstanbul Anadolu 5. İcra Müdürlüğü",
@@ -1019,6 +1107,9 @@ const ICRA_ITIRAZ: DraftTemplate = {
           text:
             "Ödeme emrine karşı İİK m.62 uyarınca süresi içinde itirazlarımızın sunulması" +
             " ve takibin durdurulması (İİK m.66) istemidir.",
+          textSureGecti:
+            "Ödeme emrine karşı İİK m.62 uyarınca itirazlarımızın sunulması" +
+            " ve takibin durdurulması (İİK m.66) istemidir.",
         },
       ],
     },
@@ -1031,6 +1122,10 @@ const ICRA_ITIRAZ: DraftTemplate = {
           text:
             "Ödeme emri tarafımıza {tebligTarihi} tarihinde tebliğ edilmiş olup işbu" +
             " itiraz İİK m.62/1'deki yedi günlük süre içinde yapılmaktadır.",
+          // 27.09.2026: with a tebliğ of 03.08.2026 and a dilekçe of
+          // 27.09.2026 the draft still SAID "süre içinde". The fact stays; the
+          // claim goes, and the composer's warning says why.
+          textSureGecti: "Ödeme emri tarafımıza {tebligTarihi} tarihinde tebliğ edilmiştir.",
           bilgi: ["tebligTarihi"],
         },
       ],
@@ -2428,7 +2523,9 @@ const HUKUKI_MUTALAA: DraftTemplate = {
         },
       ],
     },
-    imzaSection(),
+    // 27.09.2026: the opinion is signed by the lawyer who GIVES it — no
+    // "MÜTALAA İSTEYEN VEKİLİ" line above the name.
+    { id: "imza", title: "", slots: [{ kind: "imza", rolSatiri: false }] },
   ],
 };
 
@@ -2513,6 +2610,61 @@ function present(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "object") return Object.keys(value as object).length > 0;
   return false;
+}
+
+/** `ekBilgiler` keys whose value is interpreted with its own documented fallback. */
+const SELECT_SELF_DEGRADING = new Set<string>([KAPSAM_KEY]);
+
+/**
+ * Validate `matter.ekBilgiler` against the template's own fields
+ * (27.09.2026).
+ *
+ *  - A key the template does not offer is REFUSED by name, V-19 style
+ *    (`Fazladan alan (<anahtar>)`): it used to be ignored in silence, so a
+ *    misspelt "tebligTarhi" produced an icra itirazı with no tebliğ date and
+ *    no word about why.
+ *  - A `select` field must hold one of its options (compared trimmed and
+ *    case-insensitively in Turkish): the chosen text is written into the
+ *    document body, and `durusma: "Evet"` was filed as "Evet (HMK m.369).".
+ *    The one exception is the dayanak kapsamı switch, which never reaches the
+ *    body and degrades an unknown value to the narrow scope with a warning.
+ */
+export function validateEkBilgiler(
+  template: DraftTemplate,
+  ekBilgiler: Readonly<Record<string, unknown>> | undefined,
+): FieldIssue[] {
+  const issues: FieldIssue[] = [];
+  for (const [key, value] of Object.entries(ekBilgiler ?? {})) {
+    const path = `matter.ekBilgiler.${key}`;
+    const field = template.fields.find((f) => f.path === path);
+    if (field === undefined) {
+      issues.push({
+        path,
+        label: `Fazladan alan (${key})`,
+        message: `Tanınmayan alan: '${template.title}' şablonunda '${key}' diye bir alan yok.`,
+      });
+      continue;
+    }
+    if (field.kind !== "select" || field.options === undefined) continue;
+    if (SELECT_SELF_DEGRADING.has(key)) continue;
+    if (value === undefined || value === null) continue;
+    if (typeof value === "string" && value.trim() === "") continue;
+    const chosen = typeof value === "string" ? value.trim().toLocaleLowerCase("tr-TR") : undefined;
+    const ok =
+      chosen !== undefined &&
+      field.options.some((option) => option.toLocaleLowerCase("tr-TR") === chosen);
+    if (!ok) {
+      issues.push({
+        path,
+        label: field.label,
+        message:
+          `Geçersiz seçim: bu alan yalnız şu değerlerden birini alır — ` +
+          field.options.map((o) => `'${o}'`).join(", ") +
+          ".",
+      });
+    }
+  }
+  return issues;
 }
 
 /**

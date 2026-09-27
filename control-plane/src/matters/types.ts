@@ -298,8 +298,30 @@ export function isOpenDeadline(item: MatterItem): boolean {
   return status !== "tamam" && typeof due === "string" && ISO_DATE_RE.test(due);
 }
 
-/** True for a `hearing` item that has not happened yet (status planlandi). */
+/**
+ * True for a `hearing` item that is still PLANNED (status planlandi, or no
+ * status). 27.09.2026: a hearing PATCHed to "ertelendi" used to stay the
+ * matter's `nextHearing` on its OLD date — the lawyer's card announced a
+ * hearing that will not take place. A postponed hearing is not next.
+ */
 export function isPlannedHearing(item: MatterItem): boolean {
+  if (item.kind !== "hearing") return false;
+  const status = item.payload["status"];
+  const date = item.payload["date"];
+  return (
+    (status === undefined || status === "planlandi") &&
+    typeof date === "string" &&
+    ISO_DATE_RE.test(date)
+  );
+}
+
+/**
+ * True for a `hearing` item the calendar and the `.ics` feed still carry:
+ * planned OR postponed (not yet held). A postponed one stays in the feed on
+ * purpose — as a CANCELLED event, so a subscribed calendar REMOVES the old
+ * entry instead of keeping it as confirmed (see `ics.ts`).
+ */
+export function isCalendarHearing(item: MatterItem): boolean {
   if (item.kind !== "hearing") return false;
   const status = item.payload["status"];
   const date = item.payload["date"];
@@ -318,9 +340,21 @@ export function daysBetweenIso(from: string, to: string): number {
   return Math.round((b - a) / 86_400_000);
 }
 
-/** Today's civil date in ISO form (UTC; the product runs on one machine). */
+const ISTANBUL_DAY = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Istanbul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * Today's civil date in Türkiye (Europe/Istanbul), ISO form. 27.09.2026: it
+ * was the UTC date, three hours behind the lawyer's wall clock — between
+ * 00:00 and 03:00 a deadline due "today" counted as tomorrow's and a hearing
+ * of today as still ahead by a day.
+ */
 export function todayIso(now: Date = new Date()): string {
-  return now.toISOString().slice(0, 10);
+  return ISTANBUL_DAY.format(now);
 }
 
 export function groupItems(items: readonly MatterItem[]): MatterItemsByKind {

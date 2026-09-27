@@ -330,7 +330,9 @@ describe("POST /v1/drafts — evidence via the injected file port (audit #4)", (
     expect(draft.sections.flatMap((s) => s.paragraphs).some((p) => p.text.includes("DAVACI : Ayşe Yılmaz."))).toBe(false);
     // One DELİLLER line per file with the 8-char content hash.
     const deliller = draft.sections.find((s) => s.id === "deliller")!.paragraphs.map((p) => p.text);
-    expect(deliller).toEqual(["Ek-1: protokol.pdf (dosyaya eklediğiniz belge)"]);
+    // 27.09.2026: the human title, no file extension (the full name stays in
+    // EK — DOĞRULAMA below, which identifies the exact file).
+    expect(deliller).toEqual(["Ek-1: protokol (dosyaya eklediğiniz belge)"]);
     // Fact-like sentences are offered with GG.AA.YYYY dates, not inserted.
     expect(draft.suggestedFacts.length).toBeGreaterThanOrEqual(2);
     expect(draft.suggestedFacts.map((f) => f.tarih)).toContain("12.05.2024");

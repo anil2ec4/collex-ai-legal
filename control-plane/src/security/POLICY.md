@@ -117,6 +117,18 @@ what would be lost is telemetry, output hygiene, and SSRF containment.
   host points at a host outside `ALLOWED_SOURCE_HOSTS`. No beacon request can
   be constructed from rendered output.
 - Complements the viewer-side CSP (remote images off); it does not replace it.
+- **Plain text is not markdown (27.09.2026).** Draft paragraphs are stored as
+  the lawyer's PLAIN TEXT (`plainTextHygiene`: controls and zero-width/BiDi
+  characters dropped, nothing escaped) — storing them already sanitized
+  printed `&amp;` into filed DOCX/UDF copies. Each surface escapes for its own
+  medium: the console assigns `textContent`, the Python writers escape XML,
+  and the draft Markdown export runs `escapeMarkdownText` at render time. That
+  entry point escapes every `<` that could open markup or an autolink, every
+  `&` that would start an entity, every `](`, a line-leading `>` and a
+  line-leading `[label]:`, and defangs off-allowlist URLs and `www.` hosts
+  exactly as `sanitizeMarkdown` does — while ordinary text ("A & B",
+  "%9 > yasal", "<%5>") reads as written. It is not idempotent and is applied
+  exactly once, at render.
 
 ### `src/security/urlPolicy.ts` — SSRF / fetch policy
 

@@ -84,16 +84,19 @@ describe("reviseDraft — versions, warnings and identity", () => {
     expect(third.sections[third.sections.length - 1]?.id).toBe(EK_DOGRULAMA_SECTION_ID);
   });
 
-  it("sanitizes edited text and generates ids for new paragraphs", () => {
+  it("stores edited text as plain text (hygiene only) and generates ids for new paragraphs", () => {
     const draft = baseDraft();
     const sections = asPatchSections(draft);
     const sonuc = sections.find((s) => s.id === "sonuc")!;
-    sonuc.paragraphs.push({ text: "3. <b>Faiz</b> talebimiz saklıdır." });
+    // A zero-width character and a control are dropped; the markup is kept
+    // AS TEXT (27.09.2026) — each renderer escapes it for its own medium, and
+    // the Markdown export's escaping is asserted in markdown.test.ts.
+    sonuc.paragraphs.push({ text: "3. <b>Faiz</b>​ talebimiz\u0007 saklıdır." });
     const { draft: revised, issues } = reviseDraft(draft, { sections }, OPTS);
     expect(issues).toEqual([]);
     const added = section(revised, "sonuc")!.paragraphs[sonuc.paragraphs.length - 1]!;
     expect(added.id).toBe("p-sonuc-u1");
-    expect(added.text).toBe("3. &lt;b&gt;Faiz&lt;/b&gt; talebimiz saklıdır.");
+    expect(added.text).toBe("3. <b>Faiz</b> talebimiz saklıdır.");
     expect(added.role).toBe("talepler");
     expect(added.supported).toBe(true);
   });

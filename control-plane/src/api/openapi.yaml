@@ -1550,7 +1550,12 @@ paths:
             BEFORE any format branch — the Markdown path is rendered in
             TypeScript and never reached the Python verifier, which is exactly
             where the defect used to escape — and the exporter process is not
-            even spawned.
+            even spawned. 27.09.2026: also `error.code = PLACEHOLDER_UNFILLED`
+            with `error.placeholders[]` when the NİHAİ copy
+            (`annex=none&marks=none`) is requested while a system placeholder
+            ("[Kararın özeti — doldurun]") or a KAYNAKSIZ stub addressed to
+            the lawyer is still in the text; the exporter applies the same
+            test to the tokens written into its JSON.
           content:
             application/json:
               schema:
@@ -6099,11 +6104,14 @@ components:
             code:
               type: string
               description: >
-                Additive (W14 B-01). A sub-code that narrows `kind`. Today the
-                only value is QUOTE_ALTERED under EXPORT_REFUSED: the drafted
-                paragraph no longer contains, verbatim in NFC canonical form,
-                the quote it cites — the evidence bond is broken and the
-                export is refused with nothing written.
+                Additive (W14 B-01). A sub-code that narrows `kind`. Under
+                EXPORT_REFUSED: QUOTE_ALTERED — the drafted paragraph no
+                longer contains, verbatim in NFC canonical form, the quote it
+                cites; the evidence bond is broken and the export is refused
+                with nothing written. PLACEHOLDER_UNFILLED (27.09.2026) — the
+                NİHAİ copy (`annex=none&marks=none`) was asked for while the
+                draft still carries a system placeholder or a KAYNAKSIZ stub
+                addressed to the lawyer (see `placeholders`).
             paragraphs:
               type: array
               description: >
@@ -6117,6 +6125,22 @@ components:
                   sectionId:
                     type: string
                   ref:
+                    type: string
+            placeholders:
+              type: array
+              description: >
+                Additive (27.09.2026). On 409 EXPORT_REFUSED /
+                PLACEHOLDER_UNFILLED: every unfilled system placeholder, with
+                the paragraph and section it sits in, so the editor can point
+                at it. The marked TASLAK copy remains available.
+              items:
+                type: object
+                properties:
+                  paragraphId:
+                    type: string
+                  sectionId:
+                    type: string
+                  text:
                     type: string
             missingFileIds:
               type: array
@@ -6969,6 +6993,16 @@ components:
                   maximum: 1
                 judge:
                   type: string
+        placeholders:
+          type: array
+          items:
+            type: string
+          description: >
+            Additive (27.09.2026): the exact SYSTEM placeholder strings this
+            paragraph still carries ("[Kararın özeti — doldurun]", a
+            template's "[DAVANIN GÖRÜLDÜĞÜ]" address, a KAYNAKSIZ stub). A
+            token counts only while it is still in `text`; the NİHAİ copy is
+            refused while any is. Never set from user input.
     DraftPatch:
       type: object
       description: PUT /v1/drafts/{id} body (contract [D]).
