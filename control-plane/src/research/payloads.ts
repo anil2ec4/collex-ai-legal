@@ -92,9 +92,84 @@ export type SearchParse =
 export type FetchParse =
   | {
       kind: "doc";
-      doc: { externalId: string; title: string; sourceUrl: string; text: string };
+      doc: {
+        externalId: string;
+        title: string;
+        sourceUrl: string;
+        text: string;
+        /**
+         * Present when the tool returned ONE page of a longer text
+         * (`markdown_chunk` / `markdown_content` with `total_pages` > 1):
+         * the text above is then a 5 000-character slice, never the
+         * document, and {@link assemblePagedDocument} must fetch the rest
+         * before anything is sealed.
+         */
+        pagination?: { page: number; totalPages: number };
+      };
     }
   | { kind: "failure"; failure: ParsedFailure };
+
+/**
+ * The most pages one document fetch may assemble (5 000 characters each, so
+ * ~300 000 characters). A longer text is refused with DOCUMENT_TOO_LARGE —
+ * sealing the first N pages as "the document" would be a partial text
+ * presented as whole.
+ */
+export const MAX_DOCUMENT_PAGES = 60;
+
+/** safeMessage prefix of the PARSER_ERROR a too-long paged document yields. */
+export const DOCUMENT_TOO_LARGE_PREFIX = "DOCUMENT_TOO_LARGE:";
+
+/**
+ * Assemble a paginated document from its first page and the remaining ones.
+ *
+ * 27.09.2026: KVKK, BTK, GİB, Rekabet and AYM return `markdown_chunk`, which
+ * the parser did not read at all (every fetch failed as PARSER_ERROR even
+ * with the network up); BDDK and Sigorta Tahkim return page 1 as
+ * `markdown_content`, which was sealed as if it were the whole decision.
+ * The tools slice ONE markdown string into consecutive pages, so the pages
+ * joined in order are that string. Any page that fails fails the fetch.
+ */
+export async function assemblePagedDocument(
+  first: FetchParse,
+  fetchPage: (page: number) => Promise<FetchParse>,
+): Promise<FetchParse> {
+  if (first.kind !== "doc") return first;
+  const pagination = first.doc.pagination;
+  if (pagination === undefined || pagination.totalPages <= 1) return first;
+  if (pagination.page !== 1) {
+    return {
+      kind: "failure",
+      failure: { kind: "PARSER_ERROR", retryable: false, safeMessage: "paged document did not start at page 1" },
+    };
+  }
+  if (pagination.totalPages > MAX_DOCUMENT_PAGES) {
+    return {
+      kind: "failure",
+      // FailureKind is a closed taxonomy mirrored in Python; the specific
+      // reason travels in the message prefix (see DOCUMENT_TOO_LARGE_PREFIX).
+      failure: {
+        kind: "PARSER_ERROR",
+        retryable: false,
+        safeMessage: `${DOCUMENT_TOO_LARGE_PREFIX} document has ${pagination.totalPages} pages (limit ${MAX_DOCUMENT_PAGES})`,
+      },
+    };
+  }
+  const parts = [first.doc.text];
+  for (let page = 2; page <= pagination.totalPages; page += 1) {
+    const next = await fetchPage(page);
+    if (next.kind === "failure") return next;
+    if (next.doc.pagination?.page !== page || next.doc.pagination.totalPages !== pagination.totalPages) {
+      return {
+        kind: "failure",
+        failure: { kind: "PARSER_ERROR", retryable: false, safeMessage: `page ${page} came back out of order` },
+      };
+    }
+    parts.push(next.doc.text);
+  }
+  const { pagination: _whole, ...doc } = first.doc;
+  return { kind: "doc", doc: { ...doc, text: parts.join("") } };
+}
 
 // ---------------------------------------------------------------------------
 // Provider attribution
@@ -822,7 +897,7 @@ export function parseFetchPayload(
       };
     }
 
-    // String-bodied tools (get_mevzuat_content, get_anayasa_document_unified, ...).
+    // String-bodied tools (get_mevzuat_content, get_mevzuat_gerekce, ...).
     if (typeof data === "string") {
       const raw = data.trim();
       if (raw.length === 0) return fetchFailure("UNAVAILABLE", "document fetch returned empty text");
@@ -849,7 +924,10 @@ export function parseFetchPayload(
     if (rec !== undefined) {
       const failure = failureFromRecord(rec);
       const text =
-        asString(rec["markdown_content"]) ?? asString(rec["text"]) ?? asString(rec["content"]);
+        asString(rec["markdown_content"]) ??
+        asString(rec["markdown_chunk"]) ??
+        asString(rec["text"]) ??
+        asString(rec["content"]);
       if (text === undefined) {
         // The document tools answer an outage with `error_message` and no
         // text; that is the upstream's failure, not an unreadable payload
@@ -861,13 +939,21 @@ export function parseFetchPayload(
           : fetchFailure("PARSER_ERROR", "document payload carried no text field");
       }
       const id = requestedId ?? asString(rec["documentId"]) ?? asString(rec["id"]) ?? "";
+      const totalPages = rec["total_pages"];
+      const page = rec["current_page"] ?? rec["page_number"];
+      const paged =
+        typeof totalPages === "number" && Number.isInteger(totalPages) && totalPages > 1
+          ? { page: typeof page === "number" && Number.isInteger(page) ? page : 1, totalPages }
+          : undefined;
       return {
         kind: "doc",
         doc: {
           externalId: id,
           title: asString(rec["title"]) ?? `Belge ${id}`,
-          sourceUrl: asString(rec["source_url"]) ?? asString(rec["url"]) ?? "",
+          sourceUrl:
+            asString(rec["source_url"]) ?? asString(rec["url"]) ?? asString(rec["document_url"]) ?? "",
           text,
+          ...(paged !== undefined ? { pagination: paged } : {}),
         },
       };
     }

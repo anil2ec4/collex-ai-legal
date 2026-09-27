@@ -24,7 +24,13 @@ import {
   selectQuoteSpans,
   type QuoteSpan,
 } from "../research/liveEvidence.js";
-import { parseFetchPayload } from "../research/payloads.js";
+import {
+  DOCUMENT_TOO_LARGE_PREFIX,
+  MAX_DOCUMENT_PAGES,
+  assemblePagedDocument,
+  parseFetchPayload,
+  type FetchParse,
+} from "../research/payloads.js";
 import { scanForInjection } from "../security/untrusted.js";
 import { checkFetchUrl } from "../security/urlPolicy.js";
 import {
@@ -120,6 +126,7 @@ const FETCH_FAILURE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   INVALID_REQUEST: "Belge isteği geçersiz (INVALID_REQUEST).",
   PARSER_ERROR: "Kaynak beklenmedik biçimde yanıt verdi (PARSER_ERROR); belge okunamadı.",
   NOT_FOUND: "Bu kimlikle bir belge bulunamadı (NOT_FOUND).",
+  DOCUMENT_TOO_LARGE: `Belge ${MAX_DOCUMENT_PAGES} sayfadan uzun; ColleX tam metni mühürleyemedi ve bir kısmını tam metin gibi göstermez (DOCUMENT_TOO_LARGE). Belgeyi kaynağından açın.`,
 });
 
 export function fetchFailureMessageTr(kind: string): string {
@@ -196,8 +203,29 @@ export async function fetchSourceCard(
   }
   if (outcome.status === "error") return fail(outcome.error.kind);
 
-  const parsed = parseFetchPayload(descriptor.toolName, input, outcome.data);
-  if (parsed.kind === "failure") return fail(parsed.failure.kind);
+  const first = parseFetchPayload(descriptor.toolName, input, outcome.data);
+  // A paged tool (KVKK, BTK, GİB, Rekabet, AYM, BDDK, Sigorta Tahkim) returns
+  // 5 000 characters at a time: the card seals the WHOLE text or nothing.
+  const parsed = await assemblePagedDocument(first, async (page): Promise<FetchParse> => {
+    const args = { ...input, page_number: page };
+    try {
+      const next = await deps.gateway.callTool(
+        { toolName: descriptor.toolName, args },
+        { signal: AbortSignal.timeout(timeoutMs) },
+      );
+      if (next.status === "error") {
+        return { kind: "failure", failure: { kind: next.error.kind, retryable: false, safeMessage: "page fetch failed" } };
+      }
+      return parseFetchPayload(descriptor.toolName, args, next.data);
+    } catch {
+      return { kind: "failure", failure: { kind: "UNAVAILABLE", retryable: true, safeMessage: "page fetch failed" } };
+    }
+  });
+  if (parsed.kind === "failure") {
+    return fail(
+      parsed.failure.safeMessage.startsWith(DOCUMENT_TOO_LARGE_PREFIX) ? "DOCUMENT_TOO_LARGE" : parsed.failure.kind,
+    );
+  }
 
   const text = canonicalizeFetchedText(parsed.doc.text);
   if (text.trim() === "") return fail("PARSER_ERROR");

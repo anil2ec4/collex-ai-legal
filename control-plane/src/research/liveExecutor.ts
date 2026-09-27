@@ -40,6 +40,7 @@ import {
 } from "./liveEvidence.js";
 import {
   envelopeProviderForTool,
+  assemblePagedDocument,
   parseFetchPayload,
   parseSearchPayload,
   parseWithinPayload,
@@ -254,7 +255,30 @@ export function createLiveCapabilityExecutor(
 
       // --- document.fetch: canonicalize, hash, scan, store -----------------
       if (isFetch) {
-        const parsed = parseFetchPayload(toolName, request.input, outcome.data);
+        // Paged tools return 5 000 characters at a time; live evidence is
+        // quoted from the WHOLE text or the fetch fails (never page 1 sealed
+        // as the document).
+        const parsed = await assemblePagedDocument(
+          parseFetchPayload(toolName, request.input, outcome.data),
+          async (page) => {
+            const args = { ...request.input, page_number: page };
+            try {
+              const next = await gateway.callTool({ toolName, args }, { signal });
+              if (next.status === "error") {
+                return {
+                  kind: "failure" as const,
+                  failure: { kind: next.error.kind, retryable: false, safeMessage: "page fetch failed" },
+                };
+              }
+              return parseFetchPayload(toolName, args, next.data);
+            } catch {
+              return {
+                kind: "failure" as const,
+                failure: { kind: "UNAVAILABLE" as const, retryable: true, safeMessage: "page fetch failed" },
+              };
+            }
+          },
+        );
         if (parsed.kind === "failure") {
           record({ ok: false, ms, status: "failed", errorKind: parsed.failure.kind });
           notes.push(`FETCH_DEGRADED:${toolName}:${parsed.failure.kind}`);
