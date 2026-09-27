@@ -192,6 +192,14 @@ def _looks_like_text(data: bytes) -> bool:
     """Content sniff for plain text: no NULs, decodable as UTF-8 or
     windows-1254 (Turkish latin-5). The DECODING decision with its warning
     lives in intake/extract.py; this only answers "is this a text file"."""
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        # UTF-16 with a BOM (Notepad's "Unicode"): NUL bytes are expected.
+        sample = data[: 65536 - (65536 % 2)]
+        try:
+            text = sample.decode("utf-16")
+        except UnicodeDecodeError:
+            return False
+        return "\x00" not in text
     if b"\x00" in data:
         return False
     sample = data[:65536]

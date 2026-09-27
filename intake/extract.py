@@ -1149,40 +1149,192 @@ def _ocr_block(
     )
 
 
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_W = "{" + _W_NS + "}"
+
+#: Run-level markup whose text is NOT part of the document as it reads with
+#: every tracked change accepted: deletions and the source side of a move.
+_DOCX_SKIP_SUBTREES = frozenset({_W + "del", _W + "moveFrom", _W + "txbxContent"})
+
+#: Content types of the parts a DOCX keeps text in besides the body.
+_DOCX_NOTE_PARTS = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml": ("footnote", "dipnot"),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml": ("endnote", "sonnot"),
+}
+_DOCX_HEADER_FOOTER_PARTS = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml": "üst bilgi",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml": "alt bilgi",
+}
+
+DOCX_TRACKED_CHANGES_WARNING = (
+    "belgede izlenen değişiklikler var — metin, bütün değişiklikler KABUL"
+    " EDİLMİŞ hâliyle okundu (eklenenler içeride, silinenler dışarıda);"
+    " alıntıları belgenin son hâliyle karşılaştırın"
+)
+
+
+def _docx_paragraph_text(p_el) -> str:
+    """Text of one w:p as it reads with every tracked change accepted.
+
+    python-docx's ``Paragraph.text`` reads only the DIRECT w:r / w:hyperlink
+    children, so a run inside ``w:ins`` (a tracked insertion) vanished — the
+    lawyer's own last edits were missing from the searchable text — and a
+    field result inside ``w:fldSimple`` / ``w:smartTag`` was lost as well.
+    """
+    out: list[str] = []
+
+    def walk(el) -> None:
+        for child in el:
+            tag = child.tag
+            if not isinstance(tag, str) or tag in _DOCX_SKIP_SUBTREES:
+                continue
+            if tag == _W + "t":
+                out.append(child.text or "")
+            elif tag == _W + "tab":
+                out.append("\t")
+            elif tag in (_W + "br", _W + "cr"):
+                out.append("\n")
+            elif tag == _W + "noBreakHyphen":
+                out.append("-")
+            elif tag == _W + "p":
+                continue  # a nested paragraph is walked on its own
+            else:
+                walk(child)
+
+    walk(p_el)
+    return "".join(out)
+
+
+def _docx_table_text(tbl_el) -> str:
+    """Rows as "cell | cell"; a merged cell is written ONCE.
+
+    python-docx's ``row.cells`` repeats a horizontally merged cell (gridSpan)
+    and returns the origin of a vertical merge again on every row, so a
+    487.350,25 TL cell was read twice or more — a duplicated amount in the
+    evidence text.
+    """
+    import docx.table
+
+    table = docx.table.Table(tbl_el, None)
+    # The set holds the lxml elements themselves: an ``id()`` of a proxy is
+    # recycled once the proxy is collected and skipped an unrelated cell.
+    seen: set = set()
+    rows: list[str] = []
+    for row in table.rows:
+        cells: list[str] = []
+        for cell in row.cells:
+            tc = cell._tc
+            if tc in seen:
+                continue
+            seen.add(tc)
+            text = "\n".join(
+                _docx_paragraph_text(p) for p in cell._tc.iter(_W + "p")
+            ).strip()
+            cells.append(text)
+        if any(cells):
+            rows.append(" | ".join(c for c in cells))
+    return "\n".join(rows)
+
+
+def _docx_body_blocks(container) -> list:
+    """Body-level w:p / w:tbl in document order, INCLUDING the ones inside
+    block-level content controls (w:sdt) and custom XML, which
+    ``iter_inner_content`` skips — court and bar templates are built from
+    content controls, and their filled-in text was read as nothing."""
+    blocks: list = []
+    for child in container:
+        tag = child.tag
+        if tag in (_W + "p", _W + "tbl"):
+            blocks.append(child)
+        elif tag == _W + "sdt":
+            content = child.find(_W + "sdtContent")
+            if content is not None:
+                blocks.extend(_docx_body_blocks(content))
+        elif tag == _W + "customXml":
+            blocks.extend(_docx_body_blocks(child))
+    return blocks
+
+
+def _docx_part_root(part):
+    from lxml import etree
+
+    # Same refusal python-docx applies to the main part: no entity
+    # resolution, no network.
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)
+    return etree.fromstring(part.blob, parser)
+
+
 def extract_docx(data: bytes) -> ExtractionOutcome:
     import docx  # python-docx (the [intake] extra)
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
 
+    warnings: list[str] = []
     try:
         document = docx.Document(io.BytesIO(data))
+        body = document.element.body
         blocks: list[SegmentInput] = []
-        for index, item in enumerate(document.iter_inner_content()):
-            if isinstance(item, Paragraph):
-                blocks.append(
-                    SegmentInput(
-                        locator_kind="paragraph",
-                        locator_label=str(index + 1),
-                        text=item.text,
-                        extraction_method="docx_paragraph",
-                        ordinal=index + 1,
-                    )
+        for index, element in enumerate(_docx_body_blocks(body)):
+            is_table = element.tag == _W + "tbl"
+            blocks.append(
+                SegmentInput(
+                    locator_kind="paragraph",
+                    locator_label=str(index + 1),
+                    text=_docx_table_text(element) if is_table else _docx_paragraph_text(element),
+                    extraction_method="docx_table" if is_table else "docx_paragraph",
+                    ordinal=index + 1,
                 )
-            elif isinstance(item, Table):
-                rows = []
-                for row in item.rows:
-                    cells = [c.text.strip() for c in row.cells]
-                    if any(cells):
-                        rows.append(" | ".join(cells))
-                blocks.append(
-                    SegmentInput(
-                        locator_kind="paragraph",
-                        locator_label=str(index + 1),
-                        text="\n".join(rows),
-                        extraction_method="docx_table",
-                        ordinal=index + 1,
+            )
+        tracked = any(
+            True for _ in body.iter(_W + "ins", _W + "del", _W + "moveTo", _W + "moveFrom")
+        )
+
+        # Footnotes/endnotes carry citations (a Yargıtay HGK künye in a
+        # dipnot was never analysed); headers/footers carry the letterhead.
+        # They follow the body, each in its own "bölüm" locator; a header
+        # repeated across sections is written once.
+        ordinal = len(blocks)
+        seen_hf: set[str] = set()
+        for part in document.part.package.iter_parts():
+            content_type = getattr(part, "content_type", "")
+            if content_type in _DOCX_NOTE_PARTS:
+                note_tag, word = _DOCX_NOTE_PARTS[content_type]
+                root = _docx_part_root(part)
+                for note in root.iter(_W + note_tag):
+                    if note.get(_W + "type"):  # separator / continuation
+                        continue
+                    text = "\n".join(
+                        _docx_paragraph_text(p) for p in note.iter(_W + "p")
+                    ).strip()
+                    if not text:
+                        continue
+                    tracked = tracked or any(
+                        True for _ in note.iter(_W + "ins", _W + "del")
                     )
-                )
+                    ordinal += 1
+                    blocks.append(SegmentInput(
+                        locator_kind="block",
+                        locator_label=f"{word} {note.get(_W + 'id')}",
+                        text=text,
+                        extraction_method=f"docx_{note_tag}",
+                        ordinal=ordinal,
+                    ))
+            elif content_type in _DOCX_HEADER_FOOTER_PARTS:
+                root = _docx_part_root(part)
+                text = "\n".join(
+                    _docx_paragraph_text(p) for p in root.iter(_W + "p")
+                ).strip()
+                if not text or text in seen_hf:
+                    continue
+                seen_hf.add(text)
+                ordinal += 1
+                blocks.append(SegmentInput(
+                    locator_kind="block",
+                    locator_label=_DOCX_HEADER_FOOTER_PARTS[content_type],
+                    text=text,
+                    extraction_method="docx_header_footer",
+                    ordinal=ordinal,
+                ))
+        if tracked:
+            warnings.append(DOCX_TRACKED_CHANGES_WARNING)
     except Exception as exc:
         raise ExtractionFailedError(
             f"DOCX ayrıştırılamadı: {type(exc).__name__}: {exc}"
@@ -1191,14 +1343,28 @@ def extract_docx(data: bytes) -> ExtractionOutcome:
     # locator is the structural one it really has (paragraph/table ordinal).
     # Inventing a page number here would be a fabricated citation.
     canonical, segments = build_segmented_canonical(blocks)
-    return ExtractionOutcome(text=canonical, segments=segments)
+    return ExtractionOutcome(text=canonical, warnings=warnings, segments=segments)
 
 
 def extract_txt(data: bytes) -> ExtractionOutcome:
     warnings: list[str] = []
     try:
-        # utf-8-sig strips a BOM when present and is plain UTF-8 otherwise.
-        text = data.decode("utf-8-sig")
+        if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+            # Notepad's "Unicode" / "Unicode big endian" save: UTF-16 with a
+            # BOM. Used to be refused as binary (it is full of NUL bytes).
+            try:
+                text = data.decode("utf-16")
+            except UnicodeDecodeError as exc:
+                raise ExtractionFailedError(
+                    "metin dosyası UTF-16 işaretli ama çözülemedi"
+                ) from exc
+            warnings.append(
+                "karakter kodlaması UTF-16 (Not Defteri'nin \"Unicode\" biçimi)"
+                " olarak okundu"
+            )
+        else:
+            # utf-8-sig strips a BOM when present and is plain UTF-8 otherwise.
+            text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         try:
             text = data.decode("windows-1254")

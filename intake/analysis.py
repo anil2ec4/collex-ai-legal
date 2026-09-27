@@ -137,7 +137,9 @@ _AVUKAT_RE = re.compile(
 
 _NUMERIC_DATE_RE = re.compile(
     r"(?<![0-9./])([0-3]?[0-9])[./]([01]?[0-9])[./]((?:19|20)[0-9]{2})"
-    r"(?![0-9./])"
+    # A sentence-ending period is not part of a longer number: "Rapor
+    # tarihi: 20.06.2026." was read as no date at all.
+    r"(?![0-9/]|\.[0-9])"
 )
 
 _TR_MONTHS = {

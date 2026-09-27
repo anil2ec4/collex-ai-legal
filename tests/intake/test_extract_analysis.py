@@ -379,3 +379,10 @@ def test_the_softened_talep_stem_is_a_claim_marker():
     claims = analysis.extract_claims("Müvekkilin talebimizin kabulüne karar verilmesi yönündeki istemi açıktır. Davalının talebi yerinde değildir.")
     assert any("talebimizin kabulüne" in c["text"] for c in claims), claims
     assert any("Davalının talebi yerinde değildir." == c["text"] for c in claims), claims
+
+
+def test_a_date_at_the_end_of_a_sentence_is_still_a_date():
+    dates = analysis.extract_dates("Bilirkişi raporu tarihi: 20.06.2026. Rapor dosyaya sunulmuştur.")
+    assert [d["date"] for d in dates] == ["2026-06-20"]
+    # Still not a date: a longer dotted number.
+    assert analysis.extract_dates("Sürüm 20.06.2026.1 yüklendi.") == []
