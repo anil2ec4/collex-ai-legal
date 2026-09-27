@@ -83,7 +83,25 @@ export function fieldIssues(
       }
       continue;
     }
+    if (issue.path.length === 0) {
+      // W17/c — MEASURED: a body that is not an object at all ("metin", [],
+      // null) produced {"path": "", "message": "Expected object, received
+      // string"} — an empty path the console cannot point at, in English.
+      // The whole body is the field, and it is named.
+      out.push({
+        path: prefix.replace(/\.$/u, "") || BODY_PATH,
+        message: issue.code === "invalid_type" ? BODY_NOT_OBJECT_MESSAGE_TR : message,
+      });
+      continue;
+    }
     out.push({ path: prefix + issue.path.join("."), message });
   }
   return out;
 }
+
+/** The path an issue about the request body AS A WHOLE is reported at. */
+export const BODY_PATH = "body";
+
+/** The Turkish sentence for a request body that is not a JSON object. */
+export const BODY_NOT_OBJECT_MESSAGE_TR =
+  "İstek gövdesi alanlardan oluşan bir nesne olmalı; gönderilen gövde bir nesne değil.";

@@ -96,6 +96,30 @@ describe("W17/b · an unreachable archive reports ARAMA_BASARISIZ", () => {
     expect(CONTRARY_FAILED_TR).toContain("Bu bir sonuç değildir");
   });
 
+  it("W17/c: ONE dead archive is not 'arandı, bulunamadı' either, and it is named", async () => {
+    // MEASURED on the production port: with Yargıtay down and Danıştay
+    // answering empty, a TCK claim's lanes read "arandı, bulunamadı" — the
+    // one archive that could hold the answer never answered. The port threw
+    // only when EVERY source failed.
+    const halfDead: ProviderGateway = {
+      callTool: async (request) => {
+        if (JSON.stringify(request.args).includes("YARGITAY")) {
+          throw new Error("ECONNREFUSED 127.0.0.1:8898");
+        }
+        return emptyGateway.callTool(request);
+      },
+    };
+    const body = await analyse(halfDead);
+    const lanes = body.claims.flatMap((claim) => claim.contrary.lanes);
+    expect(lanes.length).toBeGreaterThan(0);
+    expect(lanes.some((lane) => lane.state === "ARANDI_BULUNAMADI")).toBe(false);
+    for (const lane of lanes) {
+      expect(lane.state).toBe("ARAMA_BASARISIZ");
+      expect(lane.reason).toContain("Yargıtay");
+    }
+    expect(JSON.stringify(body)).not.toContain("ECONNREFUSED");
+  });
+
   it("NON-VACUITY: a source that really answers with nothing IS ARANDI_BULUNAMADI", async () => {
     const body = await analyse(emptyGateway);
     const lanes = body.claims.flatMap((claim) => claim.contrary.lanes);

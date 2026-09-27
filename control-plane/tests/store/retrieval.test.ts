@@ -35,7 +35,9 @@ import {
   lexemeDocumentFrequencies,
   LEXICAL_DF_CACHE_TTL_MS,
   DEFAULT_LEXICAL_MIN_COVERAGE,
+  exactPinLookup,
 } from "../../src/store/chunkStore.js";
+import { parseReferences } from "../../src/retrieval/referenceParser.js";
 import {
   CITATION_SCORE_FACTOR,
   DEFAULT_LANE_WEIGHTS,
@@ -448,6 +450,27 @@ describe("store retrieval (integration, local scratch PostgreSQL)", () => {
     expect(first?.provenance.decisionDate).toBe("2024-03-15");
     expect(first?.provenance.publicationDate).toBe("2024-04-01");
     expect(first?.pinReason).toBe("docket_no=2023/45 decision_no=2024/12");
+  });
+
+  it("(b2) W17/c: a decision is pinned only together with its court", async () => {
+    // MEASURED: E./K. numbers were the whole identity, so a citation to a
+    // DIFFERENT court's decision that shares the numbers was pinned — and
+    // the citation audit reported it "bulundu". The fixture version names
+    // "İstanbul Bölge Adliye Mahkemesi".
+    const pin = (text: string, requireCourtMatch = false) =>
+      exactPinLookup(sql, parseReferences(text), { asOf: AS_OF, limit: 8, requireCourtMatch });
+
+    // Another court, same numbers: never this decision.
+    expect(await pin("Danıştay 10. D. E. 2023/45 K. 2024/12")).toEqual([]);
+    expect(await pin("Yargıtay 15. HD E. 2023/45 K. 2024/12", true)).toEqual([]);
+    // The audit's stricter mode: no court named in the citation → no pin.
+    expect(await pin("E. 2023/45 K. 2024/12", true)).toEqual([]);
+    // NON-VACUITY: the right court still pins, in both modes, and a
+    // court-less reference still pins for the retrieval lane.
+    const right = await pin("İstanbul BAM 15. HD E. 2023/45 K. 2024/12", true);
+    expect(right[0]?.provenance.externalId).toBe("IST-BAM-2024-12");
+    const lane = await pin("E. 2023/45 K. 2024/12");
+    expect(lane[0]?.provenance.externalId).toBe("IST-BAM-2024-12");
   });
 
   // =========================================================================

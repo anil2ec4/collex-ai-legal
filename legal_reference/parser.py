@@ -197,6 +197,8 @@ _CHAMBER_WORDS = {
     "genel kurul": "GENEL KURUL",
     "bölümünün": "BOLUM", "bölümü": "BOLUM", "bölüm": "BOLUM",
     "hgk": "HGK", "cgk": "CGK", "iddk": "IDDK", "vddk": "VDDK",
+    # Compact Yargıtay forms a petition writes without a space.
+    "yhgk": "HGK", "ycgk": "CGK",
     "hd": "HD", "cd": "CD", "idd": "IDD",
     "dairesinin": "D", "dairesince": "D", "dairesi": "D", "daire": "D",
     "d": "D",
@@ -208,8 +210,17 @@ _CHAMBER_STANDALONE = [
     "ceza genel kurulunun", "ceza genel kurulu",
     "idari dava daireleri kurulunun", "idari dava daireleri kurulu",
     "vergi dava daireleri kurulunun", "vergi dava daireleri kurulu",
-    "hgk", "cgk", "iddk", "vddk",
+    "hgk", "cgk", "yhgk", "ycgk", "iddk", "vddk",
 ]
+
+# Abbreviated institution names written in front of a chamber: "Y.9.HD.",
+# "Y. HGK", "Dn. 10. D.". Recognised ONLY when a chamber follows -- a bare
+# "Y." or "Dn." is an initial, not a court (W17/c).
+_ABBREVIATED_INSTITUTIONS = {
+    "y": "YARGITAY", "yarg": "YARGITAY",
+    "dn": "DANISTAY", "dan": "DANISTAY",
+}
+
 # Chambers that need a leading number to stand alone ("9. HD", "4. CD").
 _CHAMBER_NUMBERED = [
     "hukuk dairesinin", "hukuk dairesi", "ceza dairesinin", "ceza dairesi",
@@ -235,15 +246,31 @@ _COURT_RE = re.compile(
     + r"|(?P<chword2>" + _alt(_CHAMBER_STANDALONE) + r")(?:'[a-zçğıöşü]{1,8})?"
     + r"|(?P<chno3>[0-9]{1,2})\s*\.\s*(?P<chword3>" + _alt(_CHAMBER_NUMBERED)
     + r")(?:'[a-zçğıöşü]{1,8})?"
+    # W17/c -- "Y.9.HD.", "Y. HGK", "Dn. 10. D.": an abbreviated institution
+    # counts ONLY with a chamber after it.
+    + r"|(?P<ainst>" + _alt(_ABBREVIATED_INSTITUTIONS) + r")\s*\.\s*"
+    + r"(?:(?P<chno4>[0-9]{1,2})\s*\.\s*(?P<chword4>" + _alt(_CHAMBER_WORDS) + r")"
+    + r"|(?P<chword5>" + _alt(_CHAMBER_STANDALONE) + r"))(?:'[a-zçğıöşü]{1,8})?"
     + r")"
     + _NA
 )
 
+# A date written between a court and its docket ("12.03.2021 tarih ve").
+_GAP_DATE = r"[0-9]{1,2}[./][0-9]{1,2}[./][0-9]{4}"
+_GAP_DATE_RE = re.compile(_GAP_DATE)
+
 # Text tolerated between a court mention and the docket it belongs to.
+#
+# W17/c -- MEASURED: "Yargıtay 9. HD'nin 12.03.2021 tarih ve 2020/1111 E.,
+# 2021/2222 K." and "Y.9.HD. 12.03.2021 T. 2020/1111 E. 2021/2222 K." lost
+# their court, because the date between the chamber and the docket was not a
+# tolerated gap. The gap now accepts the decision date and its connectors
+# ("tarih", "tarihli", "T.", "ve", "günlü") and nothing else.
 _COURT_GAP_RE = re.compile(
     r"[\s,;:.'\"\-]*"
     r"(?:(?:kararı|kararında|kararının|kararıyla|karar|ilamı|ilamında|ilam"
-    r"|sayılı|tarihli|n[iıuü]n|[iıuü]n)[\s,;:.'\"\-]*){0,3}"
+    r"|sayılı|tarihli|tarih|günlü|ve|t|n[iıuü]n|[iıuü]n"
+    r"|" + _GAP_DATE + r")[\s,;:.'\"\-]*){0,5}"
 )
 
 # ---------------------------------------------------------------------------
@@ -296,19 +323,33 @@ _BASVURU_RE = re.compile(
     r"(?P<docket>[0-9]{4}\s*/\s*[0-9]{1,6})" + _NA
 )
 
+# AYM bireysel başvuru, number FIRST: "Anayasa Mahkemesi'nin 2014/1234
+# başvuru numaralı kararı", "2014/1234 B. No". W17/c -- measured: this form
+# produced no reference at all.
+_BASVURU_SUFFIX_RE = re.compile(
+    r"(?<![0-9/.])(?P<docket>[0-9]{4}\s*/\s*[0-9]{1,6})\s+"
+    r"(?:başvuru\s+(?:numaralı|numarası|no)|b\s*\.\s*no)" + _NA
+)
+
 _ABBREV_ALT = abbreviation_alternation()
 
 # Legislation: "<no> sayılı <name ending in a law-type word or abbreviation>".
 # The name is REQUIRED to end in a law-type word (or a known abbreviation) so
 # that "2 sayılı liste", "25611 sayılı Resmî Gazete" and "5678 sayılı kararı"
 # are never treated as legislation.
+#
+# W17/c -- "7445 s. K.", "7445 S.K." and "7445 sayılı K." are how a petition
+# abbreviates "sayılı Kanun". MEASURED: none of them was a statute, so the next
+# bare "m. 3" was handed to whatever law came before it ("TBK m. 344 ... 7445
+# s. K. m. 3" became "TBK m. 3"). The "K." must stand as a word of its own.
 _LAW_RE = re.compile(
-    r"(?<![0-9/.])(?P<no>[0-9]{1,5})\s+(?:sayılı|s\.)\s+"
+    r"(?<![0-9/.])(?P<no>[0-9]{1,5})\s+(?:(?:sayılı|s\.)\s+|s\.\s*(?=k\.))"
     r"(?!resm[iî]\s+gazete)"
     r"(?P<name>[^,.;:'\"\n]*?"
     r"(?:kanun\s+hükmünde\s+kararname[" + _WCH + r"]*"
     r"|cumhurbaşkanlığı\s+kararnamesi[" + _WCH + r"]*"
     r"|khk|kanun[" + _WCH + r"]*"
+    r"|(?<![" + _WCH + r"])k\."
     r"|(?:" + _ABBREV_ALT + r")))" + _NA
 )
 
@@ -386,6 +427,43 @@ _ABBREV_RE = re.compile(
     + _fikra_tail("a")
     + r")?"
 )
+
+# ---------------------------------------------------------------------------
+# Article lists and ranges after a prefix article -- W17/c
+# ---------------------------------------------------------------------------
+#
+# MEASURED on real petitions: "6098 s. TBK m. 299, 313, 315, 347, 350, 352"
+# yielded ONLY m. 299, "TBK m. 474 ve 475" only m. 474. Each listed number is
+# now its OWN article reference whose span is the number itself, so every
+# reference still slices back to its raw text. A range ("m. 53-59") is
+# represented by its two endpoints: the numbers between them are not written
+# in the document. Mirrors the TypeScript block of the same name.
+
+# What may NOT follow a list item: a date/decimal, a percent, a unit, a law
+# number or a number that opens its own suffix article.
+_LIST_ITEM_GUARD = (
+    r"(?!\s*[./]\s*[0-9])"
+    r"(?!\s*%)"
+    r"(?![.'’]?\s*(?:"
+    r"(?:gün|yıl|hafta|saat|dakika|lira|kuruş|sayılı|numara|tarih|esas|karar|fıkra|bent|madde"
+    r"|ıncı|inci|uncu|üncü|ncı|nci|ncu|ncü)[" + _WCH + r"]*"
+    r"|(?:ay|aylık|ayda|aya|ayı|ayın|tl|try|usd|eur|adet|kişi|kez|defa|no|nolu|e|k|md|m|s)"
+    + _NA
+    + r"))"
+)
+
+# ", 313" / " ve 475" -- one more article of the list.
+_LIST_ITEM_RE = re.compile(
+    r"(?:\s*,\s*|\s+ve\s+)" + _article_token("l") + _NA + _LIST_ITEM_GUARD
+)
+
+# "-59" -- the upper end of a range whose lower end was just read.
+_RANGE_END_RE = re.compile(
+    r"\s*-\s*(?P<rend>[0-9]{1,4})" + _NA + _LIST_ITEM_GUARD
+)
+
+# Upper bound on list items read after one article (a runaway guard).
+_MAX_LIST_ITEMS = 64
 
 # A "TCK 2005"-shaped number is a YEAR, not an article: bare article numbers
 # in that range are rejected (real article numbers reach at most ~1030, e.g.
@@ -544,10 +622,19 @@ def parse_references(text: str) -> list:
     courts: list = []
     for m in _COURT_RE.finditer(low):
         inst = m.group("inst")
-        chword = m.group("chword") or m.group("chword2") or m.group("chword3")
-        chno = m.group("chno") or m.group("chno3")
+        ainst = m.group("ainst")
+        chword = (
+            m.group("chword") or m.group("chword2") or m.group("chword3")
+            or m.group("chword4") or m.group("chword5")
+        )
+        chno = m.group("chno") or m.group("chno3") or m.group("chno4")
         chord = m.group("chord")
-        code = _institution_code(inst) if inst else None
+        if inst:
+            code = _institution_code(inst)
+        elif ainst:
+            code = _ABBREVIATED_INSTITUTIONS.get(_collapse(ainst))
+        else:
+            code = None
         chamber_code = _chamber_code(chword) if chword else None
         if code is None and chamber_code is None:
             continue
@@ -575,6 +662,13 @@ def parse_references(text: str) -> list:
                 best = (c_start, c_end, code, chamber)
         return best
 
+    def gap_date(start: int, end: int) -> Optional[str]:
+        """The decision date written BETWEEN a court and its docket, if any."""
+        found = _GAP_DATE_RE.search(low, start, end)
+        if found is None:
+            return None
+        return nfc[found.start():found.end()]
+
     def decision_ref(
         m,
         *,
@@ -587,7 +681,9 @@ def parse_references(text: str) -> list:
         attached = court_for(start)
         court = default_court
         chamber = None
+        date_between = None
         if attached is not None:
+            date_between = gap_date(attached[1], start)
             start = attached[0]
             court = attached[2] or default_court
             chamber = attached[3]
@@ -606,7 +702,7 @@ def parse_references(text: str) -> list:
                 chamber=chamber,
                 docket_kind=docket_kind,
                 decision_date=(
-                    nfc[m.start("tdate"):m.end("tdate")] if tdate else None
+                    nfc[m.start("tdate"):m.end("tdate")] if tdate else date_between
                 ),
                 span=(start, end),
             )
@@ -654,6 +750,73 @@ def parse_references(text: str) -> list:
             m, docket=docket, decision=None, docket_kind="basvuru",
             default_court="AYM",
         )
+    for m in _BASVURU_SUFFIX_RE.finditer(low):
+        docket = _squash(m.group("docket"))
+        if not _valid_docket(docket):
+            continue
+        decision_ref(
+            m, docket=docket, decision=None, docket_kind="basvuru",
+            default_court="AYM",
+        )
+
+    def extend_article_list(start_pos: int, head: ParsedReference) -> None:
+        """Read the list ("m. 299, 313") or range ("m. 53-59") after ``head``.
+
+        Mirrors ``extendArticleList`` in the TypeScript parser.
+        """
+        pos = start_pos
+        # Only a bare number can open a range: "m. 4/1-a" used its hyphen.
+        rangeable = (
+            head.paragraph is None and head.clause is None
+            and (head.article_no or "").isdigit()
+        )
+        previous = int(head.article_no) if rangeable else 0
+        for _ in range(_MAX_LIST_ITEMS):
+            if rangeable:
+                r = _RANGE_END_RE.match(low, pos)
+                if r is not None:
+                    value = int(r.group("rend"))
+                    r_start, r_end = r.start("rend"), r.end()
+                    if (
+                        not value > previous
+                        or _ARTICLE_YEAR_MIN <= value <= _ARTICLE_YEAR_MAX
+                        or not is_free(r_start, r_end)
+                    ):
+                        return
+                    claim(r_start, r_end)
+                    refs.append(
+                        ParsedReference(
+                            kind="article",
+                            raw=nfc[r_start:r_end],
+                            article_no=str(value),
+                            article_kind="madde",
+                            span=(r_start, r_end),
+                        )
+                    )
+                    pos = r_end
+                    previous = value
+                    rangeable = False
+                    continue
+            item = _LIST_ITEM_RE.match(low, pos)
+            if item is None:
+                return
+            value = int(item.group("lart"))
+            i_start, i_end = item.start("lart"), item.end()
+            if (
+                not value > 0
+                or _ARTICLE_YEAR_MIN <= value <= _ARTICLE_YEAR_MAX
+                or not is_free(i_start, i_end)
+            ):
+                return
+            claim(i_start, i_end)
+            reference = _article_ref(nfc, item, "l", i_start, i_end)
+            refs.append(reference)
+            pos = i_end
+            previous = value
+            rangeable = (
+                reference.paragraph is None and reference.clause is None
+                and (reference.article_no or "").isdigit()
+            )
 
     # Pass 3: legislation with an explicit number.
     for m in _LAW_RE.finditer(low):
@@ -714,7 +877,9 @@ def parse_references(text: str) -> list:
             )
         )
         if art_start is not None:
-            refs.append(_article_ref(nfc, m, "a", art_start, m.end()))
+            head = _article_ref(nfc, m, "a", art_start, m.end())
+            refs.append(head)
+            extend_article_list(m.end(), head)
 
     # Pass 4: ek / geçici articles (before generic article passes so that
     # "ek madde 5" is not also captured as plain "madde 5").
@@ -753,7 +918,9 @@ def parse_references(text: str) -> list:
         if not is_free(s, e):
             continue
         claim(s, e)
-        refs.append(_article_ref(nfc, m, "p", s, e))
+        head = _article_ref(nfc, m, "p", s, e)
+        refs.append(head)
+        extend_article_list(e, head)
 
     refs.sort(key=lambda r: r.span[0])
 
@@ -898,11 +1065,15 @@ def _article_ref(nfc: str, m, prefix: str, start: int, end: int) -> ParsedRefere
     if m.group(clause_group) is not None:
         clause = _squash(nfc[m.start(clause_group):m.end(clause_group)])
 
-    fno_group, fword_group = prefix + "fno", prefix + "fword"
-    if m.group(fno_group) is not None:
-        paragraph = str(int(m.group(fno_group)))
-    elif m.group(fword_group) is not None:
-        paragraph = _ORDINAL_WORDS[m.group(fword_group)]
+    # A list item ("l" prefix) carries no fıkra tail, so its groups may not
+    # exist at all -- read them through groupdict().
+    groups = m.groupdict()
+    fno = groups.get(prefix + "fno")
+    fword = groups.get(prefix + "fword")
+    if fno is not None:
+        paragraph = str(int(fno))
+    elif fword is not None:
+        paragraph = _ORDINAL_WORDS[fword]
 
     return ParsedReference(
         kind="article",

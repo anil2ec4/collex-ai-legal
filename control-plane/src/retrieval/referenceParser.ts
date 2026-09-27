@@ -312,6 +312,9 @@ const CHAMBER_WORDS: Record<string, string> = {
   bölüm: "BOLUM",
   hgk: "HGK",
   cgk: "CGK",
+  // Compact Yargıtay forms a petition writes without a space: "YHGK", "YCGK".
+  yhgk: "HGK",
+  ycgk: "CGK",
   iddk: "IDDK",
   vddk: "VDDK",
   hd: "HD",
@@ -335,9 +338,23 @@ const CHAMBER_STANDALONE = [
   "vergi dava daireleri kurulu",
   "hgk",
   "cgk",
+  "yhgk",
+  "ycgk",
   "iddk",
   "vddk",
 ];
+
+/**
+ * Abbreviated institution names a petition writes in front of a chamber:
+ * "Y.9.HD.", "Y. HGK", "Dn. 10. D.". They are recognised ONLY when a chamber
+ * follows — a bare "Y." or "Dn." is an initial, not a court (W17/c).
+ */
+const ABBREVIATED_INSTITUTIONS: Record<string, string> = {
+  y: "YARGITAY",
+  yarg: "YARGITAY",
+  dn: "DANISTAY",
+  dan: "DANISTAY",
+};
 
 const CHAMBER_NUMBERED = [
   "hukuk dairesinin",
@@ -367,17 +384,36 @@ const COURT_RE = new RegExp(
     `(?:\\s*,?\\s*${CH_ORDINAL}(?<chword>${alternation(Object.keys(CHAMBER_WORDS))})(?:'[a-zçğıöşü]{1,8})?)?` +
     `|(?<chword2>${alternation(CHAMBER_STANDALONE)})(?:'[a-zçğıöşü]{1,8})?` +
     `|(?<chno3>[0-9]{1,2})\\s*\\.\\s*(?<chword3>${alternation(CHAMBER_NUMBERED)})(?:'[a-zçğıöşü]{1,8})?` +
+    // W17/c — "Y.9.HD.", "Y. HGK", "Dn. 10. D.": an abbreviated institution
+    // counts ONLY with a chamber after it.
+    `|(?<ainst>${alternation(Object.keys(ABBREVIATED_INSTITUTIONS))})\\s*\\.\\s*` +
+    `(?:(?<chno4>[0-9]{1,2})\\s*\\.\\s*(?<chword4>${alternation(Object.keys(CHAMBER_WORDS))})` +
+    `|(?<chword5>${alternation(CHAMBER_STANDALONE)}))(?:'[a-zçğıöşü]{1,8})?` +
     ")" +
     NA,
   "gdu",
 );
 
-/** Text tolerated between a court mention and the docket it belongs to. */
+/** A date written between a court and its docket ("12.03.2021 tarih ve"). */
+const GAP_DATE = "[0-9]{1,2}[./][0-9]{1,2}[./][0-9]{4}";
+const GAP_DATE_RE = new RegExp(GAP_DATE, "u");
+
+/**
+ * Text tolerated between a court mention and the docket it belongs to.
+ *
+ * W17/c — MEASURED: "Yargıtay 9. HD'nin 12.03.2021 tarih ve 2020/1111 E.,
+ * 2021/2222 K." and "Y.9.HD. 12.03.2021 T. 2020/1111 E. 2021/2222 K." lost
+ * their court, because the date between the chamber and the docket was not a
+ * tolerated gap. A decision whose court is lost cannot be checked against the
+ * right court, so the gap now accepts the decision date and its connectors
+ * ("tarih", "tarihli", "T.", "ve", "günlü") and nothing else.
+ */
 const COURT_GAP_RE = new RegExp(
   "^(?:" +
     "[\\s,;:.'\"\\-]*" +
     "(?:(?:kararı|kararında|kararının|kararıyla|karar|ilamı|ilamında|ilam" +
-    "|sayılı|tarihli|n[iıuü]n|[iıuü]n)[\\s,;:.'\"\\-]*){0,3}" +
+    "|sayılı|tarihli|tarih|günlü|ve|t|n[iıuü]n|[iıuü]n" +
+    `|${GAP_DATE})[\\s,;:.'\"\\-]*){0,5}` +
     ")$",
   "u",
 );
@@ -442,20 +478,40 @@ const BASVURU_RE = new RegExp(
   "gdu",
 );
 
+/**
+ * AYM bireysel başvuru, number FIRST: "Anayasa Mahkemesi'nin 2014/1234
+ * başvuru numaralı kararı", "2014/1234 B. No". W17/c — measured: this form
+ * produced no reference at all, so the report did not know the petition cited
+ * a decision.
+ */
+const BASVURU_SUFFIX_RE = new RegExp(
+  "(?<![0-9/.])(?<docket>[0-9]{4}\\s*/\\s*[0-9]{1,6})\\s+" +
+    "(?:başvuru\\s+(?:numaralı|numarası|no)|b\\s*\\.\\s*no)" +
+    NA,
+  "gdu",
+);
+
 const ABBREV_ALT = abbreviationAlternation();
 
 /**
  * "<no> sayılı <name ending in a law-type word or a known abbreviation>".
  * The trailing law-type requirement is what keeps "2 sayılı liste",
  * "25611 sayılı Resmî Gazete" and "5678 sayılı kararı" out of the results.
+ *
+ * W17/c — "7445 s. K.", "7445 S.K." and "7445 sayılı K." are how a petition
+ * abbreviates "sayılı Kanun". MEASURED: none of them was a statute, so the
+ * next bare "m. 3" in the document was handed to whatever law came before it
+ * ("TBK m. 344 … 7445 s. K. m. 3" became "TBK m. 3"). The "K." must stand as a
+ * word of its own ("edilecek." is not "K.").
  */
 export const LAW_RE = new RegExp(
-  "(?<![0-9/.])(?<no>[0-9]{1,5})\\s+(?:sayılı|s\\.)\\s+" +
+  "(?<![0-9/.])(?<no>[0-9]{1,5})\\s+(?:(?:sayılı|s\\.)\\s+|s\\.\\s*(?=k\\.))" +
     "(?!resm[iî]\\s+gazete)" +
     "(?<name>[^,.;:'\"\\n]*?" +
     `(?:kanun\\s+hükmünde\\s+kararname[${WORD_CHARS}]*` +
     `|cumhurbaşkanlığı\\s+kararnamesi[${WORD_CHARS}]*` +
     `|khk|kanun[${WORD_CHARS}]*` +
+    `|(?<![${WORD_CHARS}])k\\.` +
     `|(?:${ABBREV_ALT})))` +
     NA,
   "gdu",
@@ -539,6 +595,52 @@ export const ABBREV_RE = new RegExp(
     ")?",
   "gdu",
 );
+
+// ---------------------------------------------------------------------------
+// Article lists and ranges after a prefix article — W17/c
+// ---------------------------------------------------------------------------
+//
+// MEASURED on real petitions: "6098 s. TBK m. 299, 313, 315, 347, 350, 352"
+// yielded ONLY m. 299, "TBK m. 474 ve 475" only m. 474, and "HMK m. 18/A,
+// 114, 115, 119 ve 129" only m. 18/A. The audit then checked one article of
+// a list and the lawyer read the rest as never cited. Each listed number is
+// now its OWN article reference whose span is the number itself, so every
+// reference still slices back to its raw text. A range ("m. 53-59") is
+// represented by its two endpoints: the numbers between them are not written
+// in the document, and a reference that has no text of its own cannot be
+// shown to the lawyer as something the petition said.
+//
+// A list item must look like an article number and nothing else. The guard
+// refuses a year (1900..2099), a date or decimal ("12.03.2021", "15.000"), a
+// docket ("2021/123" — the year guard), a unit ("5 gün", "10 TL", "%20"), a
+// law number ("7445 s. K.", "7445 sayılı") and a number that opens its own
+// suffix article ("475. maddesi" is left to the suffix pass).
+
+/** What may NOT follow a list item. */
+const LIST_ITEM_GUARD =
+  "(?!\\s*[./]\\s*[0-9])" +
+  "(?!\\s*%)" +
+  "(?![.'’]?\\s*(?:" +
+  "(?:gün|yıl|hafta|saat|dakika|lira|kuruş|sayılı|numara|tarih|esas|karar|fıkra|bent|madde" +
+  `|ıncı|inci|uncu|üncü|ncı|nci|ncu|ncü)[${WORD_CHARS}]*` +
+  "|(?:ay|aylık|ayda|aya|ayı|ayın|tl|try|usd|eur|adet|kişi|kez|defa|no|nolu|e|k|md|m|s)" +
+  NA +
+  "))";
+
+/** ", 313" / " ve 475" — one more article of the list. */
+const LIST_ITEM_RE = new RegExp(
+  "(?:\\s*,\\s*|\\s+ve\\s+)" + articleToken("l") + NA + LIST_ITEM_GUARD,
+  "duy",
+);
+
+/** "-59" — the upper end of a range whose lower end was just read. */
+const RANGE_END_RE = new RegExp(
+  "\\s*-\\s*(?<rend>[0-9]{1,4})" + NA + LIST_ITEM_GUARD,
+  "duy",
+);
+
+/** Upper bound on list items read after one article (a runaway guard). */
+const MAX_LIST_ITEMS = 64;
 
 // ---------------------------------------------------------------------------
 // Turkish short-form (anaphoric) citations — W14/B-38
@@ -723,10 +825,21 @@ export function parseReferences(text: string): ParsedReference[] {
   const courts: CourtMention[] = [];
   for (const m of low.matchAll(COURT_RE)) {
     const inst = groupText(m, "inst");
-    const chword = groupText(m, "chword") ?? groupText(m, "chword2") ?? groupText(m, "chword3");
-    const chno = groupText(m, "chno") ?? groupText(m, "chno3");
+    const ainst = groupText(m, "ainst");
+    const chword =
+      groupText(m, "chword") ??
+      groupText(m, "chword2") ??
+      groupText(m, "chword3") ??
+      groupText(m, "chword4") ??
+      groupText(m, "chword5");
+    const chno = groupText(m, "chno") ?? groupText(m, "chno3") ?? groupText(m, "chno4");
     const chord = groupText(m, "chord");
-    let code = inst === undefined ? undefined : institutionCode(inst);
+    let code =
+      inst !== undefined
+        ? institutionCode(inst)
+        : ainst !== undefined
+          ? ABBREVIATED_INSTITUTIONS[collapse(ainst)]
+          : undefined;
     const chCode = chword === undefined ? undefined : chamberCode(chword);
     if (code === undefined && chCode === undefined) continue;
     if (code === undefined && chCode !== undefined) code = CHAMBER_IMPLIES[chCode];
@@ -750,6 +863,14 @@ export function parseReferences(text: string): ParsedReference[] {
     return best;
   };
 
+  /** The decision date written BETWEEN a court and its docket, if any. */
+  const gapDate = (from: number, to: number): string | undefined => {
+    const found = GAP_DATE_RE.exec(low.slice(from, to));
+    if (found === null) return undefined;
+    const at = from + found.index;
+    return nfc.slice(at, at + found[0].length);
+  };
+
   const pushDecision = (
     m: MatchLike,
     options: {
@@ -764,14 +885,16 @@ export function parseReferences(text: string): ParsedReference[] {
     const attached = courtFor(start);
     let court = options.defaultCourt;
     let chamber: string | undefined;
+    let dateBetween: string | undefined;
     if (attached !== undefined) {
+      dateBetween = gapDate(attached.end, start);
       start = attached.start;
       court = attached.court ?? options.defaultCourt;
       chamber = attached.chamber;
     }
     if (!isFree(start, end)) return;
     claim(start, end);
-    const decisionDate = groupRaw(nfc, m, "tdate");
+    const decisionDate = groupRaw(nfc, m, "tdate") ?? dateBetween;
     refs.push({
       kind: "court_decision",
       raw: nfc.slice(start, end),
@@ -826,6 +949,75 @@ export function parseReferences(text: string): ParsedReference[] {
     if (!validDocket(docket)) continue;
     pushDecision(m, { docket, docketKind: "basvuru", defaultCourt: "AYM" });
   }
+  for (const m of low.matchAll(BASVURU_SUFFIX_RE)) {
+    const docket = squash(groupText(m, "docket") ?? "");
+    if (!validDocket(docket)) continue;
+    pushDecision(m, { docket, docketKind: "basvuru", defaultCourt: "AYM" });
+  }
+
+  /**
+   * Read the list ("m. 299, 313, 315") or range ("m. 53-59") that follows an
+   * article reference ending at `from`. See {@link LIST_ITEM_RE}.
+   */
+  const extendArticleList = (from: number, head: ParsedReference): void => {
+    let pos = from;
+    // Only a bare number can open a range: "m. 4/1-a" already used its hyphen.
+    let rangeable = head.paragraph === undefined && head.clause === undefined &&
+      /^[0-9]+$/u.test(head.articleNo ?? "");
+    let previous = rangeable ? Number.parseInt(head.articleNo ?? "", 10) : 0;
+    for (let count = 0; count < MAX_LIST_ITEMS; count += 1) {
+      if (rangeable) {
+        RANGE_END_RE.lastIndex = pos;
+        const r = RANGE_END_RE.exec(low);
+        if (r !== null) {
+          const span = groupSpan(r, "rend");
+          const value = Number.parseInt(groupText(r, "rend") ?? "", 10);
+          const end = r.index + r[0].length;
+          if (
+            span === undefined ||
+            !(value > previous) ||
+            (value >= ARTICLE_YEAR_MIN && value <= ARTICLE_YEAR_MAX) ||
+            !isFree(span[0], end)
+          ) {
+            return;
+          }
+          claim(span[0], end);
+          refs.push({
+            kind: "article",
+            raw: nfc.slice(span[0], end),
+            articleNo: String(value),
+            articleKind: "madde",
+            span: [span[0], end],
+          });
+          pos = end;
+          previous = value;
+          rangeable = false;
+          continue;
+        }
+      }
+      LIST_ITEM_RE.lastIndex = pos;
+      const item = LIST_ITEM_RE.exec(low);
+      if (item === null) return;
+      const artSpan = groupSpan(item, "lart");
+      const value = Number.parseInt(groupText(item, "lart") ?? "", 10);
+      const end = item.index + item[0].length;
+      if (
+        artSpan === undefined ||
+        !(value > 0) ||
+        (value >= ARTICLE_YEAR_MIN && value <= ARTICLE_YEAR_MAX) ||
+        !isFree(artSpan[0], end)
+      ) {
+        return;
+      }
+      claim(artSpan[0], end);
+      const reference = articleRef(nfc, item, "l", artSpan[0], end);
+      refs.push(reference);
+      pos = end;
+      previous = value;
+      rangeable = reference.paragraph === undefined && reference.clause === undefined &&
+        /^[0-9]+$/u.test(reference.articleNo ?? "");
+    }
+  };
 
   // Pass 3: legislation with an explicit number.
   for (const m of low.matchAll(LAW_RE)) {
@@ -885,7 +1077,9 @@ export function parseReferences(text: string): ParsedReference[] {
       span: [start, headEnd],
     });
     if (artStart !== undefined) {
-      refs.push(articleRef(nfc, m, "a", artStart, matchEnd));
+      const head = articleRef(nfc, m, "a", artStart, matchEnd);
+      refs.push(head);
+      extendArticleList(matchEnd, head);
     }
   }
 
@@ -924,7 +1118,9 @@ export function parseReferences(text: string): ParsedReference[] {
     const end = start + m[0].length;
     if (!isFree(start, end)) continue;
     claim(start, end);
-    refs.push(articleRef(nfc, m, "p", start, end));
+    const head = articleRef(nfc, m, "p", start, end);
+    refs.push(head);
+    extendArticleList(end, head);
   }
 
   refs.sort((a, b) => (a.span?.[0] ?? 0) - (b.span?.[0] ?? 0));

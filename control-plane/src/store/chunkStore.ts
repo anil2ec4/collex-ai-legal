@@ -120,7 +120,7 @@ import {
   asTextArray,
   asTextOrNull,
 } from "./db.js";
-import type { ParsedReference } from "../retrieval/referenceParser.js";
+import { parseReferences, type ParsedReference } from "../retrieval/referenceParser.js";
 
 // --------------------------------------------------------------------------
 // Shapes
@@ -267,6 +267,14 @@ export interface LaneQueryOptions {
   asOf: string;
   limit: number;
   filters?: StoreSearchFilters;
+  /**
+   * W17/c — decision pins only: pin a decision ONLY when the stored version's
+   * court (and chamber, when both sides name one) POSITIVELY matches the
+   * reference's. The citation audit sets it: "found" must mean this court's
+   * decision, not any court's decision that happens to share the numbers.
+   * Without it a KNOWN, DIFFERENT court still excludes the version.
+   */
+  requireCourtMatch?: boolean;
 }
 
 export interface CanonicalTextRecord {
@@ -1372,6 +1380,51 @@ export async function chunkProvenanceByIds(
   return rows.map(mapProvenanceRow);
 }
 
+/**
+ * The court and chamber a stored decision version names, in the parser's
+ * codes ("YARGITAY", "15. CD"). The stored columns are free text
+ * ("Yargıtay", "15. Ceza Dairesi"), so they are read by the SAME parser that
+ * read the citation — one vocabulary on both sides of the comparison.
+ */
+export function storedDecisionCourt(
+  court: string | null,
+  chamber: string | null,
+): { court?: string; chamber?: string } {
+  const written = `${court ?? ""} ${chamber ?? ""}`.replace(/\s+/gu, " ").trim();
+  if (written === "") return {};
+  const parsed = parseReferences(`${written} E. 2000/1 K. 2000/2`).find(
+    (reference) => reference.kind === "court_decision",
+  );
+  return {
+    ...(parsed?.court !== undefined ? { court: parsed.court } : {}),
+    ...(parsed?.chamber !== undefined ? { chamber: parsed.chamber } : {}),
+  };
+}
+
+/**
+ * Does a stored decision version belong to the court a citation names?
+ * "unknown" when either side names no recognisable court; a chamber is
+ * compared only when BOTH sides name one.
+ */
+export function decisionCourtVerdict(
+  reference: ParsedReference,
+  storedCourt: string | null,
+  storedChamber: string | null,
+): "match" | "mismatch" | "unknown" {
+  if (reference.court === undefined || reference.court === "") return "unknown";
+  const stored = storedDecisionCourt(storedCourt, storedChamber);
+  if (stored.court === undefined) return "unknown";
+  if (stored.court !== reference.court) return "mismatch";
+  if (
+    reference.chamber !== undefined &&
+    stored.chamber !== undefined &&
+    reference.chamber !== stored.chamber
+  ) {
+    return "mismatch";
+  }
+  return "match";
+}
+
 export async function exactPinLookup(
   sql: Sql,
   references: readonly ParsedReference[],
@@ -1443,6 +1496,38 @@ export async function exactPinLookup(
   for (const ref of decisionRefs) {
     const docketNo = ref.docketNo as string;
     const decisionNo = ref.decisionNo as string;
+    // W17/c — MEASURED: a decision was pinned on its docket and decision
+    // numbers ALONE, so a fabricated "Danıştay 10. D. 2023/4521 E., 2024/1187
+    // K." came back "bulundu" because a Yargıtay decision in the library
+    // shares the two numbers. Numbers are reused by every chamber of every
+    // court every year; they identify a decision only together with its court.
+    let versionCondition = sql``;
+    const knownCourt = ref.court !== undefined && ref.court !== "";
+    if (options.requireCourtMatch === true && !knownCourt) continue;
+    if (knownCourt) {
+      const candidates = await sql`
+        select v.id as version_id, v.court as court, v.chamber as chamber
+        from legal.document_versions v
+        join legal.documents d on d.id = v.document_id
+        where ${visibilityFilter(sql, options.asOf, options.filters)}
+          and v.docket_no = ${docketNo}
+          and v.decision_no = ${decisionNo}`;
+      const accepted = candidates
+        .filter((row) => {
+          const verdict = decisionCourtVerdict(
+            ref,
+            asTextOrNull(row, "court"),
+            asTextOrNull(row, "chamber"),
+          );
+          return (
+            verdict === "match" ||
+            (verdict === "unknown" && options.requireCourtMatch !== true)
+          );
+        })
+        .map((row) => asText(row, "version_id"));
+      if (accepted.length === 0) continue;
+      versionCondition = sql`and v.id = any(${accepted}::uuid[])`;
+    }
     const rows = await sql`
       select ${provenanceProjection(sql)}
       from legal.chunks c
@@ -1451,6 +1536,7 @@ export async function exactPinLookup(
       where ${visibilityFilter(sql, options.asOf, options.filters)}
         and v.docket_no = ${docketNo}
         and v.decision_no = ${decisionNo}
+        ${versionCondition}
       order by c.ordinal asc, c.id asc
       limit ${options.limit}`;
     for (const row of rows) {

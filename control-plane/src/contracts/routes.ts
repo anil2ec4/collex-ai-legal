@@ -36,6 +36,7 @@ import {
   CitationAuditError,
   auditCitations,
   extractAuditCitations,
+  isCalendarDate,
   type CitationAuditReport,
   type CitationResolver,
 } from "./citationAudit.js";
@@ -62,9 +63,17 @@ import type { DraftingFilePort } from "../drafting/types.js";
 
 const REQ = { required_error: "Bu alan zorunludur.", invalid_type_error: "Geçersiz değer." };
 
+// W17/c — MEASURED: "2025-13-45" passed the shape check, the request answered
+// 200, and every row of the report then said the library could not be opened.
+// The shape AND the calendar are checked at the door, and the message says
+// which one failed.
 const isoDate = z
   .string(REQ)
-  .regex(/^\d{4}-\d{2}-\d{2}$/u, "Tarih YYYY-AA-GG biçiminde olmalı (ör. 2026-09-02).");
+  .regex(/^\d{4}-\d{2}-\d{2}$/u, "Tarih YYYY-AA-GG biçiminde olmalı (ör. 2026-09-02).")
+  .refine(
+    (value) => !/^\d{4}-\d{2}-\d{2}$/u.test(value) || isCalendarDate(value),
+    "Tarih takvimde olmayan bir gün (ör. 2026-09-02 gibi gerçek bir gün yazın).",
+  );
 
 const auditSchema = z
   .object({

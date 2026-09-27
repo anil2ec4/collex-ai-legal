@@ -749,6 +749,155 @@ def build_cases() -> list:
               "court": "YARGITAY", "chamber": "15. CD"})),
     ))
 
+    # --------------------------------------------- W17/c: real petition forms
+    # Every case below was MEASURED on a realistic petition posted to a
+    # running server: each form lost a citation, lost a court, or handed an
+    # article to the wrong statute.
+    add(Case(
+        "law_s_k_abbreviation", "legislation",
+        "'7445 s. K.' is 'sayılı Kanun'. Before W17/c it was no statute at all, "
+        "so a later bare article was handed to the PREVIOUS law.",
+        "7445 s. K. m. 3 uyarınca",
+        ((L, {"legislation_no": "7445", "name": "K."}),
+         (A, {"article_no": "3"})),
+    ))
+    add(Case(
+        "law_sk_compact", "legislation",
+        "'7445 S.K.' -- no space between 's.' and 'K.'.",
+        "7445 S.K. m. 3",
+        ((L, {"legislation_no": "7445", "name": "K."}),
+         (A, {"article_no": "3"})),
+    ))
+    add(Case(
+        "law_sayili_k", "legislation",
+        "'7445 sayılı K.' -- the long keyword with the short name.",
+        "7445 sayılı K. m. 3 hükmü",
+        ((L, {"legislation_no": "7445", "name": "K."}),
+         (A, {"article_no": "3"})),
+    ))
+    add(Case(
+        "guard_k_inside_word", "guard",
+        "'K.' must stand as a word: 'edilecek.' is not 'Kanun'.",
+        "20 sayılı tebliğ ile tahsil edilecek.",
+        (),
+    ))
+    add(Case(
+        "article_list_comma", "multi",
+        "A list of articles after one statute: every number is its own "
+        "article (the old parsers kept only m. 299).",
+        "6098 s. TBK m. 299, 313, 315, 347, 350, 352; 2004 s. İİK m. 269 vd.",
+        ((L, {"legislation_no": "6098"}),
+         (A, {"article_no": "299"}), (A, {"article_no": "313"}),
+         (A, {"article_no": "315"}), (A, {"article_no": "347"}),
+         (A, {"article_no": "350"}), (A, {"article_no": "352"}),
+         (L, {"legislation_no": "2004"}), (A, {"article_no": "269"})),
+    ))
+    add(Case(
+        "article_list_ve", "multi",
+        "'TBK m. 474 ve 475' -- two articles, not one.",
+        "TBK m. 474 ve 475 uyarınca",
+        ((L, {"legislation_no": "6098"}),
+         (A, {"article_no": "474"}), (A, {"article_no": "475"})),
+    ))
+    add(Case(
+        "article_list_mixed", "multi",
+        "Lettered and plain items in one list; the sentence's final dot is "
+        "not a decimal.",
+        "HMK m. 18/A, 114, 115, 119 ve 129.",
+        ((L, {"legislation_no": "6100"}),
+         (A, {"article_no": "18/A"}), (A, {"article_no": "114"}),
+         (A, {"article_no": "115"}), (A, {"article_no": "119"}),
+         (A, {"article_no": "129"})),
+    ))
+    add(Case(
+        "article_list_fikra_items", "multi",
+        "'HMK m. 114/2 ve 115/2' -- each item keeps its own fıkra.",
+        "HMK m. 114/2 ve 115/2 uyarınca",
+        ((L, {"legislation_no": "6100"}),
+         (A, {"article_no": "114", "paragraph": "2"}),
+         (A, {"article_no": "115", "paragraph": "2"})),
+    ))
+    add(Case(
+        "article_range_endpoints", "multi",
+        "'m. 53-59' is a RANGE: both endpoints are references with their own "
+        "text; the numbers between them are not written and are not invented.",
+        "4857 s. K. m. 53-59 hükümleri gereğince",
+        ((L, {"legislation_no": "4857"}),
+         (A, {"article_no": "53", "clause": None}),
+         (A, {"article_no": "59"})),
+    ))
+    add(Case(
+        "multi_guard_list_units_and_laws", "multi",
+        "A number after an article is NOT an article when it is an amount, a "
+        "duration or a law number.",
+        "TBK m. 344, 15.000 TL ve 5 gün; TBK m. 344, 7445 s. K.",
+        ((L, {"legislation_no": "6098"}), (A, {"article_no": "344"}),
+         (L, {"legislation_no": "6098"}), (A, {"article_no": "344"}),
+         (L, {"legislation_no": "7445"})),
+    ))
+    add(Case(
+        "multi_guard_list_year", "multi",
+        "'HMK m. 12, 2023 yılında' -- 2023 is a year, never an article.",
+        "HMK m. 12, 2023 yılında",
+        ((L, {"legislation_no": "6100"}), (A, {"article_no": "12"})),
+    ))
+    add(Case(
+        "court_date_between_court_and_docket", "court",
+        "The decision date written BETWEEN the chamber and the docket used to "
+        "detach the court from the decision.",
+        "Yargıtay 9. HD'nin 12.03.2021 tarih ve 2020/1111 E., 2021/2222 K. "
+        "sayılı ilamı",
+        ((C, {"docket_no": "2020/1111", "decision_no": "2021/2222",
+              "court": "YARGITAY", "chamber": "9. HD",
+              "decision_date": "12.03.2021"}),),
+    ))
+    add(Case(
+        "court_abbreviated_yargitay", "court",
+        "'Y.9.HD. 12.03.2021 T.' -- abbreviated institution plus a date gap.",
+        "Y.9.HD. 12.03.2021 T. 2020/1111 E. 2021/2222 K. sayılı kararında",
+        ((C, {"docket_no": "2020/1111", "decision_no": "2021/2222",
+              "court": "YARGITAY", "chamber": "9. HD",
+              "decision_date": "12.03.2021"}),),
+    ))
+    add(Case(
+        "court_compact_yhgk", "court",
+        "'YHGK' -- the compact Hukuk Genel Kurulu form.",
+        "YHGK 2014/22-1234 E., 2016/789 K.",
+        ((C, {"docket_no": "2014/22-1234", "decision_no": "2016/789",
+              "court": "YARGITAY", "chamber": "HGK"}),),
+    ))
+    add(Case(
+        "court_abbreviated_danistay", "court",
+        "'Dn. 10. D.' -- abbreviated Danıştay with its chamber.",
+        "Dn. 10. D. E. 2019/5555 K. 2021/6666",
+        ((C, {"docket_no": "2019/5555", "decision_no": "2021/6666",
+              "court": "DANISTAY", "chamber": "10. D"}),),
+    ))
+    add(Case(
+        "court_hgk_date_between", "court",
+        "Hukuk Genel Kurulu with 'tarih ve' between the chamber and the "
+        "hyphenated docket.",
+        "Yargıtay Hukuk Genel Kurulu'nun 15.06.2016 tarih ve 2014/22-1234 E., "
+        "2016/789 K. sayılı kararı",
+        ((C, {"docket_no": "2014/22-1234", "decision_no": "2016/789",
+              "court": "YARGITAY", "chamber": "HGK",
+              "decision_date": "15.06.2016"}),),
+    ))
+    add(Case(
+        "court_aym_basvuru_number_first", "court",
+        "'2014/1234 başvuru numaralı' -- the başvuru number written first.",
+        "Anayasa Mahkemesi'nin 2014/1234 başvuru numaralı kararı",
+        ((C, {"docket_no": "2014/1234", "decision_no": None, "court": "AYM",
+              "docket_kind": "basvuru"}),),
+    ))
+    add(Case(
+        "court_guard_initial_is_not_a_court", "court",
+        "A bare 'Y.' with no chamber is an initial, never Yargıtay.",
+        "Y. Kemal 2020/1 E. 2020/2 K.",
+        ((C, {"docket_no": "2020/1", "decision_no": "2020/2", "court": None,
+              "chamber": None}),),
+    ))
+
     # ------------------------------------------------------------ short forms
     # W14 L-FIX (L-SOURCES IR-1). B-38's cases live in
     # legal_reference/parity_cases.py so BOTH runtimes can import them; if the

@@ -214,6 +214,32 @@ export const AUDIT_NOTICES: readonly string[] = Object.freeze([
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 
+/**
+ * True for a REAL calendar day written YYYY-MM-DD (W17/c).
+ *
+ * MEASURED: `asOf: "2025-13-45"` passed the shape check, the request answered
+ * 200, and every row of the report then said the library could not be opened
+ * — a malformed date surfaced as a storage outage. The date is the petition's
+ * date and every currency verdict hangs on it, so a day that does not exist
+ * is refused at the door.
+ */
+export function isCalendarDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const [y, m, d] = value.split("-").map((part) => Number.parseInt(part, 10)) as [
+    number,
+    number,
+    number,
+  ];
+  if (y < 1900 || y > 2099 || m < 1 || m > 12 || d < 1) return false;
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return d <= daysInMonth;
+}
+
+export const AS_OF_INVALID_TR =
+  "Dilekçenin tarihi (asOf) gerçek bir takvim günü olmalı ve YYYY-AA-GG" +
+  " biçiminde yazılmalı (ör. 2026-09-02): yürürlük, bugüne göre değil" +
+  " dilekçenin tarihine göre hesaplanır.";
+
 export class CitationAuditError extends Error {}
 
 /**
@@ -254,32 +280,180 @@ function isCheckableCourtReference(parsed: ParsedReference): boolean {
   return docket.trim() !== "" || decision.trim() !== "";
 }
 
+/**
+ * One place a document cites an authority (W17/c).
+ *
+ * `span` is `[start, end)` into the `prose` string {@link citationOccurrences}
+ * returns — the SAME string the parser read, so the two can be compared
+ * without any offset arithmetic of our own. `raw` is the verbatim text of
+ * that span (or, for the second and later items of an article list, the
+ * statute's own words and the item's own words joined by " … ", both
+ * verbatim).
+ */
+export interface CitationOccurrence {
+  key: string;
+  raw: string;
+  span: [number, number];
+  parsed: ParsedReference;
+}
+
+/**
+ * The document read as PROSE: NFC, every run of whitespace one space. This is
+ * the one string both the citation spans and any caller's own positions are
+ * measured on.
+ *
+ * W17/b — the document is read as PROSE, not as lines. A petition wraps its
+ * lines wherever the margin falls, and a citation is never meant to be cut
+ * by that. Measured 06.09.2026: "2004 sayılı İcra ve\nİflas Kanunu m. 269"
+ * produced NO legislation reference at all — the law name was broken across
+ * the wrap — so the statute the document plainly names was lost and only a
+ * bare "m. 269" survived. The two decisions in the same paragraph fared no
+ * better: their `raw` carried a literal newline
+ * ("Yargıtay 3. Hukuk Dairesi\nE. 2023/4521, K. 2024/1188") straight onto
+ * the screen.
+ */
+export function auditProse(text: string): string {
+  return text.normalize("NFC").replace(/\s+/gu, " ");
+}
+
+/**
+ * Every checkable citation the text makes, in document order, WITH its
+ * position (W17/c). This is what lets a caller attribute a citation to the
+ * paragraph and the sentence it actually stands in — by position, never by
+ * searching the paragraph for a spelling (a substring search found "TBK
+ * m. 34" inside "TBK m. 344" and "HMK m. 11" inside "HMK m. 119", and lost
+ * "6098 sayılı Türk Borçlar Kanunu'nun 315. maddesi" altogether because the
+ * row's spelling was not the document's).
+ */
+export function citationOccurrences(text: string): {
+  prose: string;
+  occurrences: CitationOccurrence[];
+} {
+  const prose = auditProse(text);
+  const occurrences: CitationOccurrence[] = [];
+  for (const parsed of pairArticlesWithTheirLaw(parseReferences(prose), prose)) {
+    if (!isCheckableCourtReference(parsed)) continue;
+    const span = parsed.span ?? [0, 0];
+    occurrences.push({ key: citationKey(parsed), raw: parsed.raw, span: [span[0], span[1]], parsed });
+  }
+  return { prose, occurrences };
+}
+
 export function extractAuditCitations(text: string): AuditCitation[] {
   const byKey = new Map<string, AuditCitation>();
-  // W17/b — the document is read as PROSE, not as lines. A petition wraps its
-  // lines wherever the margin falls, and a citation is never meant to be cut
-  // by that. Measured 06.09.2026: "2004 sayılı İcra ve\nİflas Kanunu m. 269"
-  // produced NO legislation reference at all — the law name was broken across
-  // the wrap — so the statute the document plainly names was lost and only a
-  // bare "m. 269" survived. The two decisions in the same paragraph fared no
-  // better: their `raw` carried a literal newline
-  // ("Yargıtay 3. Hukuk Dairesi\nE. 2023/4521, K. 2024/1188") straight onto
-  // the screen. Nothing downstream of here reads a reference's `span`, so
-  // collapsing whitespace before parsing costs nothing and fixes both.
-  const prose = text.replace(/\s+/gu, " ");
-  for (const parsed of pairArticlesWithTheirLaw(parseReferences(prose))) {
-    if (!isCheckableCourtReference(parsed)) continue;
-    const key = citationKey(parsed);
-    const existing = byKey.get(key);
+  for (const occurrence of citationOccurrences(text).occurrences) {
+    const existing = byKey.get(occurrence.key);
     if (existing !== undefined) {
       existing.count += 1;
       const forms = existing.rawForms as string[];
-      if (!forms.includes(parsed.raw)) forms.push(parsed.raw);
+      if (!forms.includes(occurrence.raw)) forms.push(occurrence.raw);
       continue;
     }
-    byKey.set(key, { raw: parsed.raw, rawForms: [parsed.raw], count: 1, parsed });
+    byKey.set(occurrence.key, {
+      raw: occurrence.raw,
+      rawForms: [occurrence.raw],
+      count: 1,
+      parsed: occurrence.parsed,
+    });
   }
   return [...byKey.values()];
+}
+
+/**
+ * The longest gap, in code points, between a statute (or the previous article
+ * of its list) and an article that may still be read as belonging to it.
+ *
+ * W17/c — MEASURED: the pairing had NO bound. On a realistic kira petition
+ * "kira sözleşmesinin 8. maddesi" two paragraphs after "TBK m. 313" was
+ * reported as "TBK 8. maddesi"; on a cevap dilekçesi "TBK m. 344, 7445 s. K.,
+ * … m. 3" became "TBK m. 3". An invented pairing is an invented citation.
+ */
+export const PAIRING_MAX_GAP_CODE_POINTS = 40;
+
+/**
+ * The genitive owners that make "<owner> 8. maddesi" a clause of something
+ * that is NOT the preceding statute: the parties' contract, a regulation, a
+ * specification, a protocol, a decision. A CLOSED list, folded to lower case
+ * with apostrophes removed. "Tüzüğün" is deliberately absent: a tüzük can be
+ * the very instrument the article belongs to.
+ */
+export const NON_STATUTE_OWNERS: ReadonlySet<string> = new Set([
+  "sözleşmenin",
+  "sözleşmesinin",
+  "sözleşmemizin",
+  "sözleşmelerin",
+  "sözleşmelerinin",
+  "mukavelenin",
+  "mukavelesinin",
+  "mukavelenamenin",
+  "anlaşmanın",
+  "anlaşmasının",
+  "protokolün",
+  "protokolünün",
+  "şartnamenin",
+  "şartnamesinin",
+  "yönetmeliğin",
+  "yönetmeliğinin",
+  "yönergenin",
+  "yönergesinin",
+  "tebliğin",
+  "tebliğinin",
+  "genelgenin",
+  "genelgesinin",
+  "kararın",
+  "kararının",
+  "ilamın",
+  "ilamının",
+  "senedin",
+  "senedinin",
+  "poliçenin",
+  "poliçesinin",
+  "taahhütnamenin",
+  "taahhütnamesinin",
+  "statünün",
+  "statüsünün",
+  "tutanağın",
+  "tutanağının",
+  "raporun",
+  "raporunun",
+  "dilekçenin",
+  "dilekçesinin",
+  "ihtarnamenin",
+  "ihtarnamesinin",
+]);
+
+/** Abbreviations whose dot does not end a sentence inside a pairing gap. */
+const GAP_ABBREVIATIONS: ReadonlySet<string> = new Set([
+  "m", "md", "mad", "e", "k", "s", "f", "b", "c", "t", "d", "y", "no", "nu", "bkz", "vb",
+  "vs", "vd", "sn", "av", "dr", "prof", "doç", "yrd", "krş", "örn", "age", "agk", "hd",
+  "cd", "hgk", "cgk", "rg", "tar", "bkn", "dn",
+]);
+
+/** Does this stretch of prose contain the end of a sentence? */
+function crossesSentenceBoundary(gap: string): boolean {
+  for (const m of gap.matchAll(/([\p{L}\p{N}]*)[.!?…]+["'”’)\]]*\s+(?=[A-ZÇĞİÖŞÜ"“(0-9])/gu)) {
+    const token = (m[1] ?? "").toLocaleLowerCase("tr-TR");
+    if (GAP_ABBREVIATIONS.has(token)) continue;
+    if (/^[0-9]+$/u.test(token)) continue;
+    return true;
+  }
+  return false;
+}
+
+/** Is the article in this gap's tail owned by a contract, a regulation …? */
+function ownedByNonStatute(gap: string): boolean {
+  const words = gap.match(/[\p{L}]+(?:['’][\p{L}]+)?/gu) ?? [];
+  for (const word of words.slice(-2)) {
+    const folded = word.toLocaleLowerCase("tr-TR").replace(/['’]/gu, "");
+    if (NON_STATUTE_OWNERS.has(folded)) return true;
+  }
+  return false;
+}
+
+function codePointLength(value: string): number {
+  let n = 0;
+  for (const _ of value) n += 1;
+  return n;
 }
 
 /**
@@ -299,16 +473,32 @@ export function extractAuditCitations(text: string): AuditCitation[] {
  * legislation reference, and a new legislation reference ends the run. Same
  * rule in both places, so a reader who learns it once knows it everywhere.
  *
- * A merged reference keeps the article's own `raw` text — the report shows
- * the citation as the document wrote it — and gains `legislationNo` so the
- * resolver can act. An article with no preceding law is left exactly as it
- * was, and stays honestly unresolvable.
+ * A merged reference reads the way the DOCUMENT wrote it (W17/c: the verbatim
+ * text from the statute to the article, "6098 sayılı Türk Borçlar Kanunu'nun
+ * 315. maddesi" — not a join of two parser fragments, which was a spelling
+ * the document never used) and gains `legislationNo` so the resolver can
+ * act. An article with no statute close enough before it is left exactly as
+ * it was, and stays honestly unresolvable.
+ *
+ * W17/c — the pairing is BOUNDED when `text` (the string the references were
+ * parsed from) is given, which every production caller does:
+ *   - the article must follow the statute (or the previous article of the
+ *     same list) within {@link PAIRING_MAX_GAP_CODE_POINTS} code points;
+ *   - the gap may not contain the end of a sentence;
+ *   - the article may not be owned by a contract, a regulation … written
+ *     right before it ({@link NON_STATUTE_OWNERS}: "sözleşmenin 8. maddesi").
+ * Without `text` only the distance bound applies.
  */
 export function pairArticlesWithTheirLaw(
   references: readonly ParsedReference[],
+  text?: string,
 ): ParsedReference[] {
   const out: ParsedReference[] = [];
   let currentLaw: ParsedReference | undefined;
+  /** End of the last element of the current run (the law or its article). */
+  let runEnd = 0;
+  /** True once an article of the current run has been paired. */
+  let runHasArticle = false;
   // W17: laws an article later claimed. "TBK m. 475" is ONE citation and the
   // lawyer looks for ONE row. Measured on a real cevap dilekçesi (06.09.2026):
   // the bare "TBK" half survived as a second citation, the resolver answered
@@ -320,6 +510,8 @@ export function pairArticlesWithTheirLaw(
   for (const reference of references) {
     if (reference.kind === "legislation" && reference.legislationNo !== undefined) {
       currentLaw = reference;
+      runEnd = reference.span?.[1] ?? 0;
+      runHasArticle = false;
       out.push(reference);
       continue;
     }
@@ -329,19 +521,67 @@ export function pairArticlesWithTheirLaw(
       reference.legislationNo === undefined &&
       currentLaw !== undefined
     ) {
-      claimed.add(currentLaw);
-      out.push({
-        ...reference,
-        // W17: the row now stands for the WHOLE citation, so it must read the
-        // way the document wrote it. Showing "m. 475" alone — after the "TBK"
-        // row was folded into this one — would leave the lawyer looking for an
+      const law = currentLaw;
+      const start = reference.span?.[0];
+      const end = reference.span?.[1];
+      const lawSpan = law.span;
+      let belongs = true;
+      if (start !== undefined && end !== undefined && lawSpan !== undefined) {
+        if (start < runEnd) belongs = false;
+        else if (text !== undefined) {
+          const gap = text.slice(runEnd, start);
+          belongs =
+            codePointLength(gap) <= PAIRING_MAX_GAP_CODE_POINTS &&
+            !crossesSentenceBoundary(gap) &&
+            !ownedByNonStatute(gap);
+        } else {
+          belongs = start - runEnd <= PAIRING_MAX_GAP_CODE_POINTS;
+        }
+      }
+      if (belongs) {
+        claimed.add(law);
+        // W17: the row stands for the WHOLE citation, so it must read the way
+        // the document wrote it. Showing "m. 475" alone — after the "TBK" row
+        // was folded into this one — would leave the lawyer looking for an
         // article with no statute.
-        raw: `${currentLaw.raw} ${reference.raw}`.replace(/\s+/gu, " ").trim(),
-        legislationNo: currentLaw.legislationNo as string,
-        ...(currentLaw.canonicalName !== undefined
-          ? { canonicalName: currentLaw.canonicalName }
-          : {}),
-      });
+        let raw = `${law.raw} ${reference.raw}`.replace(/\s+/gu, " ").trim();
+        let span = reference.span;
+        if (text !== undefined && lawSpan !== undefined && start !== undefined && end !== undefined) {
+          raw = runHasArticle
+            ? // A later item of a list ("m. 299, 313"): the statute's words and
+              // the item's words, both verbatim, the elision marked.
+              `${text.slice(lawSpan[0], lawSpan[1])} … ${text.slice(start, end)}`
+            : text.slice(lawSpan[0], end);
+          if (!runHasArticle) span = [lawSpan[0], end];
+        }
+        out.push({
+          ...reference,
+          raw,
+          ...(span !== undefined ? { span } : {}),
+          legislationNo: law.legislationNo as string,
+          ...(law.canonicalName !== undefined ? { canonicalName: law.canonicalName } : {}),
+        });
+        runEnd = end ?? runEnd;
+        runHasArticle = true;
+        continue;
+      }
+      out.push(reference);
+      continue;
+    }
+    // A repeated article the parser already resolved to THIS law ("HMK
+    // m. 18/A, 114, 115, 119" after "HMK m. 114/2" earlier) is part of the
+    // list, not the end of it (W17/c: measured, the repeat ended the run and
+    // "119" and "129" were never paired, so the list lost its new articles).
+    if (
+      reference.kind === "short_form" &&
+      currentLaw !== undefined &&
+      reference.legislationNo !== undefined &&
+      reference.legislationNo === currentLaw.legislationNo
+    ) {
+      const end = reference.span?.[1];
+      if (end !== undefined && end >= runEnd) runEnd = end;
+      runHasArticle = true;
+      out.push(reference);
       continue;
     }
     // A court decision (or anything else) ends the legislation run: the next
@@ -378,32 +618,62 @@ export function citationKey(parsed: ParsedReference): string {
 export async function auditCitations(
   request: CitationAuditRequest,
   resolver: CitationResolver,
-  options: { now?: () => Date; reviewComplete?: boolean } = {},
+  options: {
+    now?: () => Date;
+    reviewComplete?: boolean;
+    /**
+     * `extractAuditCitations(request.text)`, when the caller already has it
+     * (the petition analysis needs the list to know which row is which, and
+     * extracting a long petition twice is the cost W17/c removed).
+     */
+    extracted?: readonly AuditCitation[];
+  } = {},
 ): Promise<CitationAuditReport> {
-  if (!ISO_DATE.test(request.asOf)) {
-    throw new CitationAuditError(
-      "Denetim tarihi (asOf) YYYY-AA-GG biçiminde olmalı: yürürlük, bugüne göre değil" +
-        " dilekçenin tarihine göre hesaplanır.",
-    );
+  if (!isCalendarDate(request.asOf)) {
+    throw new CitationAuditError(AS_OF_INVALID_TR);
   }
   const citations: AuditCitation[] = [
-    ...(request.text !== undefined ? extractAuditCitations(request.text) : []),
+    ...(request.text !== undefined
+      ? (options.extracted?.map((citation) => ({
+          ...citation,
+          ...(citation.rawForms !== undefined ? { rawForms: [...citation.rawForms] } : {}),
+        })) ?? extractAuditCitations(request.text))
+      : []),
   ];
   for (const given of request.citations ?? []) {
     const raw = given.raw.trim();
     if (raw === "") continue;
-    const parsed = parseReferences(raw)[0];
-    const citation: AuditCitation = {
-      raw,
-      count: given.count ?? 1,
-      ...(parsed !== undefined ? { parsed } : {}),
-    };
-    const key = parsed !== undefined ? citationKey(parsed) : `raw:${canonicalQuoteText(raw)}`;
-    const existing = citations.find((c) =>
-      c.parsed !== undefined ? citationKey(c.parsed) === key : `raw:${canonicalQuoteText(c.raw)}` === key,
+    // W17/c — MEASURED: this used `parseReferences(raw)[0]`, which for
+    // "TBK m. 344" is the bare statute "TBK". Two different articles of one
+    // law ("TBK m. 344", "TBK m. 315") therefore got the SAME key and were
+    // merged into one row, and the resolver was asked about the statute, not
+    // the article. A given citation now goes through the same pairing as a
+    // document does; a string that names several citations yields several.
+    const prose = auditProse(raw);
+    const parsedAll = pairArticlesWithTheirLaw(parseReferences(prose), prose).filter(
+      isCheckableCourtReference,
     );
-    if (existing !== undefined) existing.count += citation.count;
-    else citations.push(citation);
+    const entries: AuditCitation[] =
+      parsedAll.length === 0
+        ? [{ raw, count: given.count ?? 1 }]
+        : parsedAll.map((parsed) => ({
+            raw: parsedAll.length === 1 ? raw : parsed.raw,
+            count: given.count ?? 1,
+            parsed,
+          }));
+    for (const citation of entries) {
+      const key =
+        citation.parsed !== undefined
+          ? citationKey(citation.parsed)
+          : `raw:${canonicalQuoteText(citation.raw)}`;
+      const existing = citations.find((c) =>
+        c.parsed !== undefined
+          ? citationKey(c.parsed) === key
+          : `raw:${canonicalQuoteText(c.raw)}` === key,
+      );
+      if (existing !== undefined) existing.count += citation.count;
+      else citations.push(citation);
+    }
   }
 
   const rows: CitationAuditRow[] = [];

@@ -3655,6 +3655,20 @@ describe("W16 · ekranlar: ilgili karar, anlam sıralaması, dilekçe analizi", 
     expect(render).toContain("Kaynağın yazmadığı künye alanı burada da boş bırakılır");
   });
 
+  it("(d0) W17/c: dilekçenin tarihi BUGÜNLE doldurulmaz, boş ve zorunlu kalır", () => {
+    // MEASURED: the required "Dilekçenin tarihi" field was pre-filled with
+    // today, so a report run without touching it printed today as the
+    // petition's date and read every statute as of today.
+    const open = fnBody("openDilekce");
+    expect(open).not.toContain("todayIso");
+    expect(open).not.toMatch(/dilekce-asof[\s\S]*\.value\s*=/u);
+    expect(html).toContain(
+      '<label class="lab" for="dilekce-asof">Dilekçenin tarihi (zorunlu)</label>',
+    );
+    // The run still refuses an empty date (the check this relies on).
+    expect(fnBody("runDilekce")).toContain('toast("Dilekçenin tarihini girin');
+  });
+
   it("(d) aleyhe kaynağın DÖRT durumu ekranda dört AYRI cümleyle karşılanır", () => {
     const meanings = objectStrings("CONTRARY_STATE_MEANING_TR");
     const labels = objectStrings("CONTRARY_STATE_LABEL_TR");
@@ -3686,7 +3700,22 @@ describe("W16 · ekranlar: ilgili karar, anlam sıralaması, dilekçe analizi", 
     }
     const tones = objectStrings("CONTRARY_STATE_TONE");
     expect(tones["ARANDI_BULUNAMADI"]).not.toBe(tones["CALISTIRILMADI"]);
-    expect(tones["BULUNDU"]).not.toBe(tones["ARANDI_BULUNAMADI"]);
+    // W17/c — a colour may not assert a DIRECTION nobody measured. The lane
+    // counts rows; it never reads what a decision says. "sorgu sonuç
+    // getirdi" used to be drawn red ("bad") and "arandı, bulunamadı" green
+    // ("ok"): the screen said "there IS authority against you" / "you are
+    // safe" in colour while the sentence beside it said ÖLÇÜLMEDİ.
+    for (const ran of ["BULUNDU", "ARANDI_BULUNAMADI"]) {
+      expect(["ok", "bad"], `${ran} bir yön rengiyle çiziliyor`).not.toContain(tones[ran]);
+    }
+    expect(html).not.toMatch(/\.dillane\.(bulundu|arandi) \{ border-left-color: var\(--(ok|bad)\)/u);
+    // The two states that did NOT produce a result stay visually distinct
+    // from the two that did, and from each other.
+    for (const notRun of ["CALISTIRILMADI", "ARAMA_BASARISIZ"]) {
+      expect(tones[notRun]).not.toBe(tones["BULUNDU"]);
+      expect(tones[notRun]).not.toBe(tones["ARANDI_BULUNAMADI"]);
+    }
+    expect(tones["CALISTIRILMADI"]).not.toBe(tones["ARAMA_BASARISIZ"]);
 
     // Rapor sonundaki okuma kılavuzu da dördünü tek tek yazar.
     expect(fnBody("renderPetitionAnalysis")).toContain(
