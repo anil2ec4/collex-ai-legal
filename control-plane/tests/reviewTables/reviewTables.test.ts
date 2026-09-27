@@ -214,6 +214,25 @@ class StubAnswers implements AnswerPort {
     if (request.question === "ŞERİT-TRIGRAM") {
       return laneAbstain("CONTRARY_LANES_CAPPED:1", false);
     }
+    // W22: a witness record. The drafter's FIRST claim is the hearing header;
+    // the testimony comes second and never says "işe giriş".
+    if (request.question === "Davacının işe giriş tarihi nedir?") {
+      const passage = (evidenceId: string, quote: string) => ({ ...pinnedEvidence(fileId), evidenceId, quote });
+      return {
+        result: {
+          runId: `run-giris-${fileId}`,
+          status: "COMPLETE",
+          claims: [
+            { text: "CELSE TARİHİ : 14.05.2024", verdict: "SUPPORTED", evidenceIds: ["ev-baslik"] },
+            { text: "Davacı Mehmet, 01.03.2018 tarihinde depoya sorumlu olarak geldi.", verdict: "SUPPORTED", evidenceIds: ["ev-tanik"] },
+          ],
+          evidence: [
+            passage("ev-baslik", "DURUŞMA TUTANAĞI\nESAS NO : 2024/128\nCELSE TARİHİ : 14.05.2024"),
+            passage("ev-tanik", "Davacı Mehmet, 01.03.2018 tarihinde depoya sorumlu olarak geldi, o gün ben de oradaydım."),
+          ],
+        },
+      } as never;
+    }
     if (this.degraded) {
       // The answer pipeline's degraded shapes (answerPipeline.ts: budget
       // spent before drafting; every core lane failed; drafter failed).
@@ -267,6 +286,9 @@ class StubAnswers implements AnswerPort {
             startChar: 0,
             endChar: 9,
             quoteSha256: "a".repeat(64),
+            // W22: the verified passage carries the question's words, as an
+            // answering passage does (worker.ts chooseAnsweringClaim).
+            quote: `${request.question} — cevap pasajı`,
           },
         ],
       },
@@ -614,7 +636,8 @@ describe("W21 #17/#18: cells stored before grid-v3 are never repeated as stored"
     // W21 round two moved it again (grid-v3 → grid-v4: R2-21..R2-24); grid-v3 cells keep their CB3 sentences.
     // Third verifier round: grid-v4 → grid-v5, because the census extractor changed (extract-v6); grid-v4 answers keep theirs.
     // Closing re-check: grid-v5 → grid-v6 with extract-v7 (an exchange rate is no longer an amount).
-    expect(REVIEW_TABLE_GENERATOR_VERSION).toBe("grid-v6");
+    // W22: grid-v6 → grid-v7 (the answering claim is chosen; extract-v8 names money-shaped numbers).
+    expect(REVIEW_TABLE_GENERATOR_VERSION).toBe("grid-v7");
     // A census is tied to the extractor it counts with: bumping one without the other fails here.
     expect(CENSUS_EXTRACTOR_VERSION).toBe(EXTRACTOR_VERSION);
   });
@@ -1288,5 +1311,76 @@ describe("W21 R2-22: a census counts the recognised formats and never claims a w
     expect(legacyCensusTr("Belgede hiç tarih yok.")).toBe(LEGACY_CENSUS_TR);
     expect(legacyCensusTr(null)).toBe(LEGACY_CENSUS_TR);
     expect(legacyCensusTr("Belgenin tamamında oran bulunmadı.")).not.toContain("Belgenin tamamında");
+  });
+});
+
+/**
+ * W22 (a realistic iş davası file): the grid answered "Davacının işe giriş
+ * tarihi nedir?" for a witness record with the record's header, marked
+ * "kaynağıyla doğrulandı"; its amount census of a bilirkişi report said
+ * "tam" while the calculation table (currency only in the header) was never
+ * read; and a bad body was answered in zod's English. Each fails on grid-v6.
+ */
+describe("W22 · the grid on a real file", () => {
+  beforeAll(async () => {
+    const report = await insertUpload(sql, {
+      fileId: "grid-bilirkisi",
+      title: "Bilirkişi raporu",
+      blocks: [
+        "IV. HESAPLAMA :\nKalem Dönem Brüt (TL) Kesinti (TL) Net (TL)\n" +
+          "Kıdem tazminatı 01.03.2018 - 15.01.2024 204.962,34 1.549,67 203.412,67\n" +
+          "İhbar tazminatı 8 hafta 115.428,00 16.143,50 99.284,50",
+        "VI. SONUÇ : Davacının net kıdem tazminatı alacağı 203.412,67 TL, net\n" +
+          "ihbar tazminatı alacağı 99.284,50 TL olarak hesaplanmıştır.",
+      ],
+    });
+    versions.set("grid-bilirkisi", report.versionId);
+  });
+
+  it("the testimony answers, not the hearing header, and it is never 'kaynağıyla doğrulandı'", async () => {
+    const tableId = await create({ fileIds: ["grid-a"], questions: ["Davacının işe giriş tarihi nedir?"] });
+    await newWorker(new StubAnswers()).drain();
+    const cell = (await get(app, `/v1/review-tables/${tableId}`)).body.cells[0];
+    expect(cell.state).toBe("done");
+    expect(cell.answerText).toBe("Davacı Mehmet, 01.03.2018 tarihinde depoya sorumlu olarak geldi.");
+    expect(cell.supportState).toBe("verified");
+    expect(cell.answerStatus).toBe("QUESTION_NOT_CHECKED");
+    expect(cell.generatorVersion).toBe(REVIEW_TABLE_GENERATOR_VERSION);
+    const csv = await (await app.request(`/v1/review-tables/${tableId}/export.csv`)).text();
+    expect(csv).toContain('"alıntı doğrulandı; soruyu karşıladığı denetlenmedi"');
+    expect(csv).not.toContain("kaynağıyla doğrulandı");
+    expect(csv).not.toContain("CELSE TARİHİ");
+  });
+
+  it("a table whose currency is only in its header makes the amount census PARTIAL, by example; kuruş keep two digits", async () => {
+    const tableId = await create({
+      fileIds: ["grid-bilirkisi"],
+      questions: [{ text: "Belgedeki bütün tutarlar", mode: "extract_amounts" }],
+    });
+    await newWorker(new StubAnswers()).drain();
+    const cell = (await get(app, `/v1/review-tables/${tableId}`)).body.cells[0];
+    expect(cell.state).toBe("done");
+    expect(cell.supportState).toBe("exhaustive_complete");
+    expect(cell.answerStatus).toBe("PARTIAL");
+    expect(cell.answerText).toContain("204.962,34");
+    expect(cell.answerText).toContain("99.284,50 TL");
+    expect(cell.answerText).not.toContain("99.284,5 TL");
+    expect(cell.answerText).toContain("sayım eksik olabilir");
+  });
+
+  it("a bad table request is answered in Turkish, the field named by its path", async () => {
+    const response = await post(app, "/v1/review-tables", {
+      fileIds: ["grid-a"],
+      questions: [{ text: "Tutarlar", mode: "extract_everything" }],
+    });
+    expect(response.status).toBe(400);
+    for (const issue of response.body.error.issues as Array<{ path: string; message: string }>) {
+      expect(issue.path).not.toBe("");
+      expect(issue.message).not.toMatch(/Invalid|Expected|Required/u);
+    }
+    // A question is a string or {text, mode}: zod reports the union at the question itself.
+    expect(response.body.error.issues).toEqual([{ path: "questions.0", message: "Geçersiz değer." }]);
+    const empty = await post(app, "/v1/review-tables", { fileIds: [], questions: ["Soru?"] });
+    expect(empty.body.error.issues).toEqual([{ path: "fileIds", message: "Liste en az bir öğe içermeli." }]);
   });
 });

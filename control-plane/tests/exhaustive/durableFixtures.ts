@@ -78,6 +78,7 @@ async function insertVersion(
   label: string,
   blocks: readonly string[],
   unreadablePage: boolean,
+  ocr = false,
 ): Promise<string> {
   const canonical = blocks.join("\n\n");
   const snapRows = await sql`
@@ -114,7 +115,7 @@ async function insertVersion(
     insert into legal.document_version_segments (document_version_id,
       segment_no, locator_kind, locator_label, start_char, end_char,
       extraction_method, extraction_status)
-    values (${versionId}, 1, 'page', '1', 0, ${length}, 'pdf_text_layer', 'EXTRACTED')`;
+    values (${versionId}, 1, 'page', '1', 0, ${length}, ${ocr ? "ocr" : "pdf_text_layer"}, 'EXTRACTED')`;
   if (unreadablePage) {
     await sql`
       insert into legal.document_version_segments (document_version_id,
@@ -133,6 +134,8 @@ export async function insertUpload(
     title: string;
     blocks: readonly string[];
     unreadablePage?: boolean;
+    /** W22: the page's text came from OCR (a scanned document read by local OCR). */
+    ocr?: boolean;
     /** Another tenant's upload (isolation tests). Defaults to the local tenant. */
     tenantId?: string;
   },
@@ -151,6 +154,7 @@ export async function insertUpload(
     "v1",
     options.blocks,
     options.unreadablePage === true,
+    options.ocr === true,
   );
   return { documentId, versionId };
 }

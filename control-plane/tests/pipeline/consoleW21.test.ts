@@ -35,8 +35,34 @@ describe("W21 · three coverage layers in the Matter tab", () => {
   });
 
   it("the runs list keeps 'pages read' and 'analysis complete' as two different chips", () => {
-    expect(html).toContain('chip(r.complete ? "dosyanın tamamı okundu" : "dosyanın tamamı okunmadı"');
-    expect(html).toContain('chip(r.analysisComplete ? "inceleme tamamlandı" : "inceleme eksik kaldı"');
+    // W22: both chips say what the SERVER says (readTr / analysisTr); the old
+    // wording is only the fallback for an older server.
+    expect(html).toContain('chip(r.readTr || (r.complete ? "dosyanın tamamı okundu" : "dosyanın tamamı okunmadı"), r.complete ? "ok" : "bad")');
+    expect(html).toContain('chip(r.analysisTr || (r.analysisComplete ? "inceleme tamamlandı" : "inceleme eksik kaldı"), r.analysisComplete ? "ok" : "warn")');
+  });
+
+  it("W22: a run row shows its time, and a limited analysis layer is never drawn 'tamam'", () => {
+    expect(html).toContain('row.appendChild(el("div", "when", fmtDateTimeTR(r.createdAt) || "-"));');
+    expect(html).toContain('var limitedLayer = index === 2 && ac.analysisLimited === true;');
+    expect(html).toContain('chip(limitedLayer ? "sınırlı" : layer[2] ? "tamam" : "eksik"');
+  });
+
+  it("W22: a grid cell whose question was not checked is never 'Kaynakla destekleniyor'", () => {
+    expect(html).toContain('quote_only: ["Alıntı doğrulandı; soruyu karşıladığı denetlenmedi", "warn"]');
+    expect(html).toContain('if (support === "verified" && status === "QUESTION_NOT_CHECKED") { support = "quote_only"; }');
+    expect(html).toContain('c.support === "quote_only" ? GRID_SUPPORT_TR.quote_only[0]');
+  });
+
+  it("W22: an empty matched-pairs result never reads as 'no contradiction in the file'", () => {
+    expect(html).toContain('(acE && acE.state === "LIMITED")');
+    expect(html).toContain("bu, dosyada çelişki olmadığı anlamına gelmez.");
+  });
+
+  it("W22: the stale banner names documents by their names, and an OCR quote says so", () => {
+    expect(html).toContain("var docNames = run.sourceNames || {};");
+    expect(html).toContain('named(addedDocs)');
+    expect(html).not.toContain('addedDocs.join(", ")');
+    expect(html).toContain('if (src.ocr === true) { s2.appendChild(chip("OCR ile okundu — aslıyla karşılaştırın", "warn")); }');
   });
 
   it("support states say how much was searched", () => {

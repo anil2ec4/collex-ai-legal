@@ -269,6 +269,12 @@ export interface FindingSource {
   readonly origin: string;
   /** The chunk the quote starts in, so the console can open that passage. */
   readonly chunkId: string | null;
+  /**
+   * W22 (additive): the quote lies, wholly or partly, on a page whose text
+   * came from OCR. Such a quote is the OCR engine's reading of a scan; the
+   * screen says so and asks for the original.
+   */
+  readonly ocr: boolean;
 }
 
 export interface FindingItem {
@@ -1533,7 +1539,11 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
              (select c.id::text from legal.chunks c
                where c.document_version_id = o.document_version_id
                  and c.start_char <= o.start_char and c.end_char > o.start_char
-               order by c.start_char limit 1) as chunk_id
+               order by c.start_char limit 1) as chunk_id,
+             exists (select 1 from legal.document_version_segments g
+                      where g.document_version_id = o.document_version_id
+                        and g.extraction_method = 'ocr'
+                        and g.start_char < o.end_char and g.end_char > o.start_char) as from_ocr
       from app_private.matter_intel_sources s
       join app_private.matter_intel_items i on i.item_id = s.item_id
       join app_private.matter_observations o on o.observation_id = s.observation_id
@@ -1556,6 +1566,7 @@ export class PgDurableAnalysisStore implements DurableAnalysisStore {
         locator: textOrNull(row, "locator"),
         origin: text(row, "origin"),
         chunkId: textOrNull(row, "chunk_id"),
+        ocr: row["from_ocr"] === true,
       });
       bySource.set(itemId, bucket);
     }

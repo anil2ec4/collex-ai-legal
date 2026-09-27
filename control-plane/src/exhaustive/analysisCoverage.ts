@@ -23,7 +23,8 @@
  * the three into the one sentence a lawyer reads.
  */
 
-import type { ProcessingCoverage } from "./processingCoverage.js";
+import type { ValueComparisonStats } from "./contradictions.js";
+import { qualityGapsTr, type ProcessingCoverage } from "./processingCoverage.js";
 import type { StageKind, StageTaskRow } from "./stageTypes.js";
 import { TASK_SPECS, type AnalysisTask } from "./tasks.js";
 
@@ -253,6 +254,12 @@ export interface IntelligenceCoverage {
    * coverage stored before W21 review #11.
    */
   readonly unresolvableWeighRows?: number;
+  /**
+   * W22: how much of the value census the deterministic lane COMPARED — the
+   * pairs its pairing rule matched, out of the pairs of the same kind.
+   * Absent on coverage stored before W22 and on a run not yet finalized.
+   */
+  readonly valueComparison?: ValueComparisonStats | undefined;
   /** The final assembly ran and its result is stored. */
   readonly finalized: boolean;
   /** The run ended without finalizing (failed or cancelled). */
@@ -291,6 +298,8 @@ export interface IntelligenceCoverageInput {
    */
   readonly claimRefs?: readonly string[] | undefined;
   readonly defenseRefs?: readonly string[] | undefined;
+  /** W22: what the deterministic value comparison compared (stageFinalize). */
+  readonly valueComparison?: ValueComparisonStats | undefined;
 }
 
 const WEIGH_STAGES: readonly StageKind[] = ["weigh_claim", "weigh_defense"];
@@ -555,6 +564,7 @@ export function deriveIntelligenceCoverage(input: IntelligenceCoverageInput): In
     failedStages: [...failedStages],
     truncatedStages: [...truncated],
     unresolvableWeighRows,
+    ...(input.valueComparison !== undefined ? { valueComparison: input.valueComparison } : {}),
     finalized: input.finalized,
     ...(input.terminal === true ? { terminal: true } : {}),
     complete,
@@ -566,14 +576,28 @@ export function deriveIntelligenceCoverage(input: IntelligenceCoverageInput): In
 // The one combined statement
 // ---------------------------------------------------------------------------
 
-export type AnalysisState = "COMPLETE" | "INCOMPLETE" | "IN_PROGRESS";
+/**
+ * COMPLETE     source, extraction and every analytical stage finished, and
+ *              the task's method can speak for everything it covered.
+ * LIMITED      (W22) every stage finished, but the task compares only the
+ *              pairs its pairing rule matched (TaskSpec.matchedPairsOnly): the
+ *              run is over, and still no "tüm çelişkiler" may be said.
+ * INCOMPLETE   a layer did not finish (and the run is no longer active).
+ * IN_PROGRESS  the run is still active.
+ */
+export type AnalysisState = "COMPLETE" | "LIMITED" | "INCOMPLETE" | "IN_PROGRESS";
 
 export interface AnalysisCompleteness {
   readonly state: AnalysisState;
   readonly sourceComplete: boolean;
   readonly extractionComplete: boolean;
   readonly intelligenceComplete: boolean;
-  /** All three. The ONLY flag that may license "the analysis is complete". */
+  /**
+   * W22: every stage finished but the task's method compares only matched
+   * pairs, so its result never covers "every contradiction" (state LIMITED).
+   */
+  readonly analysisLimited: boolean;
+  /** All three, and not limited. The ONLY flag that may license "the analysis is complete". */
   readonly complete: boolean;
   readonly headlineTr: string;
   readonly sectionsTr: { readonly source: string; readonly extraction: string; readonly analysis: string };
@@ -586,7 +610,11 @@ function sourceLine(coverage: ProcessingCoverage): string {
     coverage.pagesTotal > 0 ? `${coverage.pagesProcessed} / ${coverage.pagesTotal} sayfa işlendi` : "sayfa bilgisi yok";
   const units = `${coverage.analysisUnitsProcessed} / ${coverage.analysisUnitsTotal} bölüm okundu`;
   const unreadable = coverage.pagesUnreadable > 0 ? `; ${coverage.pagesUnreadable} sayfa okunamadı` : "";
-  return `${pages}; ${units}${unreadable}.`;
+  // W22: a gap that is not a count (a low-confidence OCR page, a sparse page,
+  // text outside every unit) is named, so "eksik" is never shown next to
+  // "5 / 5 sayfa işlendi" with nothing saying what is missing.
+  const quality = qualityGapsTr(coverage);
+  return `${pages}; ${units}${unreadable}${quality.length > 0 ? `; ${quality.join("; ")}` : ""}.`;
 }
 
 function extractionLine(extraction: ExtractionCoverage): string {
@@ -602,7 +630,28 @@ function extractionLine(extraction: ExtractionCoverage): string {
   );
 }
 
-function analysisLine(intelligence: IntelligenceCoverage): string {
+/**
+ * W22: what a matched-pairs-only task (TaskSpec.matchedPairsOnly) compared,
+ * as one sentence, or null for a task whose method is not so limited. It is
+ * the analysis line of such a run and the reason its exhaustive claim is
+ * refused: "Belgeler arası karşılaştırma tamamlandı" was printed over a run
+ * that had compared 0 of the 12 pairs that decided the case.
+ */
+export function comparisonLimitTr(task: AnalysisTask, intelligence: IntelligenceCoverage): string | null {
+  if (TASK_SPECS[task].matchedPairsOnly !== true) return null;
+  const stats = intelligence.valueComparison;
+  const tail = "; farklı kelimelerle anlatılan aynı olay kaçabilir.";
+  if (stats === undefined) {
+    return `Yalnız aynı olayı anan ya da konu anahtarı örtüşen değer çiftleri karşılaştırıldı${tail}`;
+  }
+  const compared = stats.pairsComparedByEvent + stats.pairsComparedByTopic;
+  return (
+    `Aynı türden ${stats.candidatePairs} değer çiftinden yalnız aynı olayı anan ya da konu anahtarı` +
+    ` örtüşen ${compared} çift karşılaştırıldı${tail}`
+  );
+}
+
+function analysisLine(intelligence: IntelligenceCoverage, limit: string | null): string {
   const parts: string[] = [];
   if (intelligence.requiredStages.includes("claim_weighing") || intelligence.claimsTotal > 0) {
     parts.push(`${intelligence.claimsWeighed} / ${intelligence.claimsTotal} iddia değerlendirildi`);
@@ -626,6 +675,7 @@ function analysisLine(intelligence: IntelligenceCoverage): string {
     parts.push(`${intelligence.synthesisGroupsProcessed} / ${intelligence.synthesisGroupsTotal} sentez grubu tamamlandı`);
   }
   if (parts.length === 0) {
+    if (intelligence.finalized && limit !== null) return limit;
     return intelligence.finalized
       ? "Belgeler arası karşılaştırma tamamlandı."
       : intelligence.terminal === true
@@ -642,6 +692,12 @@ function analysisLine(intelligence: IntelligenceCoverage): string {
  * analysis are all complete. Every page read with the analysis unfinished
  * is said as exactly that: the pages were read, the analysis was not
  * finished.
+ *
+ * W22: a task that compares only matched pairs (TaskSpec.matchedPairsOnly)
+ * is never COMPLETE. When every layer finished it is LIMITED: the headline
+ * says the run ended and what it compared, and the exhaustive claim is
+ * refused with that sentence — through this contract, never composed by a
+ * screen.
  */
 export function deriveAnalysisCompleteness(input: {
   readonly task: AnalysisTask;
@@ -651,18 +707,35 @@ export function deriveAnalysisCompleteness(input: {
   readonly active: boolean;
 }): AnalysisCompleteness {
   const title = TASK_SPECS[input.task].titleTr;
-  const complete = input.source.complete && input.extraction.complete && input.intelligence.complete;
-  const state: AnalysisState = complete ? "COMPLETE" : input.active ? "IN_PROGRESS" : "INCOMPLETE";
+  const finished = input.source.complete && input.extraction.complete && input.intelligence.complete;
+  const limit = comparisonLimitTr(input.task, input.intelligence);
+  const limited = finished && limit !== null;
+  const complete = finished && limit === null;
+  const state: AnalysisState = complete ? "COMPLETE" : input.active ? "IN_PROGRESS" : limited ? "LIMITED" : "INCOMPLETE";
   let headlineTr: string;
   if (complete) {
     headlineTr =
       `"${title}" tamamlandı: seçilen belgelerin tamamı okundu, çıkarım ve analiz` +
       " aşamalarının hepsi bitti.";
+  } else if (limited) {
+    headlineTr =
+      `"${title}" bitti: seçilen belgelerin tamamı okundu ve tanınan biçimlerdeki değerler çıkarıldı;` +
+      " ancak yalnız eşleşen değer çiftleri karşılaştırıldı, bu yüzden sonuç \"tüm çelişkiler\" olarak okunamaz.";
   } else if (input.active) {
     headlineTr = `"${title}" sürüyor; sonuçlar tamamlanmadan dosyanın tamamı için bir şey söylenemez.`;
   } else if (input.source.complete) {
     headlineTr =
       "Dosyanın bütün sayfaları okundu, ancak inceleme tamamlanmadı; eksik kalan aşamalar aşağıda yazıyor.";
+  } else if (
+    input.source.filesProcessed === input.source.filesTotal &&
+    input.source.analysisUnitsProcessed === input.source.analysisUnitsTotal &&
+    input.source.pagesUnreadable === 0
+  ) {
+    // W22: every page and unit was read, but a page was read unreliably (a
+    // low-confidence OCR page, a sparse page) or some text lies outside every
+    // unit. "Dosyanın tamamı okunmadı" was wrong for such a run.
+    headlineTr =
+      "Dosyanın bütün sayfaları işlendi, ancak bazı yerler güvenilir biçimde okunamadı; bu sonuç bütün dosya için söylenemez.";
   } else {
     headlineTr = "Dosyanın tamamı okunmadı; bu sonuç bütün dosya için söylenemez.";
   }
@@ -676,14 +749,19 @@ export function deriveAnalysisCompleteness(input: {
     sourceComplete: input.source.complete,
     extractionComplete: input.extraction.complete,
     intelligenceComplete: input.intelligence.complete,
+    analysisLimited: limited,
     complete,
     headlineTr,
     sectionsTr: {
       source: sourceLine(input.source),
       extraction: extractionLine(input.extraction),
-      analysis: analysisLine(input.intelligence),
+      analysis: analysisLine(input.intelligence, limit),
     },
-    refusedBecause: complete ? null : `Tam inceleme söylenemez: ${reasons.join(", ")}.`,
+    refusedBecause: complete
+      ? null
+      : limited
+        ? `"Tüm çelişkiler" söylenemez: ${limit}`
+        : `Tam inceleme söylenemez: ${reasons.join(", ")}.`,
   };
 }
 

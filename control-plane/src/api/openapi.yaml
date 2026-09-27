@@ -4052,6 +4052,9 @@ paths:
         document version, code-point offsets, exact quote, quote sha256,
         locator ("s. 3") and the chunk it starts in. The database refuses to
         commit an item without a source (deferred constraint trigger).
+        W22 (additive): a source also carries `ocr` — true when its quote
+        lies on a page whose text came from OCR, so the screen can say
+        "OCR ile okundu — aslıyla karşılaştırın".
         Available once the run is finished (done / cancelled / failed); an
         active run answers 409 RUN_NOT_FINISHED with its progress.
       parameters:
@@ -10512,7 +10515,7 @@ components:
           description: Turkish, in terms of the two values.
         detector:
           type: string
-          description: The detector that produced the relation (for example contradiction-v2 or semantic-v1).
+          description: The detector that produced the relation (for example contradiction-v3 or semantic-v1).
         lane:
           type: string
           enum: [deterministic, semantic]
@@ -10992,6 +10995,14 @@ components:
         pending, never weighed.
       required: [requiredStages, claimsTotal, claimsWeighed, defensesTotal, defensesWeighed, complete, gapsTr]
       properties:
+        valueComparison:
+          type: object
+          additionalProperties: { type: integer }
+          description: >-
+            W22 (additive) — how much of the value census the deterministic
+            lane compared: values, valuesNeverCompared (cited-decision dates,
+            partial-claim amounts), candidatePairs, pairsComparedByEvent,
+            pairsComparedByTopic. Absent on coverage stored before W22.
         requiredStages:
           type: array
           items:
@@ -11044,10 +11055,17 @@ components:
       properties:
         state:
           type: string
-          enum: [COMPLETE, INCOMPLETE, IN_PROGRESS]
+          enum: [COMPLETE, LIMITED, INCOMPLETE, IN_PROGRESS]
+          description: >-
+            W22 LIMITED — every layer finished, but the task compares only the
+            value pairs its pairing rule matched (the "contradictions" task);
+            complete is false and refusedBecause says what was compared.
         sourceComplete: { type: boolean }
         extractionComplete: { type: boolean }
         intelligenceComplete: { type: boolean }
+        analysisLimited:
+          type: boolean
+          description: W22 (additive) — state LIMITED; the analysis layer is drawn "sınırlı", never "tamam".
         complete: { type: boolean }
         headlineTr: { type: string }
         sectionsTr:
@@ -11104,6 +11122,31 @@ components:
           type: array
           description: W21 — documents this run read that are no longer in the matter.
           items: { type: string }
+        sourceNames:
+          type: object
+          additionalProperties: { type: string }
+          description: W22 (additive) — the names of the documents in sourceChanged/sourceAdded/sourceRemoved, by id.
+        scope:
+          type: string
+          enum: [whole_matter, selected]
+          description: W22 (additive) — whether the run read the whole matter or documents the lawyer selected.
+        documentCount:
+          type: integer
+          nullable: true
+          description: W22 (additive) — how many documents the run froze.
+        readTr:
+          type: string
+          description: >-
+            W22 (additive, list views) — the reading chip as the server says
+            it: "seçilen 2 belgenin tamamı okundu (dosyanın tamamı değil)" for a
+            selection, never "dosyanın tamamı okundu".
+        analysisTr:
+          type: string
+          description: W22 (additive, list views) — the analysis chip, from the derived completeness contract.
+        analysisState:
+          type: string
+          nullable: true
+          description: W22 (additive, list views) — analysisCompleteness.state of a finished, current run.
         summary: { type: object, additionalProperties: true }
         model: { type: string, nullable: true }
         limitsTr:

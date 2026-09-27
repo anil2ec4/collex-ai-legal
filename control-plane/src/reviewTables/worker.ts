@@ -48,11 +48,17 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { assessQuestionCoverage, contentLexemes } from "../answer/coverage.js";
+import { assessQuestionCoverage, contentLexemes, mapPassageCoverage } from "../answer/coverage.js";
 import { ENTAILMENT_NOT_CHECKED } from "../answer/verifier.js";
 import type { AnswerPort } from "../api/answerService.js";
+import { formatMinorUnits } from "../exhaustive/contradictions.js";
 import type { DurableAnalysisStore } from "../exhaustive/durableStore.js";
-import { extractPropositions, unparsedValueMentions, type PropositionKind } from "../exhaustive/observations.js";
+import {
+  extractPropositions,
+  topicWordKey,
+  unparsedValueMentions,
+  type PropositionKind,
+} from "../exhaustive/observations.js";
 import { planUnits, runMap, runReduce, type ScopedDocument } from "../exhaustive/runner.js";
 import {
   ABSTAIN_IN_PASSAGES_TR,
@@ -60,6 +66,7 @@ import {
   NO_PASSAGES_TR,
   PIN_FILE_DELETED_TR,
   PIN_UNREADABLE_TR,
+  QUESTION_NOT_CHECKED_STATUS,
   SEARCH_LANE_DEGRADED_TR,
   SUPPORT_NOT_CHECKED_TR,
   absentFromDocumentTr,
@@ -272,12 +279,76 @@ function displayValue(kind: PropositionKind, normalized: string): string {
   }
   if (kind === "amount") {
     // extract-v3 and later: "4500000" is kuruş; "150000 EUR" is cents of that currency.
+    // W22: kuruş are shown with two digits ("99.284,50 TL", never "99.284,5 TL").
     const [minor, currency] = normalized.split(" ");
     const units = Number(minor);
-    return Number.isFinite(units) ? `${(units / 100).toLocaleString("tr-TR")} ${currency ?? "TL"}` : normalized;
+    return Number.isFinite(units) ? `${formatMinorUnits(units)} ${currency ?? "TL"}` : normalized;
   }
   const perMille = Number(normalized);
   return Number.isFinite(perMille) ? `%${perMille / 10}` : normalized;
+}
+
+/**
+ * Party roles. In a grid question ("Davacının işe giriş tarihi nedir?") they
+ * say WHOSE fact is asked, not what the fact is; a passage need not repeat
+ * them to answer, so they are not core words.
+ */
+const ROLE_WORD_KEYS: ReadonlySet<string> = new Set(
+  ["davacı", "davalı", "müvekkil", "vekil", "sanık", "şüpheli", "katılan", "alacaklı", "borçlu"]
+    .map(topicWordKey)
+    .filter((key): key is string => key !== undefined),
+);
+
+/**
+ * W22: which drafted claim answers a grid question, and which of the
+ * question's core words its passage does NOT carry.
+ *
+ * The grid used to take the first claim. The rule-based drafter orders
+ * claims by passage rank, and a hearing record's header ("CELSE TARİHİ :
+ * 14.05.2024") outranked the testimony, so "Davacının işe giriş tarihi
+ * nedir?" was answered with the hearing date and marked "kaynağıyla
+ * doğrulandı". Now the claim whose verified passage covers the most of the
+ * question's core words is chosen (more words of any kind, then the
+ * drafter's order, break a tie); the words its passage still lacks are
+ * returned, and a cell with any is never called verified (answerCell).
+ * Matching is the coverage gate's own (mapPassageCoverage): lexical, not a
+ * reading of the answer.
+ */
+export function chooseAnsweringClaim<C extends { readonly text: string; readonly evidenceIds: readonly string[] }>(
+  question: string,
+  claims: readonly C[],
+  evidenceById: ReadonlyMap<string, { readonly quote?: string | undefined }>,
+): { claim: C; missingCore: string[] } | undefined {
+  if (claims.length === 0) return undefined;
+  const passages = claims.map((claim) => {
+    const quotes = claim.evidenceIds
+      .map((id) => evidenceById.get(id)?.quote)
+      .filter((quote): quote is string => typeof quote === "string" && quote.trim() !== "");
+    return quotes.length > 0 ? quotes.join("\n") : claim.text;
+  });
+  const map = mapPassageCoverage(question, passages);
+  const core = map.lexemes
+    .map((word, index) => ({ word, index }))
+    .filter(({ word }) => {
+      const key = topicWordKey(word);
+      return key === undefined || !ROLE_WORD_KEYS.has(key);
+    });
+  const coreCount = (at: number): number => {
+    const covered = new Set(map.covered[at] ?? []);
+    return core.filter(({ index }) => covered.has(index)).length;
+  };
+  let best = 0;
+  for (let at = 1; at < claims.length; at += 1) {
+    const better =
+      coreCount(at) > coreCount(best) ||
+      (coreCount(at) === coreCount(best) && (map.covered[at]?.length ?? 0) > (map.covered[best]?.length ?? 0));
+    if (better) best = at;
+  }
+  const covered = new Set(map.covered[best] ?? []);
+  return {
+    claim: claims[best] as C,
+    missingCore: core.filter(({ index }) => !covered.has(index)).map(({ word }) => word),
+  };
 }
 
 function supportFromVerdict(verdict: string | undefined): SupportState {
@@ -310,6 +381,8 @@ interface AnswerLike {
       startChar: number;
       endChar: number;
       quoteSha256: string;
+      /** The verified passage text (W22: which claim answers the question). */
+      quote?: string;
     }>;
     coverage?: { missing?: string[] } | undefined;
   };
@@ -410,7 +483,11 @@ export class ReviewTableWorker {
     const incomplete = incompleteAnswerReason(result);
     if (incomplete !== undefined) throw new Error(incomplete);
     const byId = new Map(result.evidence.map((evidence) => [evidence.evidenceId, evidence]));
-    const claim = result.claims[0];
+    // W22: the claim whose passage carries the most of the question's words,
+    // not the first one ("CELSE TARİHİ : 14.05.2024" was the answer to "işe
+    // giriş tarihi" because the tutanak header ranked first).
+    const choice = chooseAnsweringClaim(context.question, result.claims, byId);
+    const claim = choice?.claim;
     if (claim === undefined || result.status === "ABSTAIN") {
       return {
         answerStatus: result.status,
@@ -440,10 +517,17 @@ export class ReviewTableWorker {
         endChar: evidence.endChar,
         quoteSha256: evidence.quoteSha256,
       }));
+    const supportState = supportFromVerdict(claim.verdict);
     return {
-      answerStatus: result.status,
+      // W22: the quote verifies the sentence; whether the sentence answers the
+      // question was not checked when the passage lacks the question's core
+      // words. Such a cell is never labelled "kaynağıyla doğrulandı".
+      answerStatus:
+        supportState === "verified" && choice !== undefined && choice.missingCore.length > 0
+          ? QUESTION_NOT_CHECKED_STATUS
+          : result.status,
       answerText: claim.text.slice(0, 1500),
-      supportState: supportFromVerdict(claim.verdict),
+      supportState,
       provenance,
       answerRunId: result.runId,
     };

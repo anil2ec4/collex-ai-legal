@@ -90,6 +90,13 @@ export interface TaskSpec {
   readonly produces: readonly IntelItemKind[];
   /** What the task explicitly does NOT do (shown with the result). */
   readonly limitsTr: readonly string[];
+  /**
+   * W22: the task compares only the value pairs its pairing rule matches
+   * (same named event, or overlapping topic keys), never every pair. However
+   * completely it ran, its result can never license "tüm çelişkiler"
+   * (analysisCoverage.ts deriveAnalysisCompleteness).
+   */
+  readonly matchedPairsOnly?: true;
 }
 
 const ALL_MODEL_KINDS: readonly ModelItemKind[] = [
@@ -116,12 +123,17 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
     requiresModel: false,
     modelKinds: [],
     produces: ["contradiction", "question"],
+    matchedPairsOnly: true,
     limitsTr: [
       "Yalnız tarih, tutar ve oran içeren ifadeler karşılaştırılır; değer" +
         " içermeyen serbest metin çelişkileri bu incelemenin kapsamı dışındadır; onları" +
         " \"Dosyanın tamamını incele\" yerel modelle ayrıca karşılaştırır.",
-      "Hangi ifadelerin aynı konuya ait olduğu kelime örtüşmesiyle belirlenir;" +
-        " her eşleşme kaynaktan doğrulanmalıdır.",
+      "Yalnız eşleşen değer çiftleri karşılaştırılır: aynı olayı (işe giriş, işten çıkış," +
+        " tebliğ, ihtarname tarihi) anan tarihler ya da çevresindeki kelimeler (konu anahtarı)" +
+        " örtüşen değerler. Farklı kelimelerle anlatılan aynı olay kaçabilir; bu yüzden sonuç" +
+        " \"tüm çelişkiler\" olarak okunamaz ve her eşleşme kaynaktan doğrulanmalıdır.",
+      "Atıf yapılan mahkeme kararlarının tarihleri ile \"şimdilik\" istenen kısmi talep" +
+        " tutarları hiçbir değerle karşılaştırılmaz.",
     ],
   },
   chronology: {
@@ -136,6 +148,9 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
     limitsTr: [
       "Yalnız metinde açıkça yazılı tarihler kullanılır; tarihi yazılmamış" +
         " olaylar kronolojide yer almaz.",
+      "Aynı günün ifadeleri, aynı olayı andıklarında ya da çevrelerindeki kelimeler" +
+        " örtüştüğünde tek olayda birleştirilir; tarih çelişkileri de yalnız bu yolla eşleşen" +
+        " ifadeler arasında aranır. Atıf yapılan mahkeme kararlarının tarihleri kronolojiye alınmaz.",
     ],
   },
   claim_evidence: {

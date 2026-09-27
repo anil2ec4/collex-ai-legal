@@ -35,17 +35,30 @@
 
 import { createHash } from "node:crypto";
 import {
-  detectRelations,
+  compareValueObservations,
+  DEFAULT_SUBJECT_OVERLAP,
+  subjectOverlap,
   type ComparableObservation,
   type RelationVerdict,
+  type ValueComparisonStats,
 } from "./contradictions.js";
 import { MODEL_EXTRACTOR_VERSION } from "./modelExtractor.js";
-import { EXTRACTOR_VERSION, type PropositionKind } from "./observations.js";
+import { DATE_EVENT_TR, EXTRACTOR_VERSION, parsePredicate, type PropositionKind } from "./observations.js";
 import { SUPPORT_UNIVERSE_KINDS } from "./stageTypes.js";
 import { TASK_SPECS, type AnalysisTask, type IntelItemKind } from "./tasks.js";
 
-/** Version of the builders here (and of the W21 stage assembly). */
-export const INTEL_VERSION = "intel-v2";
+/**
+ * Version of the builders here (and of the W21 stage assembly).
+ *
+ * intel-v3 (W22): chronology events are grouped by date AND topic (the same
+ * named event, or overlapping topic keys) instead of by the exact topic-key
+ * string — one fact told by five documents was five events; the date of a
+ * cited decision is never an event; a date written alone ("… talep ederiz.
+ * 05.02.2024") is titled as such instead of "05.02.2024 — 05.02.2024"; and
+ * one contradiction item is built per (values, files) pair, not one per
+ * observation pair ("99.284,5 TL ve 5.000 TL" was listed twice).
+ */
+export const INTEL_VERSION = "intel-v3";
 
 /** One stored observation, as the reduce stage reads it back. */
 export interface StoredObservation {
@@ -184,6 +197,13 @@ function formatDateTr(iso: string, precision: string | undefined): string {
 export function relationsFromObservations(
   observations: readonly StoredObservation[],
 ): RelationVerdict[] {
+  return compareStoredValues(observations).verdicts;
+}
+
+/** relationsFromObservations, with the count of what was compared (contradiction-v3). */
+export function compareStoredValues(
+  observations: readonly StoredObservation[],
+): { verdicts: RelationVerdict[]; stats: ValueComparisonStats } {
   const comparable: ComparableObservation[] = [];
   for (const observation of observations) {
     if (observation.origin !== "deterministic") continue;
@@ -201,7 +221,7 @@ export function relationsFromObservations(
       datePrecision: observation.datePrecision,
     });
   }
-  return detectRelations(comparable);
+  return compareValueObservations(comparable);
 }
 
 // ---------------------------------------------------------------------------
@@ -250,37 +270,115 @@ function modelItem(
   };
 }
 
-/** Chronology events from dated deterministic propositions. */
+/** A statement with no word in it: the date written alone ("... talep ederiz. 05.02.2024"). */
+function isBareValue(statement: string): boolean {
+  return !/\p{L}/u.test(statement);
+}
+
+/** Shown for a date written alone in its sentence (intel-v3). */
+export const BARE_DATE_TITLE_TR =
+  "tarih metinde tek başına yazılmış (belgenin imza ya da düzenleme tarihi olabilir)";
+
+/** Deterministic order of observations: document, then place in it. */
+function byPlace(a: StoredObservation, b: StoredObservation): number {
+  return (
+    a.fileId.localeCompare(b.fileId) ||
+    a.startChar - b.startChar ||
+    a.observationId.localeCompare(b.observationId)
+  );
+}
+
+/**
+ * Chronology events from dated deterministic propositions (intel-v3).
+ *
+ * The same fact told by several documents is ONE event with several
+ * sources. W20/W21 grouped on the exact topic-key string, so 01.03.2018 told
+ * by a petition, a witness, a notice and an expert report was four events.
+ * Two dated statements of one day are now one event when they name the same
+ * event (işe giriş, tebliğ, ...) or their topic keys overlap at the
+ * comparison threshold; two statements naming DIFFERENT events stay apart.
+ * The date of a cited court decision is not an event of the case.
+ */
 function buildEvents(observations: readonly StoredObservation[]): IntelItemDraft[] {
-  const groups = new Map<string, StoredObservation[]>();
+  const byDate = new Map<string, StoredObservation[]>();
   for (const observation of observations) {
     if (observation.origin !== "deterministic" || observation.valueKind !== "date") continue;
     if (observation.occurredOn === undefined) continue;
-    const key = `${observation.occurredOn}|${observation.subject}`;
-    const bucket = groups.get(key);
-    if (bucket === undefined) groups.set(key, [observation]);
+    if (parsePredicate(observation.predicate).neverCompared) continue;
+    const key = `${observation.occurredOn}|${observation.datePrecision ?? ""}`;
+    const bucket = byDate.get(key);
+    if (bucket === undefined) byDate.set(key, [observation]);
     else bucket.push(observation);
   }
   const events: IntelItemDraft[] = [];
-  for (const [groupKey, members] of groups) {
-    const first = members[0] as StoredObservation;
-    const files = new Set(members.map((member) => member.fileId));
-    events.push(
-      deterministicItem(
-        "event",
-        `d:${shortHash(groupKey)}`,
-        `${formatDateTr(first.occurredOn as string, first.datePrecision)} — ${first.statement}`,
-        members.map((member, index) => ({
-          observationId: member.observationId,
-          role: index === 0 ? "basis" : "mention",
-        })),
-        {
-          occurredOn: first.occurredOn,
-          datePrecision: first.datePrecision,
-          attributes: { topicKey: first.subject, documents: files.size },
-        },
-      ),
-    );
+  for (const sameDay of byDate.values()) {
+    const ordered = [...sameDay].sort(byPlace);
+    const events_ = ordered.map((member) => parsePredicate(member.predicate).event);
+    // Union-find over the day's statements. A group carries at most ONE named
+    // event: two groups naming different events are never joined, not even
+    // through a third statement similar to both.
+    const parent = ordered.map((_member, index) => index);
+    const groupEvent = [...events_];
+    const root = (index: number): number => {
+      let at = index;
+      while (parent[at] !== at) at = parent[at] as number;
+      return at;
+    };
+    for (let i = 0; i < ordered.length; i += 1) {
+      for (let j = i + 1; j < ordered.length; j += 1) {
+        const a = root(i);
+        const b = root(j);
+        if (a === b) continue;
+        const left = groupEvent[a];
+        const right = groupEvent[b];
+        if (left !== undefined && right !== undefined && left !== right) continue;
+        const sameEvent = events_[i] !== undefined && events_[i] === events_[j];
+        const bare = isBareValue(ordered[i]!.statement) || isBareValue(ordered[j]!.statement);
+        const similar = !bare && subjectOverlap(ordered[i]!.subject, ordered[j]!.subject) >= DEFAULT_SUBJECT_OVERLAP;
+        if (!sameEvent && !similar) continue;
+        const [keep, drop] = a < b ? [a, b] : [b, a];
+        parent[drop] = keep;
+        groupEvent[keep] = left ?? right;
+      }
+    }
+    const groups = new Map<number, number[]>();
+    ordered.forEach((_member, index) => {
+      const at = root(index);
+      const bucket = groups.get(at);
+      if (bucket === undefined) groups.set(at, [index]);
+      else bucket.push(index);
+    });
+    for (const indexes of groups.values()) {
+      const members = indexes.map((index) => ordered[index] as StoredObservation);
+      // The basis is the first statement that says something beyond the date.
+      const basisIndex = Math.max(0, members.findIndex((member) => !isBareValue(member.statement)));
+      const basis = members[basisIndex] as StoredObservation;
+      const event = indexes.map((index) => events_[index]).find((value) => value !== undefined);
+      const files = new Set(members.map((member) => member.fileId));
+      const date = formatDateTr(basis.occurredOn as string, basis.datePrecision);
+      const groupKey = `${basis.occurredOn}|${members.map((member) => member.observationKey ?? member.observationId).join(",")}`;
+      events.push(
+        deterministicItem(
+          "event",
+          `d:${shortHash(groupKey)}`,
+          `${date} — ${isBareValue(basis.statement) ? BARE_DATE_TITLE_TR : basis.statement}`,
+          [basis, ...members.filter((member) => member !== basis)].map((member, index) => ({
+            observationId: member.observationId,
+            role: index === 0 ? "basis" : "mention",
+          })),
+          {
+            occurredOn: basis.occurredOn,
+            datePrecision: basis.datePrecision,
+            attributes: {
+              topicKey: basis.subject,
+              documents: files.size,
+              mentions: members.length,
+              ...(event !== undefined ? { event, eventTr: DATE_EVENT_TR[event] } : {}),
+            },
+          },
+        ),
+      );
+    }
   }
   return events.sort(
     (a, b) =>
@@ -295,9 +393,29 @@ function buildRelationItems(
 ): { items: IntelItemDraft[]; links: IntelLinkDraft[] } {
   const items: IntelItemDraft[] = [];
   const links: IntelLinkDraft[] = [];
+  // intel-v3: one item per (relation, the two values, the two documents). A
+  // petition that asks "5.000 TL ihbar ve 5.000 TL fazla çalışma" holds two
+  // observations of one value; each paired with the same figure elsewhere
+  // produced the same item twice. The second observation becomes a mention.
+  const byValues = new Map<string, IntelItemDraft>();
   for (const relation of relations) {
     if (relation.relation !== "CONTRADICTION" && relation.relation !== "TENSION") continue;
     if (onlyDates && relation.left.kind !== "date") continue;
+    const valuesKey = [
+      `${relation.left.fileId}=${relation.left.normalizedValue}`,
+      `${relation.right.fileId}=${relation.right.normalizedValue}`,
+    ]
+      .sort()
+      .join("|");
+    const duplicateOf = byValues.get(`${relation.relation}|${valuesKey}`);
+    if (duplicateOf !== undefined) {
+      for (const side of [relation.left, relation.right]) {
+        if (!duplicateOf.sources.some((source) => source.observationId === side.observationId)) {
+          duplicateOf.sources.push({ observationId: side.observationId, role: "mention" });
+        }
+      }
+      continue;
+    }
     const pairKey = `${relation.left.observationId}:${relation.right.observationId}`;
     const sources: IntelSourceRef[] = [
       { observationId: relation.left.observationId, role: "basis" },
@@ -317,17 +435,20 @@ function buildRelationItems(
           valueKind: relation.left.kind,
           subjectOverlap: Number(relation.subjectOverlap.toFixed(3)),
           detector: relation.detector,
+          ...(relation.pairedBy !== undefined ? { pairedBy: relation.pairedBy } : {}),
+          ...(relation.event !== undefined ? { event: relation.event, eventTr: DATE_EVENT_TR[relation.event] } : {}),
         },
       },
     );
     items.push(contradiction);
+    byValues.set(`${relation.relation}|${valuesKey}`, contradiction);
     if (relation.relation === "CONTRADICTION") {
       const question = deterministicItem(
         "question",
         `q:${shortHash(pairKey)}`,
         "Hangi değer doğru? Benzer bağlamda iki farklı değer geçiyor;" +
           " aynı şeye ilişkinse asıl kaynaklardan netleştirilmeli.",
-        sources,
+        sources.map((source) => ({ ...source })),
         { body: relation.rationale, attributes: { origin: "contradiction" } },
       );
       items.push(question);

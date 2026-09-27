@@ -40,7 +40,11 @@ describe("W20 · Dosya incelemesi (Matter tab)", () => {
     // W21 hostile review: the "not fully read" box follows SOURCE gaps only;
     // the refusal field now also covers incomplete analysis.
     expect(html).toContain("if (active || !cov || cov.complete !== false) { return; }");
-    expect(html).toContain("Dosyanın tamamı okunmadı; bu sonuç “bütün dosya” için söylenemez.");
+    // W22: the box lists the places; the server's headline (analysisCompleteness
+    // .headlineTr) already says the file was not wholly read, so the box does
+    // not say it a second time.
+    expect(html).toContain('box.appendChild(el("strong", "r3t", "Okunamayan ya da güvenilir biçimde okunamayan yerler:"));');
+    expect(html).not.toContain("Dosyanın tamamı okunmadı; bu sonuç “bütün dosya” için söylenemez.");
     for (const reason of [
       "UNREADABLE_NO_TEXT", "UNIT_FAILED", "UNIT_NOT_PROCESSED", "NO_SOURCE_MAP",
       "SYNTHESIS_FAILED", "OCR_LOW_CONFIDENCE", "TEXT_OUTSIDE_UNITS",

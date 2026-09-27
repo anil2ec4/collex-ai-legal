@@ -35,7 +35,7 @@
  * the two passages and can overrule the machine.
  */
 
-import type { PropositionKind } from "./observations.js";
+import { DATE_EVENT_TR, parsePredicate, type DateEvent, type PropositionKind } from "./observations.js";
 
 export type ObservationRelation =
   | "CONTRADICTION"
@@ -64,11 +64,30 @@ export interface RelationVerdict {
   /** Turkish, reviewable: says WHY, in terms of the two values. */
   readonly rationale: string;
   readonly detector: string;
-  /** Topic overlap that made the pair comparable, in [0,1]. */
+  /** Topic overlap of the two keys, in [0,1] (1 for a pair joined by its event). */
   readonly subjectOverlap: number;
+  /**
+   * What made the pair comparable (contradiction-v3): both values are the
+   * date of the same named event ("event"), or their topic keys overlapped
+   * ("topic"). Absent on verdicts stored before contradiction-v3.
+   */
+  readonly pairedBy?: "event" | "topic" | undefined;
+  /** The event both dates belong to, when pairedBy is "event". */
+  readonly event?: DateEvent | undefined;
 }
 
-export const DETECTOR_VERSION = "contradiction-v2";
+/**
+ * contradiction-v3 (W22). Two dates of the same named event (observations.ts
+ * DateEvent: işe giriş, işten çıkış / fesih, tebliğ, ihtarname) are compared
+ * whatever their other words, and a day's difference within one month is a
+ * CONTRADICTION for them, not a TENSION ("tebliğ 22.12.2023 / 26.12.2023"
+ * decides a deadline). Two dates of different events are never compared. A
+ * value marked never-compared (the date of a cited decision, a partial-claim
+ * amount) is left out, and every comparison is counted
+ * (ValueComparisonStats), so the analysis can say how many pairs it compared
+ * instead of implying it compared them all.
+ */
+export const DETECTOR_VERSION = "contradiction-v3";
 
 /**
  * How much of the two topic keys must overlap before a pair is COMPARED.
@@ -97,12 +116,16 @@ const ROUNDING_TOLERANCE = 0.01;
 function compareValues(
   left: ComparableObservation,
   right: ComparableObservation,
+  event: DateEvent | undefined,
 ): { relation: ObservationRelation; rationale: string } {
+  const eventTr = event === undefined ? undefined : DATE_EVENT_TR[event];
   if (left.normalizedValue === right.normalizedValue) {
     return {
       relation: "CORROBORATION",
       rationale:
-        "İki belge aynı değeri söylüyor; ifadeler birbirini doğruluyor.",
+        eventTr === undefined
+          ? "İki belge aynı değeri söylüyor; ifadeler birbirini doğruluyor."
+          : `İki belge “${eventTr}” için aynı tarihi söylüyor; ifadeler birbirini doğruluyor.`,
     };
   }
 
@@ -119,6 +142,17 @@ function compareValues(
           `Tarihler farklı (${describe(left)} / ${describe(right)})` +
           " ama en az biri kesin gün bildirmiyor; aynı olayın farklı" +
           " kesinlikte kaydı olabilir.",
+      };
+    }
+    if (eventTr !== undefined) {
+      // Two exact dates of one named event: a day matters (a tebliğ date
+      // starts a deadline), so even a difference within one month is not
+      // softened to TENSION.
+      return {
+        relation: "CONTRADICTION",
+        rationale:
+          `“${eventTr}” için iki farklı tarih var: ${describe(left)} ve ${describe(right)}.` +
+          " İkisi birden doğru olamaz — aynı işleme ilişkinse; bağlamı kaynaktan doğrulayın.",
       };
     }
     if (left.normalizedValue.slice(0, 7) === right.normalizedValue.slice(0, 7)) {
@@ -163,6 +197,18 @@ function compareValues(
   };
 }
 
+/**
+ * An amount in minor units (kuruş, cents) as Turkish writes money, without
+ * its currency: "45.000", and "99.284,50" — never "99.284,5" (W22). The
+ * minor units are shown with two digits whenever there are any.
+ */
+export function formatMinorUnits(minor: number): string {
+  const major = minor / 100;
+  const options: Intl.NumberFormatOptions =
+    Math.round(minor) % 100 === 0 ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+  return major.toLocaleString("tr-TR", options);
+}
+
 function describe(observation: ComparableObservation): string {
   if (observation.kind === "date") {
     const [year, month, day] = observation.normalizedValue.split("-");
@@ -171,7 +217,7 @@ function describe(observation: ComparableObservation): string {
   if (observation.kind === "amount") {
     const kurus = Number(observation.normalizedValue);
     if (Number.isFinite(kurus)) {
-      return `${(kurus / 100).toLocaleString("tr-TR")} TL`;
+      return `${formatMinorUnits(kurus)} TL`;
     }
   }
   if (observation.kind === "ratio") {
@@ -195,16 +241,36 @@ export interface CompareOptions {
 }
 
 /**
- * Compare every comparable pair and return the verdicts worth showing.
+ * How much of the census was actually COMPARED (contradiction-v3). The engine
+ * compares a pair only when both values name the same event or their topic
+ * keys overlap; every other pair of the same kind was never looked at, and a
+ * result that does not say so reads as "every contradiction was checked".
+ */
+export interface ValueComparisonStats {
+  /** Values that could be compared (a never-compared value is not one). */
+  readonly values: number;
+  /** Values left out by rule: dates of cited decisions, partial-claim amounts. */
+  readonly valuesNeverCompared: number;
+  /** Pairs of the same kind (and currency) in different units: what COULD be compared. */
+  readonly candidatePairs: number;
+  /** Pairs compared because both are the date of the same named event. */
+  readonly pairsComparedByEvent: number;
+  /** Pairs compared because their topic keys overlapped at the threshold. */
+  readonly pairsComparedByTopic: number;
+}
+
+/**
+ * Compare every comparable pair; return the verdicts worth showing and the
+ * count of what was compared.
  *
  * INDEPENDENT pairs are dropped from the result — they are the majority and
  * carry no information — while CORROBORATION is kept, because "two documents
  * independently say the same thing" is evidence a lawyer uses.
  */
-export function detectRelations(
+export function compareValueObservations(
   observations: readonly ComparableObservation[],
   options: CompareOptions = {},
-): RelationVerdict[] {
+): { verdicts: RelationVerdict[]; stats: ValueComparisonStats } {
   const threshold = options.minimumSubjectOverlap ?? DEFAULT_SUBJECT_OVERLAP;
   const verdicts: RelationVerdict[] = [];
 
@@ -216,13 +282,22 @@ export function detectRelations(
       a.unitNo - b.unitNo ||
       a.observationId.localeCompare(b.observationId),
   );
+  const parts = sorted.map((observation) => parsePredicate(observation.predicate));
+  const valuesNeverCompared = parts.filter((part) => part.neverCompared).length;
+  let candidatePairs = 0;
+  let pairsComparedByEvent = 0;
+  let pairsComparedByTopic = 0;
 
   for (let i = 0; i < sorted.length; i += 1) {
+    const leftParts = parts[i]!;
+    if (leftParts.neverCompared) continue;
     for (let j = i + 1; j < sorted.length; j += 1) {
+      const rightParts = parts[j]!;
+      if (rightParts.neverCompared) continue;
       const left = sorted[i] as ComparableObservation;
       const right = sorted[j] as ComparableObservation;
       if (left.kind !== right.kind) continue;
-      if (left.predicate !== right.predicate) continue;
+      if (leftParts.base !== rightParts.base) continue;
       if (
         options.includeSameUnit !== true &&
         left.fileId === right.fileId &&
@@ -230,10 +305,21 @@ export function detectRelations(
       ) {
         continue;
       }
+      candidatePairs += 1;
+      // Two dates of two DIFFERENT named events are never compared (an işe
+      // giriş date and a tebliğ date answer different questions); two dates
+      // of the SAME event always are.
+      if (leftParts.event !== undefined && rightParts.event !== undefined && leftParts.event !== rightParts.event) {
+        continue;
+      }
+      const sameEvent = leftParts.event !== undefined && leftParts.event === rightParts.event;
       const overlap = subjectOverlap(left.subject, right.subject);
-      if (overlap < threshold) continue;
+      if (!sameEvent && overlap < threshold) continue;
+      if (sameEvent) pairsComparedByEvent += 1;
+      else pairsComparedByTopic += 1;
 
-      const { relation, rationale } = compareValues(left, right);
+      const event = sameEvent ? leftParts.event : undefined;
+      const { relation, rationale } = compareValues(left, right, event);
       if (relation === "INDEPENDENT") continue;
       verdicts.push({
         left,
@@ -241,7 +327,9 @@ export function detectRelations(
         relation,
         rationale,
         detector: DETECTOR_VERSION,
-        subjectOverlap: overlap,
+        subjectOverlap: sameEvent ? 1 : overlap,
+        pairedBy: sameEvent ? "event" : "topic",
+        ...(event !== undefined ? { event } : {}),
       });
     }
   }
@@ -254,10 +342,29 @@ export function detectRelations(
     CORROBORATION: 3,
     INDEPENDENT: 4,
   };
-  return verdicts.sort(
+  verdicts.sort(
     (a, b) =>
       rank[a.relation] - rank[b.relation] ||
       b.subjectOverlap - a.subjectOverlap ||
-      a.left.observationId.localeCompare(b.left.observationId),
+      a.left.observationId.localeCompare(b.left.observationId) ||
+      a.right.observationId.localeCompare(b.right.observationId),
   );
+  return {
+    verdicts,
+    stats: {
+      values: sorted.length - valuesNeverCompared,
+      valuesNeverCompared,
+      candidatePairs,
+      pairsComparedByEvent,
+      pairsComparedByTopic,
+    },
+  };
+}
+
+/** The verdicts of compareValueObservations (see there). */
+export function detectRelations(
+  observations: readonly ComparableObservation[],
+  options: CompareOptions = {},
+): RelationVerdict[] {
+  return compareValueObservations(observations, options).verdicts;
 }

@@ -65,8 +65,29 @@ import { LOCAL_TENANT_ID } from "../exhaustive/store.js";
  * grid-v6 (W21 closing re-check): answer cells as in grid-v4; the census
  * extractor moved to extract-v7, which no longer reads an exchange rate
  * ("Kur EUR/TL 35,12") as an amount.
+ *
+ * grid-v7 (W22): an answer cell shows the claim whose passage carries the
+ * most of the question's core words (worker.ts chooseAnsweringClaim), not
+ * the first claim, and a verified claim whose passage still lacks one of
+ * them is stored with answer status QUESTION_NOT_CHECKED_STATUS — "alıntı
+ * doğrulandı; soruyu karşıladığı denetlenmedi", never "kaynağıyla
+ * doğrulandı". A verified cell stored by an earlier version was never so
+ * checked and is re-stated the same way (presentStoredCell). The census
+ * extractor moved to extract-v8, which names a money-shaped number it did not
+ * read ("204.962,34" under a "Brüt (TL)" header), so a grid-v6 amount census
+ * is re-stated; its dates and ratios were read by the same rules.
  */
-export const REVIEW_TABLE_GENERATOR_VERSION = "grid-v6";
+export const REVIEW_TABLE_GENERATOR_VERSION = "grid-v7";
+
+/**
+ * W22: the answer status of a cell whose claim is verified against its quote,
+ * but whose passage lacks one of the question's core words — nobody checked
+ * that it answers the question. Its "Destek" is QUOTE_ONLY_SUPPORT_TR.
+ */
+export const QUESTION_NOT_CHECKED_STATUS = "QUESTION_NOT_CHECKED";
+
+/** W22: the "Destek" label of such a cell (routes.ts supportLabelTr; the console's GRID_SUPPORT_TR.quote_only). */
+export const QUOTE_ONLY_SUPPORT_TR = "alıntı doğrulandı; soruyu karşıladığı denetlenmedi";
 
 /**
  * The deterministic extractor (exhaustive/observations.ts EXTRACTOR_VERSION)
@@ -75,7 +96,7 @@ export const REVIEW_TABLE_GENERATOR_VERSION = "grid-v6";
  * version must move as well, or census cells counted under the old rules are
  * shown as current (the grid-v4 residual of the third verifier round).
  */
-export const CENSUS_EXTRACTOR_VERSION = "extract-v7";
+export const CENSUS_EXTRACTOR_VERSION = "extract-v8";
 
 /**
  * Versions whose abstention sentences were checked against the whole pinned
@@ -109,8 +130,14 @@ const CURRENT_CENSUS_VERSIONS: ReadonlySet<string> = new Set([REVIEW_TABLE_GENER
  * Ratios were read the same way by all of them, so a ratio census is kept.
  * grid-v5 counted with extract-v6, which read an exchange rate as an amount
  * ("Kur EUR/TL 35,12" as 35,12 TL), so its amount census is re-stated too.
+ * grid-v6 counted with extract-v7, which did not name a money-shaped number
+ * it could not read; only its AMOUNT census is re-stated (W22), with its own
+ * sentence (SUPERSEDED_V6_AMOUNT_GAP_TR).
  */
-const SUPERSEDED_CENSUS_VERSIONS: ReadonlySet<string> = new Set(["grid-v4", "grid-v5"]);
+const SUPERSEDED_CENSUS_VERSIONS: ReadonlySet<string> = new Set(["grid-v4", "grid-v5", "grid-v6"]);
+
+/** Superseded versions whose DATE census is still read by the current rules. */
+const DATES_STILL_CURRENT_VERSIONS: ReadonlySet<string> = new Set(["grid-v6"]);
 
 /**
  * W21 (#17, contract CB2): the error of an answer cell whose run the pipeline
@@ -228,6 +255,10 @@ const SUPERSEDED_CENSUS_GAP_TR: Readonly<Record<CensusKind, string>> = {
   ratio: "",
 };
 
+/** W22: what a grid-v6 amount census could miss (extract-v7). */
+const SUPERSEDED_V6_AMOUNT_GAP_TR =
+  " O sayım, para birimi yalnız tablo başlığında yazılmış tutarları (ör. “Brüt (TL)” sütunundaki 204.962,34) hiç anmadan atlayabiliyor ve sayımı yine de tam gösterebiliyordu; listede olmayan tutarlar olabilir.";
+
 /**
  * W21 R2-22 (third verifier round): a census cell counted by a superseded
  * version (SUPERSEDED_CENSUS_VERSIONS), as it may be reported, or undefined
@@ -236,7 +267,7 @@ const SUPERSEDED_CENSUS_GAP_TR: Readonly<Record<CensusKind, string>> = {
  * could get wrong, and keeps an old list after the warning. An unrecognised
  * text is replaced by the warning alone.
  */
-export function supersededCensusTr(text: string | null): string | undefined {
+export function supersededCensusTr(text: string | null, generatorVersion?: string | null): string | undefined {
   const old = text ?? "";
   const list = old.match(/^\d+ ayrı (tarih|tutar|oran): /u);
   const whole = old.match(/^Belgenin tamamı okundu; tanınan biçimlerde yazılmış bir (tarih|tutar|oran) bulunmadı/u);
@@ -245,7 +276,10 @@ export function supersededCensusTr(text: string | null): string | undefined {
   const kind = word === undefined ? undefined : CENSUS_KIND_OF_WORD[word];
   if (word === undefined || kind === undefined) return LEGACY_CENSUS_TR;
   if (kind === "ratio") return undefined;
-  const gap = SUPERSEDED_CENSUS_GAP_TR[kind];
+  const v6 = generatorVersion !== undefined && generatorVersion !== null && DATES_STILL_CURRENT_VERSIONS.has(generatorVersion);
+  // W22: a grid-v6 date census was read by today's date rules; kept as it is.
+  if (v6 && kind === "date") return undefined;
+  const gap = v6 ? SUPERSEDED_V6_AMOUNT_GAP_TR : SUPERSEDED_CENSUS_GAP_TR[kind];
   if (whole !== null) {
     return `${LEGACY_CENSUS_TR}${gap} Eski sayım tanıdığı biçimlerde bir ${word} bulmamıştı; bu, belgede ${word} olmadığı anlamına gelmez.`;
   }
@@ -493,10 +527,21 @@ export function presentStoredCell(cell: ReviewCell): ReviewCell {
   if (cell.supportState === "exhaustive_complete" || cell.supportState === "exhaustive_incomplete") {
     if (cell.generatorVersion !== null && CURRENT_CENSUS_VERSIONS.has(cell.generatorVersion)) return cell;
     if (cell.generatorVersion !== null && SUPERSEDED_CENSUS_VERSIONS.has(cell.generatorVersion)) {
-      const restated = supersededCensusTr(cell.answerText);
+      const restated = supersededCensusTr(cell.answerText, cell.generatorVersion);
       return restated === undefined ? cell : { ...cell, answerStatus: "PARTIAL", answerText: restated };
     }
     return { ...cell, answerStatus: "PARTIAL", answerText: legacyCensusTr(cell.answerText) };
+  }
+  // W22: a verified answer stored before grid-v7 showed the FIRST claim and
+  // never checked that its passage carries the question's words (a hearing
+  // header answered "işe giriş tarihi"). Its quote was verified; that it
+  // answers the question was not.
+  if (
+    cell.supportState === "verified" &&
+    cell.generatorVersion !== REVIEW_TABLE_GENERATOR_VERSION &&
+    cell.answerStatus !== QUESTION_NOT_CHECKED_STATUS
+  ) {
+    return { ...cell, answerStatus: QUESTION_NOT_CHECKED_STATUS };
   }
   if (cell.supportState !== "abstained" && cell.supportState !== "no_evidence") return cell;
   if (cell.answerStatus !== "ABSTAIN") {

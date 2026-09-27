@@ -42,12 +42,14 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { z } from "zod";
-import { fieldIssues } from "../api/zodIssues.js";
+import { fieldIssues, zodMessageTr } from "../api/zodIssues.js";
 import { resolveMatterScope } from "../matters/scope.js";
 import type { MatterStore } from "../matters/types.js";
 import {
   PIN_FILE_DELETED_TR,
   PIN_UNREADABLE_TR,
+  QUESTION_NOT_CHECKED_STATUS,
+  QUOTE_ONLY_SUPPORT_TR,
   type ColumnMode,
   type PgReviewTableStore,
   type ReviewCell,
@@ -116,6 +118,8 @@ export const CENSUS_PARTIAL_TR = "belgenin tamamı okundu; sayım eksik olabilir
 export function supportLabelTr(cell: Pick<ReviewCell, "supportState" | "answerStatus">): string {
   if (cell.supportState === null) return "";
   if (cell.supportState === "exhaustive_complete" && cell.answerStatus !== "COMPLETE") return CENSUS_PARTIAL_TR;
+  // W22: the quote verifies the sentence; that it answers the question was not checked.
+  if (cell.supportState === "verified" && cell.answerStatus === QUESTION_NOT_CHECKED_STATUS) return QUOTE_ONLY_SUPPORT_TR;
   return SUPPORT_TR[cell.supportState] ?? cell.supportState;
 }
 
@@ -172,7 +176,8 @@ export function createReviewTableRouter(deps: ReviewTableRouterDeps): Hono {
           error: {
             kind: "INVALID_REQUEST",
             message: "Tablo isteği doğrulanamadı.",
-            issues: fieldIssues(parsed.error),
+            // W22: Turkish sentences, the field named by its path.
+            issues: fieldIssues(parsed.error, zodMessageTr),
           },
         },
         400,

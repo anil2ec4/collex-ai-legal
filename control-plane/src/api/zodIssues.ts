@@ -53,6 +53,29 @@ export function unrecognizedFieldLabel(path: string): string {
   return `Fazladan alan (${path})`;
 }
 
+/**
+ * A residual zod default message in lawyer Turkish (the dictionary rule),
+ * for a route that has no dictionary of its own (W22: the matter-analysis and
+ * review-table routes answered a bad body with zod's English, "Invalid enum
+ * value. Expected 'full_review' | ..."). The field is named by `path`; an
+ * unknown message is passed through unchanged.
+ */
+export function zodMessageTr(message: string): string {
+  if (message === "Required") return "Bu alan zorunludur.";
+  if (message === "Invalid input") return "Geçersiz değer.";
+  if (message.startsWith("Invalid enum value")) return "Geçersiz seçim; izin verilen değerlerden biri olmalı.";
+  if (message.startsWith("Expected ")) return "Geçersiz değer türü.";
+  if (message.startsWith("Unrecognized key")) return UNRECOGNIZED_FIELD_MESSAGE_TR;
+  if (message.startsWith("String must contain at least")) return "Değer çok kısa.";
+  if (message.startsWith("String must contain at most")) return "Değer çok uzun.";
+  if (message.startsWith("Array must contain at least")) return "Liste en az bir öğe içermeli.";
+  if (message.startsWith("Array must contain at most")) return "Listede izin verilenden fazla öğe var.";
+  if (message.startsWith("Number must be")) return "Sayı izin verilen aralıkta değil.";
+  if (message.startsWith("Invalid uuid")) return "Geçersiz kimlik.";
+  if (message.startsWith("Invalid date")) return "Geçersiz tarih.";
+  return message;
+}
+
 /** zod's `unrecognized_keys` issue carries the offending names in `keys`. */
 function unrecognizedKeys(issue: z.ZodIssue): readonly (string | number)[] | undefined {
   if (issue.code !== "unrecognized_keys") return undefined;

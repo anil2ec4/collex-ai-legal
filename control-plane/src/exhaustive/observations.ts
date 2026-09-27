@@ -35,7 +35,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { foldTurkishCase, stemTurkish, STOP_STEMS } from "../retrieval/turkishAnalyzer.js";
+import { cpLength, foldTurkishCase, stemTurkish, STOP_STEMS } from "../retrieval/turkishAnalyzer.js";
 
 /** What kind of value a proposition carries. */
 export type PropositionKind = "date" | "amount" | "ratio";
@@ -126,8 +126,39 @@ export interface PropositionDraft {
  * same line rule a long-form date needs its day and month on one line: a
  * page number or "Madde 12" above "Kasım 2023 ..." was read as a precise
  * date (12.11.2023) that the document never states; it is named now.
+ *
+ * extract-v8 (W22, a real iş davası file). The values read are unchanged;
+ * what they are ABOUT changed, and so did which of them are compared:
+ *
+ *   - Sentence and clause ends. "Yargıtay 9. Hukuk Dairesi" ended a sentence
+ *     at "9." and "2019/1234 E., 2020/5678 K. sayılı" at "K."; an ordinal, a
+ *     one-letter abbreviation and a closed list of abbreviations ("Av.",
+ *     "No.") no longer end one. A single PDF line wrap (a line ending in a
+ *     lower-case letter, the next starting with one) no longer ends a
+ *     sentence either: "esas\nalınırsa hizmet süresi ..." was shown as the
+ *     finding "alınırsa hizmet süresi ... (alternatif".
+ *   - Topic keys (topicStem). The stemmer turned one word into several keys
+ *     ("ihtarname" → ihtarnam, "ihtarnamesi" → ihtarname; "müvekkil" /
+ *     "müvekkile", "davalı" / "davalıya"), an apostrophe suffix became a word
+ *     ("Dairesi'nin" → "nin"), and "tarih", "olarak" and the party roles
+ *     filled the four slots of most keys. A key word is now the first five
+ *     letters of its ASCII-folded stem, generic words are dropped, and
+ *     "maaş" is read as "ücret".
+ *   - Event anchors. A date written as the date OF a named event — işe giriş,
+ *     işten çıkış / fesih, tebliğ, the date of an ihtarname — carries that
+ *     event in its predicate ("tarih#olay:teblig"), and two dates of the
+ *     same event are compared whatever their other words (contradictions.ts).
+ *   - Never compared. The date of a cited court decision ("Yargıtay 9. HD'nin
+ *     12.03.2020 tarihli, 2019/1234 E. ... sayılı kararı") is "tarih#karar":
+ *     two precedents' dates are not a contradiction and not an event of the
+ *     case. An amount claimed "şimdilik" / with "fazlaya ilişkin haklar
+ *     saklı" (a partial claim, HMK m. 107) is "tutar#kismi_talep": it is not
+ *     a statement of what is owed and is not compared with a calculation.
+ *   - unparsedValueMentions names every money-shaped number ("204.962,34")
+ *     that was not read as an amount — a table whose currency sits only in
+ *     the column header ("Brüt (TL)") is no longer a COMPLETE census.
  */
-export const EXTRACTOR_VERSION = "extract-v7";
+export const EXTRACTOR_VERSION = "extract-v8";
 
 /** How many characters around a value become its quote. */
 const QUOTE_RADIUS = 160;
@@ -389,21 +420,203 @@ export function subjectKey(context: string): string {
 /** How many stems form a clause-scoped topic key (measured, see below). */
 export const TOPIC_STEMS = 4;
 
-function isBoundary(text: string, index: number): boolean {
+/** How many letters of a folded stem form one topic word (extract-v8). */
+export const TOPIC_PREFIX = 5;
+
+/** Every line break character (LINE_BREAK). */
+const LINE_BREAK_CHARS = "\n\r\v\f\u0085\u2028\u2029";
+
+function isLineBreakAt(text: string, index: number): boolean {
   const c = text[index];
-  if (c === "\n" || c === ",") return true;
-  if (c === "." || c === "!" || c === "?" || c === ";") {
-    // A dot inside "01.02.2023" or "45.000" is followed by a digit, never by
-    // whitespace, so dates and amounts never split a clause.
-    const next = text[index + 1];
-    return next === undefined || /\s/u.test(next);
-  }
-  return false;
+  return c !== undefined && LINE_BREAK_CHARS.includes(c);
 }
 
 /**
- * The topic key of a value: the TOPIC_STEMS significant stems NEAREST to it
- * inside its own clause (bounded by . ! ? ; , or a newline), sorted.
+ * Abbreviations after which a dot does not end a sentence (case-folded).
+ * A CLOSED list: "Av. Zeynep ARSLAN", "No. 12", "Yargıtay 9. HD." — anything
+ * else ending in a dot and a space still ends its sentence. One-letter
+ * abbreviations ("E.", "K.", "T.", "m.", "A.Ş.") are recognised by shape.
+ */
+const ABBREVIATIONS: ReadonlySet<string> = new Set([
+  "av", "no", "dr", "vb", "vs", "md", "prof", "doç", "sn", "bkz", "örn",
+  "mah", "cad", "sok", "apt", "ltd", "şti", "tic", "hd", "cd", "hgk", "cgk",
+  "ibk", "sy", "yy",
+]);
+
+/** A numeric date at the start of a line: a date column, never a wrapped sentence. */
+const DATE_AT_START = /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}(?!\d)/u;
+
+/**
+ * True when the line break at `index` ends a sentence (extract-v8).
+ *
+ * pypdf keeps every visual line wrap as a line break, and a report's
+ * sentences wrap wherever the margin falls ("esas\nalınırsa hizmet süresi").
+ * A SINGLE break between a line ending in a lower-case letter (or a comma)
+ * and a line starting with a lower-case letter is such a wrap, and so is one
+ * followed by a number that is not a date column ("alacağı\n147.905,20 TL",
+ * "(binde\n7,59)"). A blank line, a line ending in punctuation, a digit or an
+ * upper-case letter, and a next line starting with an upper-case letter
+ * (a heading, a table row, a label line: "İşten Çıkış Tarihi : ...") still
+ * end the sentence.
+ */
+function isHardLineBreak(text: string, index: number): boolean {
+  // "\r\n" is one break: the "\r" defers to the "\n" after it.
+  if (text[index] === "\r" && text[index + 1] === "\n") return false;
+  let previous = index - 1;
+  while (previous >= 0 && /[ \t\r]/u.test(text[previous] ?? "")) previous -= 1;
+  let next = index + 1;
+  while (next < text.length && /[ \t]/u.test(text[next] ?? "")) next += 1;
+  if (previous < 0 || next >= text.length || isLineBreakAt(text, next)) return true;
+  const before = text[previous] ?? "";
+  const after = text[next] ?? "";
+  if (!/\p{Ll}/u.test(before) && before !== ",") return true;
+  if (/\p{Ll}/u.test(after)) return false;
+  if (/\p{Nd}/u.test(after) && !DATE_AT_START.test(text.slice(next, next + 11))) return false;
+  return true;
+}
+
+/**
+ * True when the ".", "!", "?" or ";" at `index` ends a sentence.
+ *
+ * A mark followed by anything but whitespace is inside a value ("01.02.2023",
+ * "45.000"). A dot followed by a space (on the same line) does not end one
+ * after an ordinal ("9. Hukuk Dairesi", "7. İş Mahkemesi"), a one-letter
+ * abbreviation ("2019/1234 E., 2020/5678 K. sayılı", "A.Ş.") or a listed
+ * abbreviation ("Av. Zeynep").
+ */
+function isSentenceMarkEnd(text: string, index: number): boolean {
+  const next = text[index + 1];
+  if (next !== undefined && !/\s/u.test(next)) return false;
+  if (text[index] !== "." || next === undefined || isLineBreakAt(text, index + 1)) return true;
+  let start = index;
+  while (start > 0 && /[\p{L}\p{M}\p{N}]/u.test(text[start - 1] ?? "")) start -= 1;
+  const word = text.slice(start, index);
+  if (word === "") return true;
+  const before = start > 0 ? (text[start - 1] ?? "") : "";
+  if (/^\p{Nd}{1,3}$/u.test(word) && !/[\p{Nd}.,]/u.test(before)) {
+    // An ordinal only when a word follows: "9. Hukuk", not "... 1775. \n".
+    let after = index + 1;
+    while (after < text.length && /[ \t]/u.test(text[after] ?? "")) after += 1;
+    return !/\p{L}/u.test(text[after] ?? "");
+  }
+  if (/^\p{L}$/u.test(word) && !/\p{L}/u.test(before)) return false;
+  return !ABBREVIATIONS.has(foldTurkishCase(word));
+}
+
+/** A sentence ends at `index` (see isSentenceMarkEnd and isHardLineBreak). */
+function isSentenceEnd(text: string, index: number): boolean {
+  if (isLineBreakAt(text, index)) return isHardLineBreak(text, index);
+  const c = text[index];
+  if (c === "." || c === "!" || c === "?" || c === ";") return isSentenceMarkEnd(text, index);
+  return false;
+}
+
+/** A clause ends at `index`: a sentence end, or a comma that is not inside a number ("1.549,67"). */
+function isClauseEnd(text: string, index: number): boolean {
+  if (text[index] === ",") {
+    return !(/\p{Nd}/u.test(text[index - 1] ?? "") && /\p{Nd}/u.test(text[index + 1] ?? ""));
+  }
+  return isSentenceEnd(text, index);
+}
+
+/** [start, end) of the clause (or sentence) around a value, never past `limit` characters each way. */
+function spanAround(
+  text: string,
+  at: number,
+  length: number,
+  isEnd: (text: string, index: number) => boolean,
+  limit = Number.POSITIVE_INFINITY,
+): { start: number; end: number; endMark: number } {
+  let start = Math.max(0, at - limit);
+  for (let i = at - 1; i >= Math.max(0, at - limit); i -= 1) {
+    if (isEnd(text, i)) {
+      start = i + 1;
+      break;
+    }
+  }
+  let end = Math.min(text.length, at + length + limit);
+  let endMark = end;
+  for (let i = at + length; i < Math.min(text.length, at + length + limit); i += 1) {
+    if (isEnd(text, i)) {
+      end = i;
+      endMark = isLineBreakAt(text, i) ? i : i + 1;
+      break;
+    }
+  }
+  return { start, end, endMark };
+}
+
+/**
+ * Words that say nothing about WHAT a value is (extract-v8), as topic words:
+ * the date words around every date, connectives, and the party roles that
+ * stand in almost every sentence of a petition ("davacı", "davalı",
+ * "müvekkil", "vekil") and the words that say who reported a fact ("tanık",
+ * "beyan", "bilirkişi", "esas alınarak"). Filling the four slots of a key
+ * with them made unrelated sentences comparable and the same fact told by
+ * two sources incomparable. A heuristic, named as one.
+ */
+const GENERIC_TOPIC_WORDS: readonly string[] = [
+  "tarih", "tarihli", "tarihinde", "tarihinden", "tarihleri", "yıl", "yılında", "gün", "günü",
+  "olup", "olan", "idi", "ile", "ise", "için", "gibi", "kadar", "ancak", "fakat",
+  "ayrıca", "üzere", "göre", "itibaren", "yana", "beri", "sonra", "önce", "arasında", "arası",
+  "bir", "iki", "her", "hiç", "tüm", "bütün", "diğer", "ilgili", "sayın", "esas",
+  "etti", "etmiş", "edildi", "oldu", "olduğu", "olmuş", "yapıldı",
+  "davacı", "davalı", "müvekkil", "vekil", "tanık", "beyan", "bilirkişi",
+];
+
+/** Words read as one topic word (extract-v8): "maaş" and "ücret" name the same thing. */
+const TOPIC_SYNONYM_WORDS: ReadonlyArray<readonly [string, string]> = [["maaş", "ücret"]];
+
+/**
+ * The first `TOPIC_PREFIX` letters of a word's ASCII-folded stem, or
+ * undefined for no content — before the generic words and synonyms of
+ * topicStem are applied (the review grid matches party roles with it).
+ */
+export function topicWordKey(word: string): string | undefined {
+  const raw = foldTurkishCase(word.normalize("NFC"));
+  if (cpLength(raw) < 3 || /\d/u.test(raw)) return undefined;
+  const stem = stemTurkish(raw);
+  if (cpLength(stem) < 3 || STOP_STEMS.has(stem)) return undefined;
+  return [...asciiFold(stem)].slice(0, TOPIC_PREFIX).join("");
+}
+
+const GENERIC_TOPIC_KEYS: ReadonlySet<string> = new Set(
+  GENERIC_TOPIC_WORDS.map(topicWordKey).filter((key): key is string => key !== undefined),
+);
+
+const TOPIC_SYNONYMS: ReadonlyMap<string, string> = new Map(
+  TOPIC_SYNONYM_WORDS.map(([word, canonical]) => [topicWordKey(word) ?? word, topicWordKey(canonical) ?? canonical]),
+);
+
+/**
+ * One word as it enters a topic key, or undefined when it carries no topic
+ * (extract-v8). The stemmer strips one word's inflections differently
+ * ("ihtarname" → ihtarnam, "ihtarnamesi" → ihtarname; "müvekkil" → müvekk,
+ * "müvekkile" → müvekki; "davalı" → daval, "davalıya" → davalı), so the key
+ * word is the first TOPIC_PREFIX letters of the ASCII-folded stem: every
+ * inflection of a word, and its spelling without Turkish letters ("teblig",
+ * "ihtari"), gives the same key word. Prefix truncation is the classic
+ * fixed-length stemmer for Turkish; it may merge two words sharing their
+ * first five letters, which is why it only decides what is COMPARED.
+ */
+export function topicStem(word: string): string | undefined {
+  const key = topicWordKey(word);
+  if (key === undefined) return undefined;
+  const canonical = TOPIC_SYNONYMS.get(key) ?? key;
+  return GENERIC_TOPIC_KEYS.has(canonical) ? undefined : canonical;
+}
+
+/**
+ * A word, with an apostrophe suffix kept attached: "Dairesi'nin",
+ * "Mehmet'in", "TL'dir". Only the part before the apostrophe is a word; the
+ * suffix ("nin") is never a topic word of its own (extract-v8).
+ */
+const TOPIC_WORD = /[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}]+)*/gu;
+
+/**
+ * The topic key of a value: the TOPIC_STEMS topic words NEAREST to it inside
+ * its own clause (bounded by . ! ? ; , or a line break that ends a sentence),
+ * sorted.
  *
  * W20 replaced the W19 key (stems of the ±160-character quote window,
  * alphabetically first six). Measured on 11 labeled synthetic value pairs at
@@ -413,35 +626,25 @@ function isBoundary(text: string, index: number): boolean {
  * decides 10/11 (the miss: "ihtar" vs "ihtarname" stem differently). That is
  * a synthetic measurement, not a claim about real case files; the key still
  * only decides what is COMPARED, never what is asserted.
+ *
+ * extract-v8 (W22): the words are topicStem forms, so the W20 miss above is
+ * compared now; the measurement on the real iş davası file is in the
+ * contradiction tests.
  */
 export function topicKeyAround(text: string, at: number, length: number): string {
-  let start = 0;
-  for (let i = at - 1; i >= 0; i -= 1) {
-    if (isBoundary(text, i)) {
-      start = i + 1;
-      break;
-    }
-  }
-  let end = text.length;
-  for (let i = at + length; i < text.length; i += 1) {
-    if (isBoundary(text, i)) {
-      end = i;
-      break;
-    }
-  }
+  const { start, end } = spanAround(text, at, length, isClauseEnd);
   const words: Array<{ stem: string; distance: number }> = [];
   // Combining marks belong to their word: a decomposed (NFD) "Şubat" is one
   // word, folded in its composed form (W21 R2-22).
-  for (const match of text.slice(start, end).matchAll(/[\p{L}\p{M}\p{N}]+/gu)) {
+  for (const match of text.slice(start, end).matchAll(TOPIC_WORD)) {
     const index = start + (match.index ?? 0);
     // W21 R2-22: a word INSIDE the value's own span (a month name, a
     // currency, "milyon") is part of the value, like its digits — never
     // what makes two values comparable.
     if (index >= at && index < at + length) continue;
-    const raw = foldTurkishCase(match[0].normalize("NFC"));
-    if (raw.length < 3 || /\d/u.test(raw)) continue;
-    const stem = stemTurkish(raw);
-    if (stem.length < 3 || STOP_STEMS.has(stem)) continue;
+    const word = match[0].split(/['’]/u)[0] ?? "";
+    const stem = topicStem(word);
+    if (stem === undefined) continue;
     const distance = index < at ? at - (index + match[0].length) : index - (at + length);
     words.push({ stem, distance });
   }
@@ -464,33 +667,202 @@ const MAX_STATEMENT_CHARS = 400;
  * checks against the page. The STATEMENT is what a list shows: a window that
  * starts in the previous paragraph ("… belgesidir ve …  11.03.2024") read as
  * noise in the chronology. Both are exact substrings of the unit text.
+ *
+ * extract-v8: a sentence ends where isSentenceEnd says so — not at "9." in
+ * "9. Hukuk Dairesi", not at "K." in "2020/5678 K. sayılı", not at a single
+ * line wrap.
  */
 function sentenceOf(text: string, at: number, length: number, fallback: string): string {
-  const boundary = (index: number): boolean => {
-    const c = text[index];
-    if (c === "\n") return true;
-    if (c === "." || c === "!" || c === "?" || c === ";") {
-      const next = text[index + 1];
-      return next === undefined || /\s/u.test(next);
-    }
-    return false;
-  };
-  let start = 0;
-  for (let i = at - 1; i >= 0; i -= 1) {
-    if (boundary(i)) {
-      start = i + 1;
-      break;
-    }
-  }
-  let end = text.length;
-  for (let i = at + length; i < text.length; i += 1) {
-    if (boundary(i)) {
-      end = text[i] === "\n" ? i : i + 1;
-      break;
-    }
-  }
-  const sentence = text.slice(start, end).trim();
+  const { start, endMark } = spanAround(text, at, length, isSentenceEnd);
+  const sentence = text.slice(start, endMark).trim();
   return sentence === "" || sentence.length > MAX_STATEMENT_CHARS ? fallback : sentence;
+}
+
+// ---------------------------------------------------------------------------
+// What a value is the value OF (extract-v8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Events a date can be anchored to. Two dates of the SAME event are compared
+ * whatever the rest of their wording (contradictions.ts): "01.03.2018
+ * tarihinde işe başlamış" and "İşe Giriş Tarihi : 01.03.2019" share no topic
+ * word worth the name, and that pair is the decisive conflict of a labour
+ * case. A CLOSED list; a date not matched stays a plain "tarih".
+ */
+export type DateEvent = "ise_giris" | "isten_cikis" | "teblig" | "ihtarname";
+
+/** The event's name on screen. */
+export const DATE_EVENT_TR: Readonly<Record<DateEvent, string>> = {
+  ise_giris: "işe giriş",
+  isten_cikis: "işten çıkış / fesih",
+  teblig: "tebliğ",
+  ihtarname: "ihtarname tarihi",
+};
+
+/**
+ * A predicate's tag after "#": an event ("olay:teblig"), or a value that is
+ * never compared ("karar" — the date of a cited court decision;
+ * "kismi_talep" — an amount claimed as a partial claim).
+ */
+export const DECISION_DATE_TAG = "karar";
+export const PARTIAL_CLAIM_TAG = "kismi_talep";
+const EVENT_TAG_PREFIX = "olay:";
+
+export interface PredicateParts {
+  /** What is compared for equality: "tarih", "tutar", "tutar:EUR", "oran". */
+  readonly base: string;
+  /** The event a date is the date of, when one was recognised. */
+  readonly event?: DateEvent | undefined;
+  /** True for a value that is never compared (a decision date, a partial claim). */
+  readonly neverCompared: boolean;
+  readonly tag?: string | undefined;
+}
+
+const DATE_EVENTS: ReadonlySet<string> = new Set(Object.keys(DATE_EVENT_TR));
+
+/** Split a stored predicate into its comparable base and its tag. */
+export function parsePredicate(predicate: string): PredicateParts {
+  const hash = predicate.indexOf("#");
+  if (hash < 0) return { base: predicate, neverCompared: false };
+  const base = predicate.slice(0, hash);
+  const tag = predicate.slice(hash + 1);
+  if (tag.startsWith(EVENT_TAG_PREFIX)) {
+    const event = tag.slice(EVENT_TAG_PREFIX.length);
+    return DATE_EVENTS.has(event)
+      ? { base, event: event as DateEvent, neverCompared: false, tag }
+      : { base, neverCompared: false, tag };
+  }
+  return { base, neverCompared: tag === DECISION_DATE_TAG || tag === PARTIAL_CLAIM_TAG, tag };
+}
+
+function tagged(base: string, tag: string | undefined): string {
+  return tag === undefined ? base : `${base}#${tag}`;
+}
+
+/** How far around a value its event or decision wording is looked for (UTF-16 units). */
+const EVENT_AFTER_WINDOW = 90;
+const EVENT_BEFORE_WINDOW = 60;
+
+/** Event wording AFTER a date, in ASCII-folded lower case: the verb that follows it. */
+const EVENT_AFTER: ReadonlyArray<readonly [DateEvent, RegExp]> = [
+  ["ihtarname", /^\s*tarihli\s+ihtar/u],
+  ["ise_giris", /\bise\s+(?:basla|gir|alin)|\bise\s+giris|\bcalismaya\s+basla|\bisbasi/u],
+  ["ise_giris", /^\s*tarihinden\s+(?:bu\s+yana|beri|itibaren)\b[^.;]{0,70}?\bcalis/u],
+  ["isten_cikis", /\bfesh|\bfesih|\bisten\s+(?:ayril|cikar|cikis)|\bistifa|\bis\s+akd\w*\s+(?:sona|feshed)|\bsozlesme\w*\s+sona\s+er/u],
+  ["teblig", /\bteblig|\btebellug/u],
+];
+
+/** A label ending right before a date: "İşe Giriş Tarihi : 01.03.2019". */
+const EVENT_BEFORE: ReadonlyArray<readonly [DateEvent, RegExp]> = [
+  ["ise_giris", /\bise\s+giris\s+tarihi\s*:?\s*$/u],
+  ["isten_cikis", /\b(?:isten\s+cikis|fesih|ayrilis)\s+tarihi\s*:?\s*$/u],
+  ["teblig", /\b(?:teblig|tebellug)\s+tarihi\s*:?\s*$/u],
+  ["ihtarname", /\bihtarname\s+tarihi\s*:?\s*$/u],
+];
+
+/** A court before a date that it decided: "Yargıtay 9. Hukuk Dairesi'nin 12.03.2020 tarihli ...". */
+const COURT_BEFORE =
+  /(?:\bdaire(?:si)?|\bh\.?\s?d\.?|\bc\.?\s?d\.?|\bhgk\b|\bcgk\b|\bibk\b|\bgenel\s+kurulu|\bdanistay|\byargitay|\banayasa\s+mahkemesi|\bbolge\s+adliye)[^.;:]{0,30}$/u;
+/** A decision's own date words after its date: "tarihli", "T.", "günlü". */
+const DECISION_DATE_WORD = /^\s*(?:tarihli|t\.|gunlu)/u;
+/** A decision's number or name within a few words after its date. */
+const DECISION_AFTER =
+  /^\s*(?:tarihli|t\.|gunlu|tarih\s+ve)\s*,?[^.;]{0,50}?(?:\d{4}\s*\/\s*\d+\s*[ek]\.|sayili\s+karar|\bilam)/u;
+/** A künye written number first: "E. 2019/1234, K. 2020/5678, T. 12.03.2020". */
+const DECISION_BEFORE_KUNYE = /\b[ek]\.?\s*\d{4}\s*\/\s*\d+\s*,?\s*(?:[ek]\.?\s*\d{4}\s*\/\s*\d+\s*,?\s*)?t\.?\s*:?\s*$/u;
+
+/** A partial claim's wording (ASCII-folded): "şimdilik", "fazlaya ilişkin haklarımız saklı". */
+const PARTIAL_CLAIM =
+  /\bsimdilik\b|\bfazlaya\s+iliskin\s+(?:hak|talep|alacak|dava)\w*[^.;]{0,30}?\bsakli|\bkismi\s+(?:dava|talep|alacak)|\bbelirsiz\s+alacak/u;
+
+/** A range "D1 - D2" of a period of work, and the words that make it one. */
+const RANGE_END_AFTER = /^\s*[-–]\s*\d{1,2}[./-]\d{1,2}[./-]\d{4}/u;
+const RANGE_START_BEFORE = /\d{1,2}[./-]\d{1,2}[./-]\d{4}\s*[-–]\s*$/u;
+const RANGE_IS_SERVICE = /\bcalis|\bhizmet\s+sure|\bis\s+iliskisi/u;
+const RANGE_BETWEEN = /^\s*(?:tarihleri\s+)?aras/u;
+
+interface DateContext {
+  readonly event?: DateEvent | undefined;
+  readonly decision: boolean;
+}
+
+/**
+ * What a date is the date of: a cited decision (never compared, never an
+ * event), one of the DateEvents, or nothing recognised. Looked for only
+ * inside the date's own clause (and, for a decision, its sentence), and
+ * never across another date: in "20.12.2023 tarihli ihtarnamesi müvekkile
+ * 26.12.2023 tarihinde tebliğ edilmiş", the first date is the ihtarname's
+ * and the second the tebliğ's.
+ */
+function dateContext(text: string, date: DateMatch, dates: readonly DateMatch[]): DateContext {
+  const previousEnd = dates.reduce(
+    (edge, other) => (other.at + other.length <= date.at ? Math.max(edge, other.at + other.length) : edge),
+    0,
+  );
+  const nextStart = dates.reduce(
+    (edge, other) => (other.at >= date.at + date.length ? Math.min(edge, other.at) : edge),
+    text.length,
+  );
+  const sentence = spanAround(text, date.at, date.length, isSentenceEnd, 400);
+  const clause = spanAround(text, date.at, date.length, isClauseEnd, 400);
+  const dateEnd = date.at + date.length;
+
+  // A cited decision: its sentence carries the court or the decision number.
+  const decisionBefore = asciiFold(text.slice(Math.max(sentence.start, date.at - EVENT_BEFORE_WINDOW), date.at));
+  const decisionAfter = asciiFold(text.slice(dateEnd, Math.min(sentence.endMark, dateEnd + EVENT_AFTER_WINDOW)));
+  if (
+    (COURT_BEFORE.test(decisionBefore) && DECISION_DATE_WORD.test(decisionAfter)) ||
+    DECISION_AFTER.test(decisionAfter) ||
+    DECISION_BEFORE_KUNYE.test(decisionBefore)
+  ) {
+    return { decision: true };
+  }
+
+  const clauseText = asciiFold(text.slice(clause.start, clause.end));
+  const rawAfter = text.slice(dateEnd, Math.min(clause.end, dateEnd + EVENT_AFTER_WINDOW));
+  // A period of service "D1 - D2 tarihleri arasında ... çalıştığı": D1 is the
+  // start of the work and D2 its end.
+  if (RANGE_IS_SERVICE.test(clauseText)) {
+    const rangeEnd = rawAfter.match(RANGE_END_AFTER);
+    if (rangeEnd !== null && RANGE_BETWEEN.test(asciiFold(rawAfter.slice(rangeEnd[0].length)))) {
+      return { event: "ise_giris", decision: false };
+    }
+    const rawBefore = text.slice(Math.max(clause.start, date.at - 20), date.at);
+    if (RANGE_START_BEFORE.test(rawBefore) && RANGE_BETWEEN.test(asciiFold(rawAfter))) {
+      return { event: "isten_cikis", decision: false };
+    }
+  }
+
+  // The event verb after the date, up to the next date: the first one wins.
+  const after = asciiFold(text.slice(dateEnd, Math.min(clause.end, nextStart, dateEnd + EVENT_AFTER_WINDOW)));
+  let best: { event: DateEvent; index: number } | undefined;
+  for (const [event, pattern] of EVENT_AFTER) {
+    const found = after.match(pattern);
+    if (found?.index !== undefined && (best === undefined || found.index < best.index)) {
+      best = { event, index: found.index };
+    }
+  }
+  if (best !== undefined) return { event: best.event, decision: false };
+
+  // A label right before the date ("İşe Giriş Tarihi : ").
+  const before = asciiFold(text.slice(Math.max(clause.start, previousEnd, date.at - EVENT_BEFORE_WINDOW), date.at));
+  for (const [event, pattern] of EVENT_BEFORE) {
+    if (pattern.test(before)) return { event, decision: false };
+  }
+  return { decision: false };
+}
+
+/**
+ * An amount claimed as a partial claim: its clause, or its sentence before
+ * it, says "şimdilik", "fazlaya ilişkin haklarımız saklı kalmak kaydıyla",
+ * "kısmi dava" or "belirsiz alacak". "Şimdilik 5.000 TL ihbar tazminatı" and
+ * a bilirkişi's 99.284,50 TL are not two answers to one question.
+ */
+function isPartialClaim(text: string, at: number, length: number): boolean {
+  const clause = spanAround(text, at, length, isClauseEnd, 400);
+  if (PARTIAL_CLAIM.test(asciiFold(text.slice(clause.start, clause.end)))) return true;
+  const sentence = spanAround(text, at, length, isSentenceEnd, 1500);
+  return PARTIAL_CLAIM.test(asciiFold(text.slice(sentence.start, at)));
 }
 
 function isoOrUndefined(year: number, month: number, day: number): string | undefined {
@@ -642,13 +1014,23 @@ export function extractPropositions(unitText: string, options: ExtractOptions = 
     out.push(draft);
   };
 
-  for (const date of dateMatches(unitText)) {
+  const dates = dateMatches(unitText);
+  for (const date of dates) {
     const { quote, startChar, endChar } = sliceQuote(unitText, date.at, date.length);
+    // extract-v8: the date of a cited decision is never compared and never
+    // an event; the date of a named event is compared with that event's
+    // other dates (contradictions.ts).
+    const context = dateContext(unitText, date, dates);
+    const tag = context.decision
+      ? DECISION_DATE_TAG
+      : context.event !== undefined
+        ? `${EVENT_TAG_PREFIX}${context.event}`
+        : undefined;
     push({
       kind: "date",
       statement: sentenceOf(unitText, date.at, date.length, quote),
       subject: topicKeyAround(unitText, date.at, date.length),
-      predicate: "tarih",
+      predicate: tagged("tarih", tag),
       normalizedValue: date.iso,
       occurredOn: date.iso,
       datePrecision: "exact",
@@ -662,12 +1044,15 @@ export function extractPropositions(unitText: string, options: ExtractOptions = 
     const domestic = amount.currency === "TRY";
     if (!domestic && options.foreignAmounts !== true) continue;
     const { quote, startChar, endChar } = sliceQuote(unitText, amount.at, amount.length);
+    // extract-v8: an amount claimed "şimdilik" is a partial claim, never a
+    // statement of what is owed, and is never compared.
+    const partial = isPartialClaim(unitText, amount.at, amount.length);
     push({
       kind: "amount",
       statement: sentenceOf(unitText, amount.at, amount.length, quote),
       subject: topicKeyAround(unitText, amount.at, amount.length),
       // A foreign amount is compared only with amounts in the same currency.
-      predicate: domestic ? "tutar" : `tutar:${amount.currency}`,
+      predicate: tagged(domestic ? "tutar" : `tutar:${amount.currency}`, partial ? PARTIAL_CLAIM_TAG : undefined),
       normalizedValue: domestic ? String(amount.minorUnits) : `${amount.minorUnits} ${amount.currency}`,
       startChar,
       endChar,
@@ -703,14 +1088,6 @@ const MENTION_WINDOW: Readonly<Record<"date" | "amount", { before: number; after
 
 /** Longest example returned per mention. */
 const MAX_MENTION_CHARS = 60;
-
-/** Every line break character (LINE_BREAK). */
-const LINE_BREAK_CHARS = "\n\r\v\f\u0085\u2028\u2029";
-
-function isLineBreakAt(text: string, index: number): boolean {
-  const c = text[index];
-  return c !== undefined && LINE_BREAK_CHARS.includes(c);
-}
 
 interface LineIndex {
   /** Index of the first character of the line holding `index`. */
@@ -773,6 +1150,13 @@ const DATE_LIKE = /(?<![\p{L}\p{N}])\d{1,2}[./-]\d{1,2}[./-]\d{2,4}(?![\p{L}\p{N
 
 const LETTER_RUN = /[\p{L}\p{M}]+/gu;
 
+/**
+ * A number written the way Turkish writes money and little else: dot-grouped
+ * thousands and exactly two decimals ("204.962,34", "1.549,67"). A date
+ * ("01.03.2018") has no comma, a ratio ("7,59") no thousands group.
+ */
+const MONEY_SHAPED = /(?<![\p{L}\p{N}.,])\d{1,3}(?:\.\d{3})+,\d{2}(?![\p{N}]|[.,]\d)/gu;
+
 const CURRENCY_TOKEN = new RegExp(
   String.raw`(?<![\p{L}\p{N}])(?:${CURRENCY_WORDS})(?![\p{L}\p{N}])|${CURRENCY_SYMBOLS}`,
   "giu",
@@ -833,8 +1217,12 @@ export function unparsedValueMentions(unitText: string, kind: PropositionKind): 
   const lines = lineIndex(unitText);
   const uncoveredDigitAt = (index: number): boolean =>
     index >= 0 && index < unitText.length && /\p{Nd}/u.test(unitText[index] ?? "") && !covered(index);
+  // The text each named mention already shows (W22): a money-shaped number
+  // inside it ("Tutar TL" / "45.000,00") is not named a second time.
+  const shown: Array<readonly [number, number]> = [];
   const push = (at: number, from: number, to: number, floor: number, ceiling: number): void => {
     const snippet = mentionSnippet(unitText, from, to, floor, ceiling);
+    shown.push([from, to]);
     if (snippet !== "" && !found.some((entry) => entry.snippet === snippet)) found.push({ at, snippet });
   };
   const note = (at: number, length: number, needsDigit: boolean): void => {
@@ -882,6 +1270,18 @@ export function unparsedValueMentions(unitText: string, kind: PropositionKind): 
     }
   } else {
     for (const match of unitText.matchAll(CURRENCY_TOKEN)) note(match.index ?? 0, match[0].length, true);
+    // extract-v8: a money-shaped number the amount patterns did not read. A
+    // calculation table carries its currency in the column header ("Brüt
+    // (TL)"), not next to "204.962,34", so every figure of such a table was
+    // neither read nor named and the census said COMPLETE.
+    for (const match of unitText.matchAll(MONEY_SHAPED)) {
+      const at = match.index ?? 0;
+      if (covered(at)) continue;
+      if (shown.some(([from, to]) => at >= from && at < to)) continue;
+      const lineStart = lines.startOf(at);
+      const lineEnd = lines.endOf(at + match[0].length);
+      push(at, Math.max(lineStart, at - window.before), Math.min(lineEnd, at + match[0].length + window.after), lineStart, lineEnd);
+    }
   }
   return found.sort((left, right) => left.at - right.at).map((entry) => entry.snippet);
 }
