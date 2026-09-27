@@ -73,8 +73,13 @@ import {
   type ContraryLaneKind,
 } from "../planner/contrary.js";
 import {
+  AS_OF_INVALID_TR,
   auditCitations,
+  auditProse,
+  citationKey,
+  citationOccurrences,
   extractAuditCitations,
+  isCalendarDate,
   pairArticlesWithTheirLaw,
   type AuditBucket,
   type CitationAuditReport,
@@ -189,8 +194,11 @@ export const EVALUATIVE_WORD_STEMS: readonly string[] = Object.freeze([
   "hata",
   "hatalı",
   "yanlış",
-  "kusur",
-  "kusurlu",
+  // W17/c — "kusur" / "kusurlu" are NOT here any more. MEASURED: "Davalı
+  // kusurlu değildir" became "Davalı […] değildir" and "kusursuz sorumluluk"
+  // became "[…] sorumluluk". Fault is an ELEMENT the petition pleads (TBK
+  // m. 49, the ceza kast/taksir line), not ColleX grading the claim; erasing
+  // it erased the claim.
   "sakat",
   "yetersiz",
   "isabetsiz",
@@ -212,24 +220,70 @@ export const EVALUATIVE_WORD_STEMS: readonly string[] = Object.freeze([
 export const EVALUATIVE_WORD_PLACEHOLDER = "[…]";
 
 /**
+ * Words that START like an assessment word and are not one (W17/c, a CLOSED
+ * list). MEASURED: "Hatay" was stripped as "hata".
+ */
+const NOT_EVALUATIVE_TOKENS: ReadonlySet<string> = new Set(["hatay"]);
+
+/**
+ * Legal INSTITUTIONS that contain an assessment word (W17/c, a CLOSED list):
+ * `word` is the assessment token's stem, `next` / `prev` the neighbouring
+ * token's start. MEASURED: "haksız fiil" — the tort itself — was printed
+ * "[…] fiil".
+ */
+const PROTECTED_PHRASES: readonly { word: string; next?: readonly string[]; prev?: readonly string[] }[] = [
+  {
+    word: "haksız",
+    next: ["fiil", "rekabet", "fesih", "feshi", "tahrik", "zenginleş", "işgal", "azil", "azl", "el", "şart", "haciz", "hacz"],
+  },
+  { word: "geçersiz", next: ["fesih", "feshi"], prev: ["feshin"] },
+  { word: "sakat", prev: ["irade"] },
+  { word: "hata", next: ["düş"], prev: ["esaslı", "saikte", "beyanda", "hesap", "yazım", "maddi", "iletimde"] },
+  { word: "tehlike", next: ["sorumlulu"], prev: ["somut", "soyut"] },
+  { word: "tehlikeli", next: ["madde", "iş", "faaliyet", "işletme"] },
+];
+
+function protectedPhrase(stem: string, prev: string, next: string): boolean {
+  for (const phrase of PROTECTED_PHRASES) {
+    if (phrase.word !== stem) continue;
+    if ((phrase.next ?? []).some((start) => next.startsWith(start))) return true;
+    if ((phrase.prev ?? []).some((start) => prev === start || prev.startsWith(start))) return true;
+  }
+  return false;
+}
+
+/**
  * Remove every assessment word (with its Turkish suffix) from a line.
  *
  * Matching is token-by-token on the Turkish-lowercased form of each token, so
  * "İ"/"ı" behave correctly and no length assumption is made about the folded
  * copy. A token whose folded form STARTS WITH one of the stems is replaced
- * whole — that is the suffix rule.
+ * whole — that is the suffix rule — unless it is one of the closed-list
+ * exceptions: a different word that shares the letters ("Hatay"), or a legal
+ * institution that contains the word ("haksız fiil", "irade sakatlığı").
  */
 export function stripEvaluativeWords(text: string): string {
+  const tokens = [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((match) => ({
+    token: match[0],
+    index: match.index ?? 0,
+    folded: match[0].toLocaleLowerCase("tr-TR"),
+  }));
   let out = "";
   let cursor = 0;
-  for (const match of text.matchAll(/[\p{L}\p{N}]+/gu)) {
-    const token = match[0];
-    const index = match.index ?? 0;
-    const folded = token.toLocaleLowerCase("tr-TR");
-    if (!EVALUATIVE_WORD_STEMS.some((stem) => folded.startsWith(stem))) continue;
+  tokens.forEach(({ token, index, folded }, position) => {
+    if (NOT_EVALUATIVE_TOKENS.has(folded)) return;
+    // The LONGEST stem the token starts with decides ("tehlikeli" over "tehlike").
+    let stem = "";
+    for (const candidate of EVALUATIVE_WORD_STEMS) {
+      if (folded.startsWith(candidate) && candidate.length > stem.length) stem = candidate;
+    }
+    if (stem === "") return;
+    const prev = tokens[position - 1]?.folded ?? "";
+    const next = tokens[position + 1]?.folded ?? "";
+    if (protectedPhrase(stem, prev, next)) return;
     out += text.slice(cursor, index) + EVALUATIVE_WORD_PLACEHOLDER;
     cursor = index + token.length;
-  }
+  });
   out += text.slice(cursor);
   return out.replace(/\s{2,}/gu, " ").trim();
 }
@@ -276,6 +330,24 @@ const SENTENCE_ABBREVIATIONS: ReadonlySet<string> = new Set([
   "rg",
   "tar",
   "bkn",
+  // W17/c — MEASURED: an address inside a claim ("Bahçelievler Mah. 7. Cad.
+  // No: 22/3") was cut into three "sentences", each printed ⚠ KAYNAKSIZ, and
+  // "Y.9.HD." / "Dn. 10. D." split a decision's künye in two.
+  "mah",
+  "cad",
+  "sok",
+  "sk",
+  "blv",
+  "bulv",
+  "apt",
+  "vd",
+  "san",
+  "tic",
+  "ltd",
+  "şti",
+  "d",
+  "y",
+  "dn",
 ]);
 
 /** A character that may legitimately open a new sentence. */
@@ -290,9 +362,33 @@ const TERMINATORS = new Set([".", "!", "?", "…"]);
  * abbreviation nor a bare number ("m. 344. maddesi" is one sentence).
  */
 export function splitPetitionSentences(text: string): string[] {
-  const flat = sanitizeMarkdown(text).replace(/\s+/gu, " ").trim();
-  if (flat === "") return [];
-  const out: string[] = [];
+  return petitionSentenceSpans(text).sentences.map((sentence) => sentence.text);
+}
+
+/** One sentence of a claim, with its `[start, end)` position in `flat`. */
+export interface SentenceSpan {
+  text: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * The sentences of a claim WITH their positions (W17/c), in the one string a
+ * citation's position is also measured on: the render-guarded text, NFC, every
+ * run of whitespace one space. A sentence is "bound" to a citation when the
+ * two OVERLAP — never because the sentence happens to contain a spelling.
+ */
+export function petitionSentenceSpans(text: string): { flat: string; sentences: SentenceSpan[] } {
+  const flat = auditProse(sanitizeMarkdown(text)).trim();
+  if (flat === "") return { flat, sentences: [] };
+  const sentences: SentenceSpan[] = [];
+  const push = (from: number, to: number): void => {
+    let s = from;
+    let e = to;
+    while (s < e && flat[s] === " ") s += 1;
+    while (e > s && flat[e - 1] === " ") e -= 1;
+    if (e > s) sentences.push({ text: flat.slice(s, e), start: s, end: e });
+  };
   let start = 0;
   for (let i = 0; i < flat.length; i += 1) {
     const ch = flat[i] as string;
@@ -302,7 +398,7 @@ export function splitPetitionSentences(text: string): string[] {
     i = end;
     const gap = flat[end + 1];
     if (gap === undefined) {
-      out.push(flat.slice(start, end + 1).trim());
+      push(start, end + 1);
       start = end + 1;
       continue;
     }
@@ -314,12 +410,11 @@ export function splitPetitionSentences(text: string): string[] {
     );
     if (ch === "." && SENTENCE_ABBREVIATIONS.has(token)) continue;
     if (ch === "." && /^\d+$/u.test(token)) continue;
-    out.push(flat.slice(start, end + 1).trim());
+    push(start, end + 1);
     start = end + 1;
   }
-  const tail = flat.slice(start).trim();
-  if (tail !== "") out.push(tail);
-  return out.filter((sentence) => sentence !== "");
+  push(start, flat.length);
+  return { flat, sentences };
 }
 
 // ---------------------------------------------------------------------------
@@ -353,29 +448,185 @@ export interface PetitionClaim {
  * vakıa sentence normally has no citation, so a mislabelled legal claim reads
  * as one that was never supposed to cite anything.
  */
-const HEADING_RULES: readonly { pattern: RegExp; kind: ClaimKind; weak?: boolean }[] =
+/**
+ * The form a heading or a preamble label is COMPARED in (W17/c): Turkish
+ * lower case, hyphens/slashes as spaces, and every Turkish letter folded to
+ * its ASCII base (ı→i, ş→s, ç→c, ğ→g, ö→o, ü→u, â→a, î→i, û→u).
+ *
+ * MEASURED: a petition typed without Turkish characters writes "HUKUKI
+ * SEBEPLER", "DELILLER", "VEKILI" — `normalizeTurkishSearch` turns the ASCII
+ * capital I into a dotless ı ("hukukı"), so none of them was recognised and
+ * each became a claim or vanished into the previous section. The lists below
+ * are still CLOSED; folding only stops one spelling of a listed word from
+ * being a different word.
+ */
+export function labelKey(value: string): string {
+  return normalizeTurkishSearch(value)
+    .replace(/[-/‐‑‒–—]+/gu, " ")
+    .replace(/[ıîİ]/gu, "i")
+    .replace(/ş/gu, "s")
+    .replace(/ç/gu, "c")
+    .replace(/ğ/gu, "g")
+    .replace(/ö/gu, "o")
+    .replace(/[üû]/gu, "u")
+    .replace(/â/gu, "a")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/** Build a closed, folded lookup table. */
+function foldedSet(entries: readonly string[]): ReadonlySet<string> {
+  return new Set(entries.map(labelKey));
+}
+
+/**
+ * The headings, as CLOSED lists per kind. W17/c extended every list with the
+ * forms a realistic set of nine petitions actually used and the old table
+ * missed ("SONUÇ VE TALEP", "HUKUKİ DEĞERLENDİRME", "HUKUKİ SEBEP",
+ * "USULE İLİŞKİN İTİRAZLAR", "İSTİNAF NEDENLERİ", "EKLER" …): each miss sent
+ * a whole section into the one above it, so a SONUÇ VE TALEP line was
+ * filed — and searched — as a piece of the DELİLLER list.
+ */
+const HEADING_TALEP = foldedSet([
+  "sonuç ve istem",
+  "sonuç ve istemlerimiz",
+  "sonuç ve istek",
+  "sonuç ve talep",
+  "sonuç ve talebimiz",
+  "sonuç ve taleplerimiz",
+  "netice-i talep",
+  "neticei talep",
+  "netice ve talep",
+  "talep ve sonuç",
+  "talep sonucu",
+  "sonuç",
+  "istem",
+  "istemlerimiz",
+  "talep",
+  "talebimiz",
+  "taleplerimiz",
+]);
+
+const HEADING_HUKUKI_SEBEP = foldedSet([
+  "hukuki sebepler",
+  "hukuki sebep",
+  "hukuki nedenler",
+  "hukuki neden",
+  "yasal dayanak",
+  "yasal dayanaklar",
+  "yasal nedenler",
+  "yasal sebepler",
+  "kanuni dayanak",
+  "kanuni dayanaklar",
+  "hukuki dayanak",
+  "hukuki dayanaklar",
+  "hukuki değerlendirme",
+  "hukuki değerlendirmeler",
+  "hukuki değerlendirmelerimiz",
+]);
+
+/**
+ * The GENERIC narrative sections: a cevap dilekçesi says AÇIKLAMALAR; a ceza
+ * savunma says SAVUNMAMIZ, an istinaf İSTİNAF SEBEPLERİMİZ, a temyiz TEMYİZ
+ * NEDENLERİMİZ (W17/b). Measured: without them a savunma dilekçesi had NO
+ * heading at all and every ground fell through to the unclassified kind.
+ */
+const HEADING_WEAK_VAKIA = foldedSet([
+  "açıklamalar",
+  "açıklamalarımız",
+  "açıklamalar ve hukuki değerlendirme",
+  "açıklamalar ve hukuki nedenler",
+  "olaylar",
+  "olay",
+  "olayın özeti",
+  "olayların özeti",
+  "olaylar ve açıklamalar",
+  "olaylar ve hukuki nedenler",
+  "olaylar ve hukuki sebepler",
+  "vakıalar",
+  "maddi olay",
+  "maddi olaylar",
+  "maddi vakıalar",
+  "konu",
+  "dava konusu",
+  "davanın özeti",
+  "cevaplarımız",
+  "esasa ilişkin cevaplarımız",
+  "esasa ilişkin itirazlarımız",
+  "esasa ilişkin açıklamalarımız",
+  "esasa ilişkin savunmalarımız",
+  "esas yönünden",
+  "esas yönünden cevaplarımız",
+  "usule ilişkin itirazlar",
+  "usule ilişkin itirazlarımız",
+  "usule ilişkin cevaplarımız",
+  "usule ilişkin açıklamalarımız",
+  "usul yönünden",
+  "usul yönünden itirazlarımız",
+  "ön itirazlarımız",
+  "ilk itirazlarımız",
+  "itirazlarımız",
+  "beyanlarımız",
+  "savunmamız",
+  "savunmalarımız",
+  "savunma",
+  "esas hakkındaki mütalaaya karşı savunmalarımız",
+  "esas hakkında savunmalarımız",
+  "mütalaaya karşı savunmalarımız",
+  "itirazımız",
+  "itiraz sebeplerimiz",
+  "itiraz nedenlerimiz",
+  "itiraz sebepleri",
+  "itiraz nedenleri",
+  "istinaf sebeplerimiz",
+  "istinaf nedenlerimiz",
+  "istinaf gerekçelerimiz",
+  "istinaf sebepleri",
+  "istinaf nedenleri",
+  "istinaf gerekçeleri",
+  "temyiz sebeplerimiz",
+  "temyiz nedenlerimiz",
+  "temyiz gerekçelerimiz",
+  "temyiz sebepleri",
+  "temyiz nedenleri",
+  "temyiz gerekçeleri",
+  "şikayet sebeplerimiz",
+  "başvuru sebeplerimiz",
+  "başvuru nedenlerimiz",
+  "başvuru sebepleri",
+  "başvuru nedenleri",
+  "gerekçelerimiz",
+  // An interim-measure section argues for the measure and then asks for it:
+  // its paragraphs decide for themselves (the closing request sentence makes
+  // the last one a talep).
+  "yürütmeyi durdurma talebimiz",
+  "yürütmenin durdurulması talebimiz",
+  "ihtiyati tedbir talebimiz",
+  "ihtiyati haciz talebimiz",
+]);
+
+/** DELİLLER / EKLER — a LIST of documents, never an assertion. */
+const HEADING_LIST = foldedSet([
+  "deliller",
+  "delillerimiz",
+  "hukuki deliller",
+  "delil listesi",
+  "deliller ve hukuki deliller",
+  "ek",
+  "ekler",
+  "ek listesi",
+  "ekleri",
+  "ekler listesi",
+  "belgeler",
+  "ekler ve deliller",
+]);
+
+const HEADING_RULES: readonly { labels: ReadonlySet<string>; kind: ClaimKind; weak?: boolean }[] =
   Object.freeze([
-    {
-      pattern:
-        /^(sonuç ve istem|netice-?i talep|netice ve talep|talep ve sonuç|sonuç|istem|talep|talebimiz)$/u,
-      kind: "TALEP",
-    },
-    {
-      pattern: /^(hukuki sebepler|hukukî sebepler|hukuki nedenler|hukukî nedenler|yasal dayanak|yasal dayanaklar|hukuki dayanak|hukuki dayanaklar)$/u,
-      kind: "HUKUKI_SEBEP",
-    },
-    {
-      pattern:
-        // W17/b — a cevap dilekçesi says AÇIKLAMALAR; a ceza savunma says
-        // SAVUNMAMIZ, an istinaf says İSTİNAF SEBEPLERİMİZ, a temyiz says
-        // TEMYİZ NEDENLERİMİZ. Measured: without them a savunma dilekçesi had
-        // NO heading at all and every ground fell through to the unclassified
-        // kind.
-        /^(açıklamalar|açıklamalarımız|olaylar|olay|vakıalar|maddi olaylar|maddi vakıalar|olaylar ve açıklamalar|konu|dava konusu|cevaplarımız|itirazlarımız|beyanlarımız|savunmamız|savunmalarımız|savunma|itirazımız|itiraz sebeplerimiz|itiraz nedenlerimiz|istinaf sebeplerimiz|istinaf nedenlerimiz|istinaf gerekçelerimiz|temyiz sebeplerimiz|temyiz nedenlerimiz|temyiz gerekçelerimiz|şikayet sebeplerimiz|başvuru sebeplerimiz|gerekçelerimiz)$/u,
-      kind: "VAKIA",
-      weak: true,
-    },
-    { pattern: /^(deliller|delillerimiz|hukuki deliller|delil listesi)$/u, kind: "DIGER" },
+    { labels: HEADING_TALEP, kind: "TALEP" },
+    { labels: HEADING_HUKUKI_SEBEP, kind: "HUKUKI_SEBEP" },
+    { labels: HEADING_WEAK_VAKIA, kind: "VAKIA", weak: true },
+    { labels: HEADING_LIST, kind: "DIGER" },
   ]);
 
 /**
@@ -387,7 +638,7 @@ const HEADING_RULES: readonly { pattern: RegExp; kind: ClaimKind; weak?: boolean
  * Deliberately a CLOSED list of forms, never a shape heuristic: an all-caps
  * short line is also how a lawyer emphasises a real assertion.
  */
-const PREAMBLE_TITLES: ReadonlySet<string> = new Set([
+const PREAMBLE_TITLES: ReadonlySet<string> = foldedSet([
   "dava dilekçesi",
   "cevap dilekçesi",
   "cevaba cevap dilekçesi",
@@ -401,10 +652,27 @@ const PREAMBLE_TITLES: ReadonlySet<string> = new Set([
   "itiraz dilekçesi",
   "şikayet dilekçesi",
   "ihtarname",
+  // W17/c — MEASURED title and routing lines that became claims: an idari
+  // dava opened with "YÜRÜTMENİN DURDURULMASI TALEPLİDİR" as iddia-1, and an
+  // istinaf's "Gönderilmek Üzere" routing line was searched for contrary
+  // authority. Still a CLOSED list.
+  "yürütmenin durdurulması taleplidir",
+  "yürütmeyi durdurma taleplidir",
+  "yürütmenin durdurulması talepli",
+  "duruşma taleplidir",
+  "duruşmalı",
+  "ihtiyati tedbir taleplidir",
+  "ihtiyati haciz taleplidir",
+  "tedbir taleplidir",
+  "gönderilmek üzere",
+  "t.c.",
+  "t.c",
+  "acele",
+  "ivedi",
 ]);
 
 /** Label of an identity line ("DAVACI : …"). */
-const PREAMBLE_LABELS: ReadonlySet<string> = new Set([
+const PREAMBLE_LABELS: ReadonlySet<string> = foldedSet([
   "davacı",
   "davalı",
   "davacılar",
@@ -425,6 +693,9 @@ const PREAMBLE_LABELS: ReadonlySet<string> = new Set([
   "adresi",
   "tc kimlik no",
   "t.c. kimlik no",
+  "t.c kimlik no",
+  "kimlik no",
+  "tckn",
   "esas no",
   "dosya no",
   "tarih",
@@ -432,8 +703,11 @@ const PREAMBLE_LABELS: ReadonlySet<string> = new Set([
   "dava konusu",
   "dava değeri",
   "harca esas değer",
-  "ekler",
-  "ek",
+  // W17/c — "EKLER" / "EK" are NOT labels any more: they are a document-list
+  // HEADING. MEASURED: as a label, "EKLER : 1- Vekâletname" was dropped and
+  // the next line "2- Kira sözleşmesi" became a claim filed under the
+  // previous heading — on a cevap dilekçesi, as a TALEP.
+  //
   // W17/b — MEASURED on real petition shapes other than a cevap dilekçesi.
   // A compound role label is how an istinaf, a ceza savunma and an icra
   // itirazı name their parties, and each of these became a claim of its own:
@@ -471,6 +745,44 @@ const PREAMBLE_LABELS: ReadonlySet<string> = new Set([
   "merci",
   "talep eden",
   "talep eden vekili",
+  // W17/c — MEASURED on nine realistic petitions: each of these labels
+  // became a claim of its own (and was then marked KAYNAKSIZ).
+  "arabuluculuk",
+  "arabuluculuk dosya no",
+  "arabuluculuk bürosu dosya no",
+  "suç",
+  "suç tarihi",
+  "suç yeri",
+  "hüküm tarihi",
+  "hüküm",
+  "karar tarihi",
+  "karar no",
+  "istinaf edilen karar",
+  "temyiz edilen karar",
+  "itiraz edilen karar",
+  "cevap veren",
+  "cevap veren davalı",
+  "cevap veren davacı",
+  "davanın özeti",
+  "istemin özeti",
+  "talebin özeti",
+  "karşı davacı",
+  "karşı davalı",
+  "davalı-karşı davacı",
+  "davacı-karşı davalı",
+  "müşteki-katılan",
+  "katılan-müşteki",
+  "şikayetçi",
+  "şikayet eden",
+  "davalı idare",
+  "vergi no",
+  "vergi kimlik no",
+  "vkn",
+  "mersis no",
+  "uyap dosya no",
+  "dava tarihi",
+  "harç",
+  "harç tutarı",
 ]);
 
 /**
@@ -480,23 +792,102 @@ const PREAMBLE_LABELS: ReadonlySet<string> = new Set([
  * report, so a lawyer's own name was listed as one of the other side's claims
  * and searched for contrary authority. Like {@link PREAMBLE_TITLES} this is a
  * CLOSED list of forms, not a shape heuristic: a role line spelled exactly as
- * a role, a courtesy closing, or a line that is NOTHING but the "Av." title
- * and a name. A petition sentence is never only "Av. Selin Aydın".
+ * a role, a courtesy closing, an e-signature marker, or a line that is
+ * NOTHING but the "Av." title and a name. A petition sentence is never only
+ * "Av. Selin Aydın".
+ *
+ * W17/c — MEASURED: "(e-imzalıdır)", "e-imza" and "Saygılarımızla," (with
+ * its trailing comma) each became a claim. Matched on the folded line with
+ * surrounding brackets and trailing punctuation removed.
  */
 const SIGNATURE_LINE =
-  /^(?:(?:davacı|davalı|müşteki|katılan|borçlu|alacaklı|sanık|şüpheli|itiraz eden|başvurucu)?\s*(?:vekili|vekilleri|müdafii|müdafi)|saygılarımla|saygılarımızla|saygıyla|imza|av\.?\s+\S[^,:;]{0,48})$/u;
+  /^(?:(?:(?:davaci|davali|musteki|katilan|borclu|alacakli|sanik|supheli|itiraz eden|basvurucu)?\s*(?:vekili|vekilleri|mudafii|mudafi))(?:\s+av\.?\s+\S[^,:;]{0,48})?|saygilarimla|saygilarimizla|saygiyla|imza|e imza|e imzali|e imzalidir|imzalidir|av\.?\s+\S[^,:;]{0,48})$/u;
 
-/** "… MAHKEMESİNE", "… HÂKİMLİĞİNE" — the court the petition is addressed to. */
 /**
+ * A line that is NOTHING but a date ("20.02.2025", "Tarih 20.02.2025") — the
+ * petition's own date under its closing, never an assertion. W17/c, measured:
+ * it became a claim of its own and was marked KAYNAKSIZ.
+ */
+const DATE_ONLY_LINE = /^(?:tarih\s*)?[0-9]{1,2}[./][0-9]{1,2}[./][0-9]{4}$/u;
+
+/**
+ * "… MAHKEMESİNE", "… HÂKİMLİĞİNE" — the court the petition is addressed to.
+ *
  * W17/b — MEASURED. `isPreambleLine` replaces the apostrophe with a SPACE
  * before testing, so "İZMİR 5. İCRA MÜDÜRLÜĞÜ'NE" arrives as
  * "izmir 5 icra mudurlugu ne" — and only two of the offices had their
- * apostrophe-split spelling listed. The result: on an icra-itiraz shape the
- * addressee line became iddia-1, and on a savcılık başvurusu likewise. Every
- * office now carries both spellings.
+ * apostrophe-split spelling listed. Every office carries both spellings; the
+ * list is folded (W17/c) so an ASCII-typed "MAHKEMESINE" is the same word.
  */
-const COURT_ADDRESS_TAIL =
-  /(mahkemesine|mahkemesi ne|hakimligine|hakimliğine|hâkimliğine|hakimligi ne|hâkimliği ne|hakimliği ne|başkanlığına|baskanligina|başkanlığı na|baskanligi na|müdürlüğüne|mudurlugune|müdürlüğü ne|mudurlugu ne|dairesine|dairesi ne|savcılığına|savciligina|savcılığı na|savciligi na|başsavcılığına|bassavciligina|başsavcılığı na|bassavciligi na|kuruluna|kurulu na|başkanlığa|kurumuna|kurumu na)$/u;
+const COURT_ADDRESS_TAILS: readonly string[] = [
+  "mahkemesine",
+  "mahkemesi ne",
+  "hakimliğine",
+  "hakimliği ne",
+  "başkanlığına",
+  "başkanlığı na",
+  "müdürlüğüne",
+  "müdürlüğü ne",
+  "dairesine",
+  "dairesi ne",
+  "savcılığına",
+  "savcılığı na",
+  "başsavcılığına",
+  "başsavcılığı na",
+  "kuruluna",
+  "kurulu na",
+  "başkanlığa",
+  "kurumuna",
+  "kurumu na",
+];
+const COURT_ADDRESS_TAIL = new RegExp(
+  `(?:${[...new Set(COURT_ADDRESS_TAILS.map(labelKey))].join("|")})$`,
+  "u",
+);
+
+/**
+ * The same offices in the NOMINATIVE ("İSTANBUL BÖLGE ADLİYE MAHKEMESİ"),
+ * which a petition writes as the first line of a two-line addressee block
+ * ("… MAHKEMESİ / İLGİLİ CEZA DAİRESİ BAŞKANLIĞI'NA"). W17/c — MEASURED: that
+ * line became iddia-1 of an istinaf report, marked KAYNAKSIZ and searched for
+ * contrary authority. A nominative office name is only preamble ABOVE the
+ * first heading and the first claim — below them it can be the tail of an
+ * assertion — and only when the line does not end a sentence.
+ */
+const COURT_HEADER_TAIL = new RegExp(
+  `(?:${[
+    "mahkemesi",
+    "mahkemeleri",
+    "başkanlığı",
+    "hakimliği",
+    "savcılığı",
+    "başsavcılığı",
+    "müdürlüğü",
+    "dairesi",
+    "kurulu",
+    "kurumu",
+    "bakanlığı",
+  ]
+    .map(labelKey)
+    .join("|")})$`,
+  "u",
+);
+
+function isCourtHeaderLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed === "" || /[.!?;,…]$/u.test(trimmed)) return false;
+  const bare = labelKey(trimmed.replace(/[:\s]+$/u, "").replace(/['’]/gu, " "));
+  return bare !== "" && bare.length <= 90 && COURT_HEADER_TAIL.test(bare);
+}
+
+/** Is `written` (the text before a colon) one of the preamble labels? */
+function isPreambleLabel(written: string): boolean {
+  const trimmed = written.replace(/[.\s]+$/u, "");
+  if (PREAMBLE_LABELS.has(labelKey(trimmed))) return true;
+  // "İSTİNAF EDEN (DAVALI) : …" — a parenthetical restatement of the role is
+  // how an istinaf dilekçesi writes it, and it is still the same label.
+  return PREAMBLE_LABELS.has(labelKey(trimmed.replace(/\([^)]*\)/gu, " ")));
+}
 
 /**
  * Is this line part of the petition's preamble (title, addressee, identity
@@ -514,33 +905,68 @@ export function isPreambleLine(line: string): boolean {
   // ≤30-character prefix before the colon, so length past the colon is none of
   // its business. Checking the label first is what fixes it.
   const labelled = line.match(/^\s*([^:]{1,40}):/u);
-  if (labelled !== null) {
-    const written = (labelled[1] as string).replace(/[.\s]+$/u, "");
-    const label = normalizeTurkishSearch(written);
-    if (PREAMBLE_LABELS.has(label)) return true;
-    // "İSTİNAF EDEN (DAVALI) : …" — a parenthetical restatement of the role is
-    // how an istinaf dilekçesi writes it, and it is still the same label.
-    const bare = normalizeTurkishSearch(written.replace(/\([^)]*\)/gu, " "));
-    if (PREAMBLE_LABELS.has(bare)) return true;
-  }
-  if (SIGNATURE_LINE.test(normalizeTurkishSearch(line.trim()))) return true;
-  const bare = normalizeTurkishSearch(line.replace(/[:.\s]+$/u, "").replace(/['’]/gu, " "));
+  if (labelled !== null && isPreambleLabel(labelled[1] as string)) return true;
+  const signature = labelKey(
+    line
+      .trim()
+      .replace(/^[([{]+|[)\]}]+$/gu, "")
+      .replace(/[,;:!.…]+$/u, "")
+      .trim(),
+  );
+  if (SIGNATURE_LINE.test(signature)) return true;
+  if (DATE_ONLY_LINE.test(signature)) return true;
+  const bare = labelKey(line.replace(/[:.\s]+$/u, "").replace(/['’]/gu, " "));
   if (bare === "" || bare.length > 90) return false;
-  if (PREAMBLE_TITLES.has(bare)) return true;
+  if (PREAMBLE_TITLES.has(bare) || PREAMBLE_TITLES.has(labelKey(line.trim()))) return true;
   if (COURT_ADDRESS_TAIL.test(bare)) return true;
   return false;
 }
 
-/** Cue phrases that make a block a TALEP no matter which heading it sits under. */
-const TALEP_CUES: readonly string[] = Object.freeze([
-  "talep ederiz",
-  "talep ediyoruz",
-  "arz ve talep",
-  "arz ederiz",
-  "karar verilmesini",
-  "hükmedilmesini",
-  "istemekteyiz",
-]);
+/**
+ * Is this line a PREAMBLE LABEL whose content may continue on the lines
+ * below it (an address under "DAVACI : …")?
+ */
+function isPreambleLabelLine(line: string): boolean {
+  const labelled = line.match(/^\s*([^:]{1,40}):/u);
+  return labelled !== null && isPreambleLabel(labelled[1] as string);
+}
+
+/**
+ * A continuation of a preamble field: the address a petition writes on the
+ * INDENTED line(s) under "DAVACI : Mehmet KARACA". W17/c — MEASURED: every
+ * such address line ("Atatürk Mah. Gül Sok. No: 5/3 Ümraniye/İSTANBUL")
+ * became a claim and was marked KAYNAKSIZ. Only an INDENTED line directly
+ * under a label (no blank line between) continues it; an unindented line is
+ * the document speaking again.
+ */
+function isIndented(line: string): boolean {
+  return /^(?:\t|\s{2,})\S/u.test(line);
+}
+
+/**
+ * A paragraph is a TALEP only when the petition ITSELF asks for something in
+ * its closing words (W17/c).
+ *
+ * MEASURED: one request cue ANYWHERE in a paragraph used to make the whole
+ * paragraph a talep. A ceza savunma ground reading "Cumhuriyet savcısı …
+ * cezalandırılmasına karar verilmesini istemiştir. Oysa olay günü sanık …
+ * işyerinden hiç ayrılmamıştır." — a REPORTED request of the other side,
+ * followed by the defence's own factual assertion — became "talep", which
+ * switched off both the unsourced scan and the contrary search on the very
+ * ground the lawyer has to answer. The rule now reads the paragraph's FINAL
+ * sentence, whose main verb (Turkish is verb-final) must be a first-person
+ * request formula; a reported request ("istemiştir", "talep etmektedir") is
+ * never one.
+ */
+const REQUEST_FORMULA_END =
+  /(?:(?:talep|arz|rica)\s+(?:ederiz|ederim|ediyoruz|ediyorum|olunur)|istemekteyiz|istemekteyim|isteriz|isterim|istiyoruz|istiyorum)[\s.!…)"'”’]*$/u;
+
+function endsWithOwnRequest(text: string): boolean {
+  const sentences = splitPetitionSentences(text).filter((sentence) => /\p{L}/u.test(sentence));
+  const last = sentences[sentences.length - 1];
+  if (last === undefined) return false;
+  return REQUEST_FORMULA_END.test(normalizeTurkishSearch(last));
+}
 
 const HUKUKI_SEBEP_CUES: readonly string[] = Object.freeze([
   "uyarınca",
@@ -577,9 +1003,29 @@ const VAKIA_CUES: readonly string[] = Object.freeze([
  * separator optional was tried and reverted the same hour — it read
  * "14.03.2024 tarihli sözleşme" as claim number "14.03.2024", because a date
  * is a number followed by whitespace.
+ *
+ * W17/c — a THIRD alternative, again with its separator REQUIRED: a lettered
+ * ground "a)" / "(a)". MEASURED: an itirazın iptali petition's "a) … b) …
+ * c) …" grounds under HUKUKİ DEĞERLENDİRME collapsed into one claim. A bare
+ * "a." is not accepted — it is how an initial is written ("A. Yılmaz").
+ * Every alternative is further gated by {@link LINE_ENDS_BLOCK}.
  */
 const CLAIM_MARKER =
-  /^\s*(?:(?:MADDE|Madde|Md\.?)\s*)?(?:\((\d+(?:[.\-]\d+)*)\)|(\d+(?:[.\-]\d+)*)[.)\-–—:]{1,2})\s+(?=\S)/u;
+  /^\s*(?:(?:MADDE|Madde|Md\.?)\s*)?(?:\((\d+(?:[.\-]\d+)*)\)|(\d+(?:[.\-]\d+)*)[.)\-–—:]{1,2}|\(?([A-Za-zÇĞİÖŞÜçğıöşü])\))\s+(?=\S)/u;
+
+/**
+ * May a claim marker START a new claim after this line? (W17/c)
+ *
+ * MEASURED: a petition's hard line wraps made numbers at the start of a line
+ * look like claim numbers — "Nitekim Yargıtay\n3. Hukuk Dairesi'nin …" and
+ * "6098 sayılı Kanun'un\n344. maddesi" became claims "3" and "344", cutting a
+ * ground in two and orphaning its citation. A marker now opens a claim only
+ * where a claim can begin: at the start, after a blank line, a heading or a
+ * preamble line, or after a line that ENDS a sentence or an enumeration item
+ * (".", ":", ";", "!", "?", ")", ","). Under a document-list heading (DELİLLER,
+ * EKLER) every marker opens an item: a list line has no sentence to end.
+ */
+const LINE_ENDS_BLOCK = /[.:;!?),…]["'”’)\]]*\s*$/u;
 
 /**
  * What a heading may carry in front of its own words: digits, Roman numerals
@@ -600,15 +1046,6 @@ function foldTr(value: string): string {
   return canonicalQuoteText(value).toLocaleLowerCase("tr-TR");
 }
 
-/**
- * Every spelling an audit row stands for. `rawForms` is additive, so a row
- * from a report written before W17/b falls back to its single `raw`.
- */
-function rawFormsOf(row: CitationAuditRow): string[] {
-  const forms = row.rawForms;
-  return Array.isArray(forms) && forms.length > 0 ? forms : [row.raw];
-}
-
 /** What a recognised heading says about the lines under it. */
 interface HeadingSense {
   kind: ClaimKind;
@@ -616,10 +1053,11 @@ interface HeadingSense {
   weak: boolean;
 }
 
-function headingSenseOfLabel(bare: string): HeadingSense | undefined {
+function headingSenseOfLabel(written: string): HeadingSense | undefined {
+  const bare = labelKey(written);
   if (bare === "" || bare.length > 60) return undefined;
   for (const rule of HEADING_RULES) {
-    if (rule.pattern.test(bare)) return { kind: rule.kind, weak: rule.weak === true };
+    if (rule.labels.has(bare)) return { kind: rule.kind, weak: rule.weak === true };
   }
   return undefined;
 }
@@ -641,23 +1079,14 @@ function headingSenseOfLabel(bare: string): HeadingSense | undefined {
  * actually says "what follows is a list", and never of the fallback kind.
  */
 export function isDocumentListHeading(heading: string): boolean {
-  const bare = normalizeTurkishSearch(
-    heading.replace(HEADING_LEAD, "").replace(/[:.\s]+$/u, ""),
-  );
+  const bare = labelKey(heading.replace(HEADING_LEAD, "").replace(/[:.\s]+$/u, ""));
   if (bare === "") return false;
-  if (LIST_HEADING.test(bare)) return true;
-  const rule = HEADING_RULES.find((entry) => entry.pattern.test(bare));
-  return rule !== undefined && rule.kind === "DIGER";
+  return HEADING_LIST.has(bare);
 }
-
-/** EKLER / EK LİSTESİ — a list that is not one of the named sections. */
-const LIST_HEADING = /^(ekler|ek listesi|ekleri|ekler listesi|belgeler)$/u;
 
 /** Is this line a section heading on a line of its own, and if so which kind? */
 function headingKindOf(line: string): HeadingSense | undefined {
-  return headingSenseOfLabel(
-    normalizeTurkishSearch(line.replace(HEADING_LEAD, "").replace(/[:.\s]+$/u, "")),
-  );
+  return headingSenseOfLabel(line.replace(HEADING_LEAD, "").replace(/[:.\s]+$/u, ""));
 }
 
 /**
@@ -680,7 +1109,7 @@ function inlineHeadingOf(
   const split = line.match(/^\s*([^:]{1,40}?)\s*:\s*(\S.*)$/u);
   if (split === null) return undefined;
   const label = (split[1] as string).replace(HEADING_LEAD, "");
-  const sense = headingSenseOfLabel(normalizeTurkishSearch(label.replace(/[.\s]+$/u, "")));
+  const sense = headingSenseOfLabel(label.replace(/[.\s]+$/u, ""));
   if (sense === undefined) return undefined;
   return { heading: label.trim(), sense, rest: (split[2] as string).trim() };
 }
@@ -700,8 +1129,11 @@ function citesAuthority(text: string): boolean {
   // it promoted the paragraph to "hukuki sebep". It is a clause of the
   // parties' OWN contract; there is no mevzuat behind it to look up. Pairing
   // runs first so "TBK m. 475" still counts — the article gets its statute
-  // from the abbreviation before this test sees it.
-  return pairArticlesWithTheirLaw(parseReferences(text)).some(
+  // from the abbreviation before this test sees it. W17/c: the pairing is the
+  // BOUNDED one the audit uses, so "sözleşmenin 5. maddesi" can no longer
+  // borrow a statute named in an earlier sentence.
+  const prose = auditProse(text);
+  return pairArticlesWithTheirLaw(parseReferences(prose), prose).some(
     (reference) =>
       reference.kind === "court_decision" ||
       reference.kind === "official_gazette" ||
@@ -710,16 +1142,27 @@ function citesAuthority(text: string): boolean {
 }
 
 function inferKind(text: string, heading: HeadingSense | undefined): ClaimKind {
-  const folded = normalizeTurkishSearch(text);
-  if (TALEP_CUES.some((cue) => folded.includes(cue))) return "TALEP";
+  // W17/c — a request is the petition's OWN closing words, never a request
+  // it merely reports (see {@link endsWithOwnRequest}).
+  if (endsWithOwnRequest(text)) return "TALEP";
   if (heading !== undefined && !heading.weak) return heading.kind;
   // Under a generic heading the paragraph decides for itself, and a real
   // citation outranks every cue word.
   if (citesAuthority(text)) return "HUKUKI_SEBEP";
   if (heading !== undefined) return heading.kind;
+  const folded = normalizeTurkishSearch(text);
   if (HUKUKI_SEBEP_CUES.some((cue) => folded.includes(cue))) return "HUKUKI_SEBEP";
   if (VAKIA_CUES.some((cue) => folded.includes(cue))) return "VAKIA";
   return "DIGER";
+}
+
+/** The claim number a marker carries ("3", "2.1", "a"), or undefined. */
+function markerNumber(line: string): string | undefined {
+  const marked = line.match(CLAIM_MARKER);
+  if (marked === null) return undefined;
+  // Group 1 is the parenthesised form "(3)", group 2 the bare "3." form,
+  // group 3 the lettered "a)" / "(a)" form.
+  return (marked[1] ?? marked[2] ?? marked[3] ?? "") as string;
 }
 
 /**
@@ -741,6 +1184,12 @@ export function extractClaims(text: string): PetitionClaim[] {
   let heading = "";
   let headingSense: HeadingSense | undefined;
   let current: { number: string; parts: string[] } | undefined;
+  /** May a marker on the next line open a new claim? */
+  let atBoundary = true;
+  /** Is the previous line a preamble label whose content may continue below? */
+  let inPreambleField = false;
+  /** Has the document passed its preamble (a heading or a claim was seen)? */
+  let pastPreamble = false;
 
   const flush = (): void => {
     if (current === undefined) return;
@@ -754,13 +1203,30 @@ export function extractClaims(text: string): PetitionClaim[] {
   for (const line of lines) {
     if (line.trim() === "") {
       flush();
+      atBoundary = true;
+      inPreambleField = false;
       continue;
     }
     const asHeading = headingKindOf(line);
     if (asHeading !== undefined) {
       flush();
-      heading = line.trim();
+      heading = line.trim().replace(/\s+/gu, " ");
       headingSense = asHeading;
+      atBoundary = true;
+      inPreambleField = false;
+      pastPreamble = true;
+      continue;
+    }
+    if (!pastPreamble && current === undefined && isCourtHeaderLine(line)) {
+      atBoundary = true;
+      inPreambleField = false;
+      continue;
+    }
+    const number = markerNumber(line);
+    // W17/c — the address a petition writes on the indented line(s) under a
+    // party label is part of that label's field, not an assertion.
+    if (inPreambleField && isIndented(line) && number === undefined) {
+      atBoundary = true;
       continue;
     }
     // A preamble line ends the previous block and contributes nothing: it is
@@ -770,25 +1236,33 @@ export function extractClaims(text: string): PetitionClaim[] {
     // ("KONU : …") it is the preamble one.
     if (isPreambleLine(line)) {
       flush();
+      atBoundary = true;
+      inPreambleField = isPreambleLabelLine(line);
       continue;
     }
+    inPreambleField = false;
     const inline = inlineHeadingOf(line);
     if (inline !== undefined) {
       flush();
       heading = inline.heading;
       headingSense = inline.sense;
-      current = { number: "", parts: [inline.rest] };
+      current = { number: markerNumber(inline.rest) ?? "", parts: [inline.rest] };
+      atBoundary = LINE_ENDS_BLOCK.test(line);
+      pastPreamble = true;
       continue;
     }
-    const marked = line.match(CLAIM_MARKER);
-    if (marked !== null) {
+    const listSection = isDocumentListHeading(heading);
+    if (number !== undefined && (atBoundary || listSection)) {
       flush();
-      // Group 1 is the parenthesised form "(3)", group 2 the bare "3." form.
-      current = { number: (marked[1] ?? marked[2] ?? "") as string, parts: [line.trim()] };
+      current = { number, parts: [line.trim()] };
+      atBoundary = LINE_ENDS_BLOCK.test(line);
+      pastPreamble = true;
       continue;
     }
     if (current === undefined) current = { number: "", parts: [] };
     current.parts.push(line.trim());
+    atBoundary = LINE_ENDS_BLOCK.test(line);
+    pastPreamble = true;
   }
   flush();
 
@@ -819,11 +1293,71 @@ export interface ContraryHit {
 }
 
 /**
+ * What a contrary search may report besides its rows (W17/c, additive): the
+ * sources it asked that did NOT answer. A port that returns a bare array is
+ * read as "every source answered".
+ */
+export interface ContrarySearchResult {
+  hits: ContraryHit[];
+  /** Human names of the sources that failed ("Yargıtay"), in Turkish. */
+  failedSources: string[];
+}
+
+/**
  * Port for running one contrary lane. INJECTED, and optional: with nothing
  * wired the lanes are still built and shown, in state ÇALIŞTIRILMADI. A
  * throw becomes ARAMA_BASARISIZ, never "aleyhe kaynak yok".
+ *
+ * W17/c — a port may also resolve with {@link ContrarySearchResult}. MEASURED:
+ * with the Yargıtay archive down and Danıştay answering empty, a TCK claim's
+ * lane was drawn "arandı, bulunamadı" — the one archive that could have held
+ * the answer never answered, and the report said the search had run. When
+ * ANY source failed and no row came back, the lane is ARAMA_BASARISIZ and
+ * names the failed sources; when rows came back from the others, the lane
+ * keeps them and still names what it could not reach.
  */
-export type ContrarySearchPort = (lane: ContraryLane, asOf: string) => Promise<ContraryHit[]>;
+export type ContrarySearchPort = (
+  lane: ContraryLane,
+  asOf: string,
+) => Promise<ContraryHit[] | ContrarySearchResult>;
+
+function asContraryResult(value: ContraryHit[] | ContrarySearchResult): ContrarySearchResult {
+  return Array.isArray(value)
+    ? { hits: value, failedSources: [] }
+    : { hits: value.hits ?? [], failedSources: [...(value.failedSources ?? [])] };
+}
+
+/** Why a lane is ARAMA_BASARISIZ although some sources answered. */
+export function contraryPartialFailureTR(failed: readonly string[]): string {
+  return (
+    `Arama tamamlanamadı: şu kaynaklara erişilemedi — ${failed.join(", ")}.` +
+    " Erişilebilen kaynaklar sonuç getirmedi; erişilemeyen kaynaklarda aleyhe" +
+    " karar olup olmadığı bilinmiyor. Bu bir sonuç değildir; sorguyu yeniden" +
+    " çalıştırın."
+  );
+}
+
+/** What a lane that DID bring rows back says about the sources it missed. */
+export function contraryMissingSourcesTR(failed: readonly string[]): string {
+  return (
+    `Şu kaynaklara erişilemedi: ${failed.join(", ")}. Bu kaynaklardaki kararlar` +
+    " aşağıdaki listede yer almıyor."
+  );
+}
+
+/**
+ * Why a TALEP block gets no contrary search (W17/c).
+ *
+ * MEASURED: every talep card carried {@link NO_CONTRARY_BASE_TERM_TR}, which
+ * says no legal concept could be recognised — on a SONUÇ VE İSTEM that names
+ * "kıdem tazminatı" and "ihbar tazminatı" in so many words. The search is not
+ * run because a request asserts no fact or legal view to find authority
+ * against; that is a design decision and the card says so.
+ */
+export const CONTRARY_NOT_FOR_REQUEST_TR =
+  "Bu blok mahkemeden istenen sonucu (talebi) yazar; bir olgu ya da hukuki" +
+  " görüş ileri sürmediği için aleyhe kaynak araması tasarım gereği yapılmaz." +
+  " Talebin dayandığı iddialar kendi kartlarında ele alınır.";
 
 export interface ContraryLaneResult {
   kind: ContraryLaneKind;
@@ -907,7 +1441,8 @@ export function documentContraryTerm(
   text: string,
   claimTerms: readonly string[] = [],
 ): string {
-  const folded = normalizeTurkishSearch(text);
+  const statuteFree = withoutStatuteNames(text);
+  const folded = normalizeTurkishSearch(statuteFree);
   if (folded === "") return "";
   const candidates = new Set<string>();
   // The claims' OWN terms come first, and they are the reason this function
@@ -918,20 +1453,52 @@ export function documentContraryTerm(
   // the real petition's subject came out "tazminat" although two of its
   // paragraphs had already recognised "eser sözleşmesi" by name.
   for (const term of claimTerms) if (term !== "") candidates.add(term);
-  for (const issue of analyzeIntake({ question: text, jurisdiction: "TR", dataClass: "L0" })
-    .issues) {
-    if (issue.kind !== "conceptual") continue;
-    if (issue.concept === undefined || issue.concept !== issue.label) continue;
-    candidates.add(issue.label);
+  // W17/c — MEASURED: the whole-document concept pass is the most expensive
+  // step of the report (a 441 KB petition spent ~13 s in it, with the event
+  // loop blocked for every other request on the server), and when the claims
+  // already named their institutions it only adds the broad, generic keys the
+  // comment above warns about. It runs only when no claim named one.
+  if (candidates.size === 0) {
+    for (const issue of analyzeIntake({
+      question: statuteFree,
+      jurisdiction: "TR",
+      dataClass: "L0",
+    }).issues) {
+      if (issue.kind !== "conceptual") continue;
+      if (issue.concept === undefined || issue.concept !== issue.label) continue;
+      candidates.add(issue.label);
+    }
   }
   for (const key of Object.keys(OPPOSITE_TERMS)) candidates.add(key);
 
+  // W17/c — MEASURED: occurrences were counted as SUBSTRINGS, so every
+  // "kıdem tazminatı" also counted as a "tazminat", and the generic key
+  // outvoted the specific institution the petition was about. The most
+  // specific term now claims its text first: candidates are counted longest
+  // first, an occurrence already inside a longer candidate's occurrence is
+  // not counted again, and a candidate must start at a word boundary.
+  const needles = [...candidates]
+    .map((term) => ({ term, needle: normalizeTurkishSearch(term) }))
+    .filter((entry) => entry.needle !== "" && entry.needle !== folded)
+    .sort((a, b) => b.needle.length - a.needle.length || (a.term < b.term ? -1 : 1));
+  const covered = new Uint8Array(folded.length);
   let best = "";
   let bestCount = 0;
-  for (const term of candidates) {
-    const needle = normalizeTurkishSearch(term);
-    if (needle === "" || needle === folded) continue;
-    const count = folded.split(needle).length - 1;
+  for (const { term, needle } of needles) {
+    let count = 0;
+    for (let at = folded.indexOf(needle); at >= 0; at = folded.indexOf(needle, at + 1)) {
+      if (at > 0 && /[\p{L}\p{N}]/u.test(folded[at - 1] as string)) continue;
+      let free = true;
+      for (let i = at; i < at + needle.length; i += 1) {
+        if (covered[i] === 1) {
+          free = false;
+          break;
+        }
+      }
+      if (!free) continue;
+      covered.fill(1, at, at + needle.length);
+      count += 1;
+    }
     if (count === 0) continue;
     if (count > bestCount || (count === bestCount && term.length > best.length)) {
       best = term;
@@ -939,6 +1506,31 @@ export function documentContraryTerm(
     }
   }
   return best;
+}
+
+/**
+ * The text with every STATUTE NAME blanked out (same length, spaces), so the
+ * concept engine cannot read an institution out of a law's title (W17/c).
+ *
+ * MEASURED: "2004 sayılı İcra ve İflas Kanunu'nun 269 vd. maddeleri gereğince
+ * icra yoluyla tahliye …" produced the base term "iflas" — a tahliye paragraph
+ * searched for bankruptcy decisions because the statute that governs
+ * enforcement happens to be called "İcra ve İflas Kanunu". A statute's name is
+ * not an institution the paragraph argues about.
+ */
+export function withoutStatuteNames(text: string): string {
+  const nfc = text.normalize("NFC");
+  const references = parseReferences(nfc).filter((reference) => reference.kind === "legislation");
+  if (references.length === 0) return nfc;
+  let out = "";
+  let cursor = 0;
+  for (const reference of references) {
+    const span = reference.span;
+    if (span === undefined || span[0] < cursor) continue;
+    out += nfc.slice(cursor, span[0]) + " ".repeat(span[1] - span[0]);
+    cursor = span[1];
+  }
+  return out + nfc.slice(cursor);
 }
 
 /**
@@ -1011,7 +1603,10 @@ export const CONTRARY_TIME_BUDGET_TR =
  * A query string is NOT a künye. It is never rendered as one.
  */
 export function contraryBaseTerm(claimText: string): string {
-  const folded = normalizeTurkishSearch(claimText);
+  // W17/c — a statute's NAME is not an institution ("İcra ve İflas Kanunu"
+  // made a tahliye paragraph search for "iflas"); see withoutStatuteNames.
+  const statuteFree = withoutStatuteNames(claimText);
+  const folded = normalizeTurkishSearch(statuteFree);
   // W17 — the concept engine goes FIRST, because its table is ordered
   // most-specific-first and {@link OPPOSITE_TERMS} is not ordered at all.
   // MEASURED, 06.09.2026: on "Davacı ayrıca manevi tazminat talep etmektedir.
@@ -1037,7 +1632,7 @@ export function contraryBaseTerm(claimText: string): string {
   // ÇALIŞTIRILMADI with its reason — an honest "no query could be built" beats
   // five wrong answers.
   const issues = analyzeIntake({
-    question: claimText,
+    question: statuteFree,
     jurisdiction: "TR",
     dataClass: "L0",
   }).issues;
@@ -1054,14 +1649,35 @@ export function contraryBaseTerm(claimText: string): string {
   // "tazminat", and object key order says nothing about which is better.
   let widest = "";
   for (const key of Object.keys(OPPOSITE_TERMS)) {
-    if (folded.includes(key) && key.length > widest.length) widest = key;
+    if (startsAtWord(folded, key) && key.length > widest.length) widest = key;
   }
   return widest;
 }
 
-function contraryFlavorFor(claimText: string): ContraryFlavor {
+/** Does `folded` contain `term` STARTING at a word boundary? */
+function startsAtWord(folded: string, term: string): boolean {
+  if (term === "") return false;
+  for (let at = folded.indexOf(term); at >= 0; at = folded.indexOf(term, at + 1)) {
+    if (at > 0 && /[\p{L}\p{N}]/u.test(folded[at - 1] as string)) continue;
+    // A Turkish word takes suffixes ("kira" still names the institution in
+    // "kiranın"), so only the START must be a boundary.
+    return true;
+  }
+  return false;
+}
+
+/** The standalone abbreviation "AYM" ("AYM'nin" counts: "'" is a boundary). */
+const AYM_WORD = /(?<![\p{L}\p{N}])aym(?![\p{L}\p{N}])/u;
+
+/**
+ * The contrary lanes' flavour. W17/c — MEASURED: "aym" was matched as a
+ * SUBSTRING, so "haklı saymak" and "Kadıköy Kaymakamlığı" switched a claim to
+ * the Anayasa Mahkemesi lanes ("iptal isteminin reddi", "kabul edilemez") in
+ * a rent dispute and a criminal defence.
+ */
+export function contraryFlavorFor(claimText: string): ContraryFlavor {
   const folded = normalizeTurkishSearch(claimText);
-  if (folded.includes("anayasa mahkemesi") || folded.includes("aym")) return "aym";
+  if (startsAtWord(folded, "anayasa mahkemesi") || AYM_WORD.test(folded)) return "aym";
   if (
     folded.includes("içtihadı birleştirme") ||
     folded.includes("direnme") ||
@@ -1190,7 +1806,18 @@ export interface PetitionAnalysisDeps {
 
 export class PetitionAnalysisError extends Error {}
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/u;
+/**
+ * W17/c — MEASURED: one long petition kept the server's event loop to itself
+ * for the whole analysis (`/v1/health` answered after 48.9 s). The work is
+ * now far smaller, and it also gives the loop back every few claims so other
+ * requests are served while a long report is being built. Nothing about the
+ * result depends on it.
+ */
+const YIELD_EVERY_CLAIMS = 16;
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
 /** Verbatim notices every report carries, in order. The first is the summary. */
 export function petitionAnalysisNotices(own: boolean): string[] {
@@ -1227,11 +1854,8 @@ export async function analyzePetition(
   request: PetitionAnalysisRequest,
   deps: PetitionAnalysisDeps = {},
 ): Promise<PetitionAnalysisReport> {
-  if (!ISO_DATE.test(request.asOf)) {
-    throw new PetitionAnalysisError(
-      "Analiz tarihi (asOf) YYYY-AA-GG biçiminde olmalı: yürürlük, bugüne göre değil" +
-        " dilekçenin tarihine göre hesaplanır.",
-    );
+  if (!isCalendarDate(request.asOf)) {
+    throw new PetitionAnalysisError(AS_OF_INVALID_TR);
   }
   const now = deps.now ?? (() => new Date());
   const own = request.own === true;
@@ -1247,6 +1871,9 @@ export async function analyzePetition(
         "Kaynak sorgusu bu kurulumda bağlı değil; atıf denetlenemedi." +
         " Bu, atıfın bulunmadığı anlamına GELMEZ.",
     }));
+  // The document's citations are extracted ONCE; the audit builds one row per
+  // entry, in this order, so row i stands for `extracted[i]` and its key.
+  const extracted = request.text.trim() !== "" ? extractAuditCitations(request.text) : [];
   const citationAudit = await auditCitations(
     {
       ...(request.text.trim() !== "" ? { text: request.text } : { citations: [] }),
@@ -1255,15 +1882,29 @@ export async function analyzePetition(
       ...(request.documentTitle !== undefined ? { documentTitle: request.documentTitle } : {}),
     },
     resolver,
-    { now },
+    { now, extracted },
   );
+  const rowKeys: string[] = citationAudit.rows.map((_, index) => {
+    const parsed = extracted[index]?.parsed;
+    return parsed !== undefined ? citationKey(parsed) : "";
+  });
+  const knownKeys = new Set(rowKeys.filter((key) => key !== ""));
 
   // Each claim's own institution, and then the one the whole petition is
   // about — used when a claim names none of its own. Both are computed once,
   // before any search: the document's subject is a property of the document.
-  const ownTerms = claims.map((claim) =>
-    claim.kind === "DIGER" || claim.kind === "TALEP" ? "" : contraryBaseTerm(claim.text),
-  );
+  // A document LIST (DELİLLER, EKLER) and a TALEP carry no proposition to
+  // search against; an unclassified paragraph still does (W17/b rule (c)).
+  const ownTerms: string[] = [];
+  for (const [claimIndex, claim] of claims.entries()) {
+    if (claimIndex % YIELD_EVERY_CLAIMS === 0) await yieldToEventLoop();
+    ownTerms.push(
+      isDocumentListHeading(claim.heading) || claim.kind === "TALEP"
+        ? ""
+        : contraryBaseTerm(claim.text),
+    );
+  }
+  await yieldToEventLoop();
   const documentTerm = documentContraryTerm(request.text, ownTerms);
 
   const runs = deps.maxContraryLaneRuns ?? MAX_CONTRARY_LANE_RUNS;
@@ -1284,32 +1925,36 @@ export async function analyzePetition(
    * every claim that asked it; a rejection is cached as a rejection so a dead
    * source is not retried sixteen times either.
    */
-  const contraryCache = new Map<string, Promise<ContraryHit[]>>();
-  const searchOnce = (lane: ContraryLane): Promise<ContraryHit[]> => {
+  const contraryCache = new Map<string, Promise<ContrarySearchResult>>();
+  const searchOnce = (lane: ContraryLane): Promise<ContrarySearchResult> => {
     const search = deps.contrarySearch;
-    if (search === undefined) return Promise.resolve([]);
+    if (search === undefined) return Promise.resolve({ hits: [], failedSources: [] });
     const cached = contraryCache.get(lane.query);
     if (cached !== undefined) return cached;
-    const pending = search(lane, request.asOf);
+    const pending = search(lane, request.asOf).then(asContraryResult);
     contraryCache.set(lane.query, pending);
     return pending;
   };
 
   const analyses: PetitionClaimAnalysis[] = [];
   for (const [claimIndex, claim] of claims.entries()) {
-    const folded = foldTr(claim.text);
-    // W17/b — a row is this claim's when the claim's text contains ANY of the
-    // spellings the document used for that authority. Matching only `row.raw`
-    // (the first spelling seen anywhere in the document) lost "TTK m. 23" from
-    // the HUKUKÎ SEBEPLER block, which cites it in so many words: the row had
-    // been keyed under the earlier, longer "TTK m. 23/1-c", so the block's own
-    // card printed "Atıf denetimi — 4 atıf" over a sentence citing five.
-    const rows = citationAudit.rows.filter((row) =>
-      rawFormsOf(row).some((form) => {
-        const raw = foldTr(form);
-        return raw !== "" && folded.includes(raw);
-      }),
+    if (claimIndex % YIELD_EVERY_CLAIMS === 0) await yieldToEventLoop();
+    // W17/c — a row is this claim's when the PARSER finds that authority
+    // INSIDE the claim, and a sentence is bound to it when the citation's
+    // position OVERLAPS the sentence's. MEASURED: attribution used to search
+    // the claim's text for the row's spelling, and the most common statute
+    // form a Turkish petition writes — "6098 sayılı Türk Borçlar Kanunu'nun
+    // 315. maddesi", "5237 sayılı TCK'nın 158/1-f maddesinde" — was spelled
+    // in the row as a join of two parser fragments that never occurs in any
+    // document. The claim got no citation and its own citing sentence was
+    // printed ⚠ KAYNAKSIZ. The same substring search attached "TBK m. 34" to
+    // a claim citing "TBK m. 344" and "HMK m. 11" to one citing "HMK m. 119".
+    const { flat, sentences } = petitionSentenceSpans(claim.text);
+    const occurrences = citationOccurrences(flat).occurrences.filter((occurrence) =>
+      knownKeys.has(occurrence.key),
     );
+    const claimKeys = new Set(occurrences.map((occurrence) => occurrence.key));
+    const rows = citationAudit.rows.filter((_, index) => claimKeys.has(rowKeys[index] ?? ""));
     const citationTotals: Record<AuditBucket, number> = {
       FOUND: 0,
       NOT_FOUND: 0,
@@ -1321,6 +1966,7 @@ export async function analyzePetition(
     // A DELİLLER / EKLER block lists documents; there is no proposition in it
     // to find authority against, so no lane is built and the report says why.
     const isList = isDocumentListHeading(claim.heading);
+    const isRequest = claim.kind === "TALEP";
     const ownTerm = ownTerms[claimIndex] ?? "";
     // W17 — MEASURED, 06.09.2026: on a real cevap dilekçesi only 2 of 10
     // claims named an institution in their own words, so 8 claims produced no
@@ -1331,7 +1977,7 @@ export async function analyzePetition(
     // fallback subject — and the report SAYS the term came from the document
     // rather than from the claim, because the two are not the same claim about
     // the search.
-    const borrowed = ownTerm === "" && !isList && claim.kind !== "TALEP" ? documentTerm : "";
+    const borrowed = ownTerm === "" && !isList && !isRequest ? documentTerm : "";
     const baseTerm = ownTerm !== "" ? ownTerm : borrowed;
     /** Decisions already listed under an earlier lane of THIS claim. */
     const seenContrary = new Set<string>();
@@ -1364,7 +2010,16 @@ export async function analyzePetition(
         }
         if (!repeatOfEarlierQuery) laneRuns += 1;
         try {
-          const hits = await searchOnce(lane);
+          const { hits, failedSources } = await searchOnce(lane);
+          // W17/c — a source that did not answer is not an absence of
+          // authority. No row and a failed source is a search that did not
+          // complete, whatever the other sources said.
+          if (hits.length === 0 && failedSources.length > 0) {
+            lanes.push(
+              laneResult(lane, "ARAMA_BASARISIZ", [], contraryPartialFailureTR(failedSources)),
+            );
+            continue;
+          }
           // W17 — one claim's lanes differ only in their outcome-flip phrase,
           // so they routinely land on the SAME decisions. MEASURED, 06.09.2026:
           // `eser sözleşmesi "aksi yönde"` and `eser sözleşmesi "karşı oy"`
@@ -1380,14 +2035,13 @@ export async function analyzePetition(
             return true;
           });
           const repeated = hits.length - fresh.length;
+          const reasons = [
+            ...(repeated > 0 ? [alreadyListedTR(repeated, hits.length)] : []),
+            ...(failedSources.length > 0 ? [contraryMissingSourcesTR(failedSources)] : []),
+          ];
           lanes.push(
             hits.length > 0
-              ? laneResult(
-                  lane,
-                  "BULUNDU",
-                  fresh,
-                  repeated > 0 ? alreadyListedTR(repeated, hits.length) : "",
-                )
+              ? laneResult(lane, "BULUNDU", fresh, reasons.join(" "))
               : laneResult(lane, "ARANDI_BULUNAMADI", [], ""),
           );
         } catch {
@@ -1401,7 +2055,6 @@ export async function analyzePetition(
     );
 
     // ---- DAYANAKSIZ İFADE ------------------------------------------------
-    const sentences = splitPetitionSentences(claim.text);
     const unsourced: UnsourcedFinding[] = [];
     sentences.forEach((sentence, sentenceIndex) => {
       // W17 — a request and a document list assert no fact, so neither can
@@ -1410,19 +2063,15 @@ export async function analyzePetition(
       // DELİLLER line KAYNAKSIZ, which is 2 of the 12 warnings a lawyer had
       // to read past. A warning that fires on something that could never be
       // sourced trains the reader to skip the ones that matter.
-      if (claim.kind === "TALEP" || isList) return;
-      const foldedSentence = foldTr(sentence);
-      const bound = rows.some((row) =>
-        rawFormsOf(row).some((form) => {
-          const raw = foldTr(form);
-          return raw !== "" && foldedSentence.includes(raw);
-        }),
+      if (isRequest || isList) return;
+      const bound = occurrences.some(
+        (occurrence) => occurrence.span[0] < sentence.end && occurrence.span[1] > sentence.start,
       );
       if (bound) return;
       unsourced.push({
         sentenceIndex,
-        alinti: sentence,
-        line: `${KAYNAKSIZ_PREFIX} — ${stripEvaluativeWords(sentence)}`,
+        alinti: sentence.text,
+        line: `${KAYNAKSIZ_PREFIX} — ${stripEvaluativeWords(sentence.text)}`,
       });
     });
 
@@ -1438,11 +2087,13 @@ export async function analyzePetition(
         sourceBound,
         note: isList
           ? CONTRARY_NOT_AN_ASSERTION_TR
-          : baseTerm === ""
-            ? NO_CONTRARY_BASE_TERM_TR
-            : borrowed !== ""
-              ? borrowedTermTR(borrowed)
-              : "",
+          : isRequest
+            ? CONTRARY_NOT_FOR_REQUEST_TR
+            : baseTerm === ""
+              ? NO_CONTRARY_BASE_TERM_TR
+              : borrowed !== ""
+                ? borrowedTermTR(borrowed)
+                : "",
       },
       unsourced,
     });

@@ -603,6 +603,7 @@ h2.section::after { content: ""; flex: 1; border-top: 1px solid var(--line); tra
 .chip.bad { color: var(--bad); }
 .chip.abstain { color: var(--abstain); }
 .chip.mute { color: var(--ink-faint); }
+.chip.neutral { color: var(--ink-soft); }
 .chip.sentence { font-variant-caps: normal; letter-spacing: 0; font-size: 13px; font-weight: 500; }
 
 /* ---------------------------- çekimserlik ----------------------------- */
@@ -2186,10 +2187,10 @@ body.editing .wrap { max-width: 1380px; }
 .dilbucket > .bt { display: block; font-weight: 600; font-size: var(--fs-sm); margin-bottom: var(--sp-1); }
 .dilrow { font-size: var(--fs-sm); line-height: var(--lh-body); margin: var(--sp-1) 0; }
 .dillane { border-left: 4px solid var(--line-strong); padding: var(--sp-1) 0 var(--sp-1) var(--sp-3); margin: var(--sp-2) 0; }
-.dillane.bulundu { border-left-color: var(--bad); }
-.dillane.arandi { border-left-color: var(--ok); }
+.dillane.bulundu { border-left-color: var(--ink-soft); }
+.dillane.arandi { border-left-color: var(--line-strong); }
 .dillane.calismadi { border-left-color: var(--warn); }
-.dillane.basarisiz { border-left-color: var(--bronze-soft); }
+.dillane.basarisiz { border-left-color: var(--abstain); }
 .dillanehead { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); }
 .dillanewhat { font-size: var(--fs-xs); color: var(--ink-soft); line-height: var(--lh-body); max-width: var(--measure); margin-top: 2px; }
 .dillanequery { font-size: var(--fs-xs); color: var(--ink-soft); line-height: var(--lh-tight); margin-top: 2px; }
@@ -16584,11 +16585,16 @@ details.tech .techline {
     ARAMA_BASARISIZ: "basarisiz"
   };
 
+  /* W17/c: "sorgu sonuç getirdi" KIRMIZI, "arandı, bulunamadı" YEŞİL
+     çiziliyordu. Renk, kimsenin ölçmediği bir YÖN söylüyordu: sorgu
+     kararların ne dediğini okumaz, yalnız satır sayar. Çalışan iki durum
+     artık NÖTR renkte; çalışmayan (çalıştırılmadı) ve tamamlanamayan
+     (arama tamamlanamadı) durumlar ise kendi, ayrı renklerini korur. */
   var CONTRARY_STATE_TONE = {
-    BULUNDU: "bad",
-    ARANDI_BULUNAMADI: "ok",
+    BULUNDU: "neutral",
+    ARANDI_BULUNAMADI: "neutral",
     CALISTIRILMADI: "warn",
-    ARAMA_BASARISIZ: "mute"
+    ARAMA_BASARISIZ: "abstain"
   };
 
   var dilekceSource = "text";
@@ -16596,8 +16602,10 @@ details.tech .techline {
   function openDilekce() {
     var t = document.getElementById("dilekce-title");
     if (t && t.focus) { t.focus(); }
-    var asof = document.getElementById("dilekce-asof");
-    if (asof && !asof.value) { asof.value = todayIso(); }
+    /* W17/c: burada alan BUGÜNÜN tarihiyle dolduruluyordu; avukat
+       değiştirmeden çalıştırınca rapor bugünü dilekçenin tarihi diye
+       yazdı ve yürürlük o güne göre okundu. Tarih dilekçenin kendisinden
+       gelir: alan boş ve zorunlu kalır. */
     setDilekceSource(dilekceSource);
     loadDilekceFiles();
   }

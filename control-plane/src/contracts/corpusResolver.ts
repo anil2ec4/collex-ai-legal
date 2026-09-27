@@ -90,6 +90,30 @@ export const REASON_COURT_DECISION =
 export const REASON_LAW_OUT_OF_SCOPE =
   "Bu mevzuatın dilekçe tarihindeki metni bu bilgisayardaki hukuk kütüphanesinde" +
   " yok; bu yüzden denetlenemedi. Maddeyi kaynağından teyit edin.";
+/**
+ * W17/c — a decision whose COURT the text does not name cannot be checked:
+ * its E./K. numbers are reused by every chamber of every court. MEASURED: such
+ * a citation came back "bulundu" on the strength of ANY court's decision that
+ * shared the two numbers.
+ */
+export const REASON_COURT_UNKNOWN =
+  "Bu kararın hangi mahkemeye ait olduğu metinden okunamadı. E./K. numaraları" +
+  " her mahkemede ve her dairede yeniden kullanıldığı için mahkeme bilinmeden" +
+  " karar denetlenemez; bu, kararın olmadığı anlamına GELMEZ. Künyeyi kararın" +
+  " kendisinden teyit edin.";
+
+/**
+ * W17/c — an Anayasa Mahkemesi bireysel başvuru decision is cited by its
+ * başvuru number and has no E./K. pair. MEASURED: "AYM, B. No: 2014/1234"
+ * was answered with "E./K. bilgisi eksik", which reads as if the petition
+ * had cited it wrongly.
+ */
+export const REASON_AYM_BASVURU =
+  "Anayasa Mahkemesi bireysel başvuru kararları başvuru numarasıyla (B. No)" +
+  " anılır; bu bilgisayardaki hukuk kütüphanesi bu kararları başvuru" +
+  " numarasıyla denetleyemiyor. Bu, kararın olmadığı ya da atfın eksik olduğu" +
+  " anlamına GELMEZ. Kararı başvuru numarasıyla kaynağından teyit edin.";
+
 export const REASON_STORE_UNAVAILABLE =
   "Bu bilgisayardaki hukuk kütüphanesi açılamadığı için bu atıf denetlenemedi." +
   " Bu, atfın hatalı olduğu anlamına GELMEZ. ColleX'i kapatıp masaüstündeki" +
@@ -154,7 +178,7 @@ function quoteHashIfPresent(
 /** The one corpus call this resolver makes; `exactPinLookup` in production. */
 export type PinLookup = (
   references: readonly ParsedReference[],
-  options: { asOf: string; limit: number },
+  options: { asOf: string; limit: number; requireCourtMatch?: boolean },
 ) => Promise<Array<{ provenance: ChunkProvenance }>>;
 
 export interface CorpusResolverOptions {
@@ -200,7 +224,15 @@ export function createCorpusCitationResolver(options: CorpusResolverOptions): Ci
     if (parsed.kind === "short_form" && !hasLegislation && !hasDecision) {
       return { uncertainReason: REASON_SHORT_FORM };
     }
+    if (parsed.docketKind === "basvuru" && !hasLegislation) {
+      return { uncertainReason: REASON_AYM_BASVURU };
+    }
     if (!hasLegislation && !hasDecision) return { uncertainReason: REASON_UNPARSED };
+    // A decision is looked up only together with its court: "found" must
+    // mean THIS court's decision (W17/c).
+    if (hasDecision && !hasLegislation && (parsed.court === undefined || parsed.court === "")) {
+      return { uncertainReason: REASON_COURT_UNKNOWN };
+    }
 
     // `exactPinLookup` reads a LIST of references and pins on
     // legislation_no AND article_no only when it is given BOTH a
@@ -225,7 +257,7 @@ export function createCorpusCitationResolver(options: CorpusResolverOptions): Ci
         : [parsed];
 
     try {
-      const hits = await lookup(pinRefs, { asOf, limit: pinLimit });
+      const hits = await lookup(pinRefs, { asOf, limit: pinLimit, requireCourtMatch: true });
       const first = hits[0];
       if (first !== undefined) {
         const provenance = first.provenance;

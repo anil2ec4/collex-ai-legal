@@ -1395,7 +1395,55 @@ const CONCEPT_INPUT_ALIASES: Readonly<Record<string, readonly string[]>> = {
   "fazla mesai": ["fazla çalışma"],
 };
 
-function tokenMatches(nq: string, token: string): boolean {
+/**
+ * The words of ONE normalized text, prepared once (W17/c).
+ *
+ * MEASURED: a 441 KB petition spent ~26 s of a single request in this file —
+ * `tokenMatches` re-split the WHOLE text into words and re-stemmed every word
+ * once per table token, for every one of the 164 concepts, and the petition
+ * analysis runs this over every claim and over the whole document. The event
+ * loop was blocked for the duration: `/v1/health` took 48.9 s to answer while
+ * one petition was analysed. The answers are unchanged — "some word starts
+ * with T", "some word has stem S" — only the work is done once per text:
+ * the distinct words sorted (a prefix is then a binary search) and the set of
+ * their stems.
+ */
+interface WordIndex {
+  sorted: readonly string[];
+  stems: ReadonlySet<string>;
+}
+
+function buildWordIndex(nq: string): WordIndex {
+  const unique = [...new Set(conceptTokens(nq))];
+  unique.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return { sorted: unique, stems: new Set(unique.map((word) => stemTurkish(word))) };
+}
+
+/** Does any word of the index START WITH `prefix`? */
+function hasWordWithPrefix(index: WordIndex, prefix: string): boolean {
+  const words = index.sorted;
+  let lo = 0;
+  let hi = words.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if ((words[mid] as string) < prefix) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo < words.length && (words[lo] as string).startsWith(prefix);
+}
+
+/** Table tokens are few and fixed: their stem forms are computed once. */
+const TOKEN_FORMS = new Map<string, { stem: string; softened: string }>();
+function tokenForms(token: string): { stem: string; softened: string } {
+  let forms = TOKEN_FORMS.get(token);
+  if (forms === undefined) {
+    forms = { stem: stemTurkish(token), softened: softenFinalConsonant(token) };
+    TOKEN_FORMS.set(token, forms);
+  }
+  return forms;
+}
+
+function tokenMatches(nq: string, token: string, index?: WordIndex): boolean {
   if (token.length <= WHOLE_WORD_MAX) {
     // Whole word only: "el" may not fire inside "elden", "iş" inside "işlem".
     const at = nq.indexOf(token);
@@ -1412,11 +1460,12 @@ function tokenMatches(nq: string, token: string): boolean {
   // Arbitrarily dropping two letters makes kazası match kazandığını.
   // Compare inflectional stems or the complete word, with final consonant
   // softening only; unrelated words sharing a short prefix cannot fire.
-  const stem = stemTurkish(token);
-  const softened = softenFinalConsonant(token);
-  return conceptTokens(nq).some((word) =>
-    word.startsWith(token) || stemTurkish(word) === stem ||
-    (softened !== token && word.startsWith(softened)),
+  const { stem, softened } = tokenForms(token);
+  const words = index ?? buildWordIndex(nq);
+  return (
+    hasWordWithPrefix(words, token) ||
+    words.stems.has(stem) ||
+    (softened !== token && hasWordWithPrefix(words, softened))
   );
 }
 
@@ -1444,14 +1493,14 @@ function tokenMatches(nq: string, token: string): boolean {
  * "gerçekten", "abonelik başvurusu") must keep firing nothing, and a test
  * pins exactly that.
  */
-function conceptHit(nq: string, key: string): string | undefined {
+function conceptHit(nq: string, key: string, index?: WordIndex): string | undefined {
   if (occursAsWord(nq, key)) return key;
   for (const alias of CONCEPT_INPUT_ALIASES[key] ?? []) {
-    if (alias.split(" ").every((token) => tokenMatches(nq, token))) return alias;
+    if (alias.split(" ").every((token) => tokenMatches(nq, token, index))) return alias;
   }
   const tokens = key.split(" ").filter((w) => w !== "" && !KEY_JOIN_WORDS.has(w));
   if (tokens.length < 2) return undefined; // one-word keys keep the strict rule
-  return tokens.every((token) => tokenMatches(nq, token)) ? key : undefined;
+  return tokens.every((token) => tokenMatches(nq, token, index)) ? key : undefined;
 }
 
 export function compareConceptSpecificity(
@@ -1724,11 +1773,26 @@ export function analyzeIntake(intake: ResearchIntake): IntakeAnalysis {
 
   // Conceptual issues, ordered MOST SPECIFIC FIRST (see
   // `compareConceptSpecificity` for why this is no longer first-occurrence).
+  // W17/c — each text's words are prepared ONCE (see WordIndex), and whether a
+  // concept is in the research focus is decided once per concept, not once
+  // per comparison of the sort.
+  const nqIndex = buildWordIndex(nq);
+  const focusIndex = buildWordIndex(focus);
+  const inFocus = new Map<string, boolean>();
+  const focusHit = (key: string): boolean => {
+    let hit = inFocus.get(key);
+    if (hit === undefined) {
+      hit = conceptHit(focus, key, focusIndex) !== undefined;
+      inFocus.set(key, hit);
+    }
+    return hit;
+  };
+  const bySpecificity = compareConceptSpecificity(nq);
   const conceptMatches = Object.keys(CONCEPT_EXPANSIONS)
-    .map((key) => ({ key, hit: conceptHit(nq, key) }))
+    .map((key) => ({ key, hit: conceptHit(nq, key, nqIndex) }))
     .filter((m): m is { key: string; hit: string } => m.hit !== undefined)
-    .sort((a, b) => Number(conceptHit(focus, b.key) !== undefined) - Number(conceptHit(focus, a.key) !== undefined)
-      || compareConceptSpecificity(nq)(a.key, b.key));
+    .sort((a, b) => Number(focusHit(b.key)) - Number(focusHit(a.key))
+      || bySpecificity(a.key, b.key));
   const conceptualIssues: IntakeIssue[] = conceptMatches.map(({ key: concept, hit }) => {
     const expanded = CONCEPT_EXPANSIONS[concept] ?? [concept];
     const anchors = CONCEPT_ANCHORS[concept];

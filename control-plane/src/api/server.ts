@@ -1946,7 +1946,22 @@ export function createApp(deps: ApiDependencies): Hono {
                   `contrary search reached no source (${found.failedSources.length} failed)`,
                 );
               }
-              return found.rows.map((row) => {
+              // W17/c — MEASURED: the throw above fired only when EVERY source
+              // failed. With Yargıtay down and Danıştay answering empty, a TCK
+              // claim's lane was drawn "arandı, bulunamadı" although the one
+              // archive that could hold the answer never answered. The sources
+              // that did not answer (answered-but-partial ones are not failures)
+              // now travel with the rows, and the analysis turns "no row + a
+              // failed source" into ARAMA_BASARISIZ naming them.
+              const answered = new Set(found.okSources);
+              const failedSources = [
+                ...new Set(
+                  found.failedSources
+                    .filter((failure) => !answered.has(failure.sourceId))
+                    .map((failure) => failure.sourceLabel),
+                ),
+              ];
+              const hits = found.rows.map((row) => {
                 const note = formatDecisionDateNote(row.decisionDate);
                 const checked =
                   row.sourceUrl !== undefined && row.sourceUrl !== ""
@@ -1972,6 +1987,7 @@ export function createApp(deps: ApiDependencies): Hono {
                   ...(safeHref !== "" ? { href: safeHref } : {}),
                 };
               });
+              return { hits, failedSources };
             },
           }
         : {}),
