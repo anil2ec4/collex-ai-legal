@@ -1726,8 +1726,12 @@ label.rchip.disabled { cursor: not-allowed; opacity: .75; }
     grid-template-areas: "brand matter theme" "pills pills pills";
     gap: 8px 12px;
   }
-  .topbar .matterwrap { justify-self: start; min-width: 0; }
-  select.matterpick { max-width: 100%; }
+  /* The picker must SHRINK inside its grid column: a <select> is as wide as
+     its longest option, and a long matter title pushed it (and its ?) over
+     "⌕ Ara" from 1024 down to 641 px, and past the page edge at 700 px
+     (measured 27.09.2026). */
+  .topbar .matterwrap { justify-self: start; min-width: 0; width: 100%; max-width: 360px; }
+  select.matterpick { max-width: 100%; flex: 1 1 auto; min-width: 0; width: auto; }
   .topbar .pills, body.compact .topbar .pills { justify-self: start; flex-wrap: wrap; }
   body.compact button.pill { white-space: normal; }
 }
@@ -1741,7 +1745,7 @@ label.rchip.disabled { cursor: not-allowed; opacity: .75; }
   .topbar .brandmini { justify-self: start; }
   .topbar .tools { justify-self: end; }
   .topbar .pills { justify-self: start; justify-content: flex-start; }
-  .topbar .matterwrap { width: 100%; }
+  .topbar .matterwrap { width: 100%; max-width: none; }
   select.matterpick { flex: 1 1 auto; min-width: 0; width: auto; max-width: none; }
   .deadpanel .deadrow { grid-template-columns: 1fr; gap: 4px; }
   .inlineform .row { grid-template-columns: 1fr; }
@@ -2080,7 +2084,7 @@ body.editing .wrap { max-width: 1380px; }
   .topbar .themebtn { font-size: 0; width: 34px; padding: 0; text-align: center; }
   .topbar .themebtn::before { content: "◐"; font-size: 15px; line-height: 1; }
   .helpbtn { height: 30px; padding: 0 10px; }
-  .topbar .matterwrap { width: 100%; }
+  .topbar .matterwrap { width: 100%; max-width: none; }
   select.matterpick { max-width: none; width: auto; flex: 1 1 auto; min-width: 0; font-size: 13px; height: 34px; padding: 0 28px 0 12px; }
   .topbar .pills, body.compact .topbar .pills { flex-wrap: wrap; justify-content: flex-start; justify-self: stretch; gap: 2px; }
   button.pill, body.compact button.pill { padding: 0 8px; font-size: 13px; white-space: nowrap; height: 26px; }
