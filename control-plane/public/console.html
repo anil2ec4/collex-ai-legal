@@ -3923,6 +3923,11 @@ details.tech .techline {
     /* W12 — Türkçe önce; makine kodu parantez içinde teknik satırda kalır. */
     [/^EVIDENCE_FILTERED/,
       "Bazı pasajlar kapsam filtresi nedeniyle kanıt kümesine alınmadı."],
+    /* "Bazıları" ile "hiçbiri" ayrı cümlelerdir: her çağrı başarısız olduysa
+       sunucu UPSTREAM_DEGRADED:ALL yazar ve ekran bir "bulunamadı" sonucu
+       göstermiyor olduğunu açıkça söyler. */
+    [/^UPSTREAM_DEGRADED:ALL$/,
+      "Resmî kaynakların HİÇBİRİ cevap vermedi — bu bir “bulunamadı” sonucu değildir; kaynaklara ulaşılamadı."],
     [/^UPSTREAM_DEGRADED/,
       "Resmî kaynakların bazıları cevap vermedi — bu sonuç eksik olabilir."],
     [/^DRAFTER_DEGRADED/,
@@ -4025,7 +4030,8 @@ details.tech .techline {
   /* HTTP hata gövdelerindeki kind alanı için genel çeviri. */
   var ERROR_KIND_TR = {
     INVALID_REQUEST: "Formda eksik ya da hatalı bir alan var. Kırmızı işaretli alanları doldurup yeniden gönderin.",
-    UPSTREAM_UNAVAILABLE: "Resmî kaynaklara bağlanılamadı — canlı araştırma bu kurulumda kapalı olabilir. " +
+    UPSTREAM_UNAVAILABLE: "Resmî kaynaklara bağlanılamadı; aramaların hiçbiri cevap vermedi — bu bir “bulunamadı” sonucu DEĞİLDİR. " +
+      "Canlı araştırma bu kurulumda kapalı da olabilir. " +
       "Bu bilgisayardaki arşivde ve kendi belgelerinizde aramaya devam edebilirsiniz.",
     RESEARCH_FAILED: "Canlı araştırma beklenmedik biçimde sonlandı — yeniden deneyin.",
     ANSWER_UNAVAILABLE: "Soru cevaplama bu kurulumda açık değil; bunun için bu bilgisayarda bir belge arşivi bulunması gerekir. ColleX'i kuran kişiden açmasını isteyin.",
@@ -14888,13 +14894,17 @@ details.tech .techline {
       note.textContent = "";
       var err = (res.body && res.body.error) || null;
       if (res.status === 400) {
+        /* Bu yoklama yalnız ColleX'in kendi arama bileşeninin çalıştığını
+           kanıtlar: istek doğrulamada reddedilir ve HİÇBİR resmî kaynağa
+           gitmez. Ağ kapalıyken de 400 döner (27.09.2026'da ölçüldü); bu
+           yüzden resmî kaynaklara bağlantı olduğunu İDDİA EDEMEZ. */
         kararGateway = "ok";
         note.className = "strip mute";
-        note.appendChild(el("b", null, "Resmî kaynak bağlantısı açık"));
+        note.appendChild(el("b", null, "Resmî kaynak arama bileşeni çalışıyor"));
         note.appendChild(el("span", null,
-          "Bu bilgisayar Yargıtay, Danıştay ve Mevzuat Bilgi Sistemi gibi resmî kaynaklara bağlanabiliyor. " +
-          "Kaynakların kendisinin şu anda cevap verip vermediği ancak gerçek bir aramada belli olur; " +
-          "sonuç boş dönerse ekran nedenini yazar."));
+          "Bu bilgisayarda resmî kaynak arama bileşeni çalışıyor. Yargıtay, Danıştay ve Mevzuat Bilgi " +
+          "Sistemi gibi kaynakların şu an ulaşılabilir olup olmadığı ilk aramada belli olur; " +
+          "bir kaynak cevap vermezse ekran bunu kaynağın adıyla yazar."));
         setKararFormEnabled(true);
         return "ok";
       }
@@ -15870,14 +15880,23 @@ details.tech .techline {
       var head = el("div", "relqhead");
       head.appendChild(el("b", null, q.text || ""));
       if (q.exactPhrase === true) { head.appendChild(chip("tam ifade", "mute")); }
-      head.appendChild(chip(q.calisti === false ? "çalıştırılmadı" : "çalıştırıldı",
-        q.calisti === false ? "warn" : "ok"));
+      /* Gönderildi ama seçilen kaynakların HİÇBİRİ cevap vermedi: sunucu
+         bulunanSatir'ı null yazar (sayılmadı — 0 değil). Yeşil "çalıştırıldı"
+         ve "0 künye getirdi" burada ölçülmemiş bir sayı olurdu. */
+      var noAnswer = q.calisti !== false && q.bulunanSatir === null;
+      head.appendChild(noAnswer ? chip("kaynak cevap vermedi", "warn")
+        : chip(q.calisti === false ? "çalıştırılmadı" : "çalıştırıldı",
+          q.calisti === false ? "warn" : "ok"));
       li.appendChild(head);
       if (q.kindLabel) { li.appendChild(el("div", "relqkind", "Arama türü: " + q.kindLabel)); }
       if (q.aciklama) { li.appendChild(el("div", "relqwhy", q.aciklama)); }
       if (q.calisti === false) {
         li.appendChild(el("div", "relqoff",
           "Bu arama YAPILMADI. Bulabileceği kararlar aşağıdaki listede yok."));
+      } else if (noAnswer) {
+        li.appendChild(el("div", "relqoff",
+          "Bu arama gönderildi ama seçilen kaynakların hiçbiri cevap vermedi. " +
+          "Bu, sonuç olmadığı anlamına GELMEZ; kaç karar bulunacağı bilinmiyor."));
       } else if (typeof q.bulunanSatir === "number") {
         li.appendChild(el("div", "relqhits", q.bulunanSatir + " künye getirdi"));
       }

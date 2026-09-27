@@ -20,6 +20,7 @@ import type {
   ProviderCode,
   ProviderFailure,
 } from "../capabilities/types.js";
+import { classifyFailureText } from "./failureText.js";
 
 export interface ToolCallRequest {
   toolName: string;
@@ -194,11 +195,17 @@ export class HttpMcpGateway implements ProviderGateway {
     }
 
     if (result.isError) {
+      // The tool's error TEXT decides the kind (gateway/failureText.ts). This
+      // used to be INVALID_REQUEST for every tool error, so a network outage
+      // told the lawyer their correct query was invalid. The text itself is
+      // provider prose and is never copied into `safeMessage`.
+      const classified = classifyFailureText(toolErrorText(result));
       return this.errorOutcome(observedAt, {
-        kind: "INVALID_REQUEST",
-        retryable: false,
+        kind: classified.kind,
+        retryable: classified.retryable,
+        ...(classified.retryAfterMs !== undefined ? { retryAfterMs: classified.retryAfterMs } : {}),
         correlationId,
-        safeMessage: "tool reported an execution error",
+        safeMessage: `tool reported an execution error (${classified.basis})`,
       });
     }
 
@@ -369,6 +376,14 @@ function mapJsonRpcErrorKind(code: number | undefined): FailureKind {
     default:
       return "UNAVAILABLE";
   }
+}
+
+/** Every text block of an `isError` tool result, joined (the classifier's input). */
+function toolErrorText(result: NonNullable<JsonRpcResponse["result"]>): string {
+  return (result.content ?? [])
+    .filter((c) => c.type === "text" && typeof c.text === "string")
+    .map((c) => c.text as string)
+    .join("\n");
 }
 
 /**

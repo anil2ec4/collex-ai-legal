@@ -281,6 +281,15 @@ const REASON_TR: Readonly<Record<string, string>> = {
     "Bu tespitin pasaj desteği denetlenemedi (doğrulama bileşeni yanıt vermedi); tespit kesinleştirilmedi",
   UNUSED_CITATION:
     "Bu atıf, tespide diğer atıfların taşımadığı hiçbir şey eklemiyor",
+  // 27.09.2026: the live research reasons reached the markdown as bare codes
+  // ("- RESEARCH_COVERAGE_INCOMPLETE", "- UPSTREAM_DEGRADED"). Same sentences
+  // as the console's WARN_PATTERNS.
+  RESEARCH_COVERAGE_INCOMPLETE: "Canlı araştırma planlanan tüm kaynakları tarayamadı",
+  BUDGET_EXHAUSTED:
+    "Araştırma için ayrılan arama sayısı ya da süre doldu; tarama erken bitirildi, sonuç eksik olabilir",
+  UPSTREAM_DEGRADED: "Resmî kaynakların bazıları cevap vermedi; bu sonuç eksik olabilir",
+  "UPSTREAM_DEGRADED:ALL":
+    "Resmî kaynakların hiçbiri cevap vermedi; bu bir “bulunamadı” sonucu değildir, kaynaklara ulaşılamadı",
 };
 
 export function renderReason(reason: string, context: ReasonContext = {}): string {

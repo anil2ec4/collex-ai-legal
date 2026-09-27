@@ -14,6 +14,8 @@ This module mirrors the TypeScript contract used by the control plane:
 from __future__ import annotations
 
 import json
+import socket
+import ssl
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, List, Literal, Optional
@@ -212,10 +214,67 @@ def classify_exception(exc: BaseException) -> ProviderFailure:
             safe_message="Upstream response could not be parsed.",
         )
 
+    # Standard-library transport failures (a client that does not use httpx,
+    # or a TLS/DNS failure raised below it). TimeoutError also covers
+    # asyncio.TimeoutError on Python 3.11+.
+    if isinstance(exc, TimeoutError):
+        return ProviderFailure(
+            kind=FailureKind.TIMEOUT,
+            retryable=True,
+            safe_message="Upstream request timed out.",
+        )
+    if isinstance(exc, (ssl.SSLError, ConnectionError, socket.gaierror)):
+        return ProviderFailure(
+            kind=FailureKind.UNAVAILABLE,
+            retryable=True,
+            safe_message="Could not reach the upstream service.",
+        )
+
     # Unknown failure: treat as non-retryable unavailability without leaking
     # internal details into the safe message.
     return ProviderFailure(
         kind=FailureKind.UNAVAILABLE,
         retryable=False,
-        safe_message="Unexpected upstream failure.",
+        safe_message=_UNKNOWN_FAILURE_MESSAGE,
     )
+
+
+_UNKNOWN_FAILURE_MESSAGE = "Unexpected upstream failure."
+
+
+def classify_exception_chain(exc: BaseException) -> ProviderFailure:
+    """``classify_exception`` that looks THROUGH wrapper exceptions.
+
+    Several provider clients re-wrap the real cause
+    (``raise Exception(f"Failed to search ...: {e}")`` inside an ``except``),
+    which hides an ``httpx.ConnectError`` behind a bare ``Exception`` and made
+    an unreachable source classify as "unexpected". The chain
+    (``__cause__``, else the implicit ``__context__``) is walked until a link
+    classifies as something KNOWN; only when no link does is the unknown
+    answer returned. The safe message never carries the wrapper's text.
+    """
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        failure = classify_exception(current)
+        if failure.safe_message != _UNKNOWN_FAILURE_MESSAGE:
+            return failure
+        current = current.__cause__ or current.__context__
+    return classify_exception(exc)
+
+
+def failure_marker(failure: ProviderFailure) -> str:
+    """The machine-parseable failure line every gateway lane shares.
+
+    ``"<KIND> retry_after=N.N: <safe message>"`` — the prefix the Bedesten and
+    legislation lanes already emit, read by the control plane's
+    ``classifyFailureText`` (control-plane/src/gateway/failureText.ts). A
+    retryable failure without an upstream hint suggests 30 s, a
+    non-retryable one 0 s (the same defaults as ``bedesten_failure_fields``).
+    """
+    if failure.retry_after_ms is not None:
+        retry_after = failure.retry_after_ms / 1000.0
+    else:
+        retry_after = 30.0 if failure.retryable else 0.0
+    return f"{failure.kind.value} retry_after={retry_after:.1f}: {failure.safe_message}"

@@ -42,6 +42,7 @@ import {
   envelopeProviderForTool,
   parseFetchPayload,
   parseSearchPayload,
+  parseWithinPayload,
   SEARCH_TOOL_PROVIDER,
   type ParsedFailure,
 } from "./payloads.js";
@@ -344,6 +345,19 @@ export function createLiveCapabilityExecutor(
           observedAt,
           warnings: [...outcome.warnings, ...parsed.warnings],
         };
+      }
+
+      // --- document.searchWithin: an error dressed as a result is a failure --
+      // (27.09.2026: "Error fetching legislation content: [SSL: …]" was
+      // counted as an "ok" call, so a run with 13 of 14 calls failed was not
+      // recognised as unreachable.)
+      if (request.capability === "document.searchWithin") {
+        const within = parseWithinPayload(outcome.data);
+        if (within.kind === "failure") {
+          record({ ok: false, ms, status: "failed", errorKind: within.failure.kind });
+          notes.push(`WITHIN_DEGRADED:${toolName}:${within.failure.kind}`);
+          return errorOutcome(toolName, observedAt, within.failure);
+        }
       }
 
       // --- document.searchWithin / source.health: opaque pass-through ------

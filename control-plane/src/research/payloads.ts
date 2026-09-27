@@ -26,6 +26,7 @@
  */
 
 import type { FailureKind, ProviderCode } from "../capabilities/types.js";
+import { classifyFailureCode, classifyFailureText } from "../gateway/failureText.js";
 import { fetchDescriptorForProvider } from "../planner/templates.js";
 
 /** One normalized live search row. Compatible with planner/outcomes extractHits. */
@@ -191,37 +192,62 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-const FAILURE_KINDS: ReadonlySet<string> = new Set([
-  "RATE_LIMITED",
-  "TIMEOUT",
-  "UNAVAILABLE",
-  "INVALID_REQUEST",
-  "UNAUTHORIZED",
-  "PARSER_ERROR",
-  "NOT_FOUND",
-]);
-
-/** Map a provider `error_code` string onto the typed FailureKind taxonomy. */
-export function failureKindOf(errorCode: string | undefined): FailureKind {
-  if (errorCode !== undefined) {
-    const upper = errorCode.toUpperCase();
-    if (FAILURE_KINDS.has(upper)) return upper as FailureKind;
-    if (upper.includes("RATE")) return "RATE_LIMITED";
-    if (upper.includes("TIMEOUT")) return "TIMEOUT";
-  }
-  return "UNAVAILABLE";
+/**
+ * Map a provider `error_code` string onto the typed FailureKind taxonomy.
+ *
+ * An exact kind wins; otherwise the code's own wording, then any free text
+ * passed after it, is classified (gateway/failureText.ts). An error code no
+ * rule recognises is UNAVAILABLE — never INVALID_REQUEST, which would tell
+ * the lawyer to rephrase a query the source never answered.
+ */
+export function failureKindOf(
+  errorCode: string | undefined,
+  ...texts: ReadonlyArray<string | undefined>
+): FailureKind {
+  return classifyFailureCode(errorCode, ...texts).kind;
 }
 
 function failureFromRecord(rec: Record<string, unknown>): ParsedFailure | undefined {
   const errorCode = asString(rec["error_code"]);
   const error = asString(rec["error"]);
   if (errorCode === undefined && error === undefined) return undefined;
-  const kind = failureKindOf(errorCode ?? error);
+  // `message` carries the shared "<KIND> retry_after=N.N: …" marker on every
+  // Python facade; `error` is a code on some (service_unavailable) and a
+  // sentence on others ("KVKK module disabled: set BRAVE_API_TOKEN …").
+  const kind = failureKindOf(errorCode, asString(rec["message"]), error, asString(rec["error_message"]));
   return {
     kind,
     retryable: rec["retryable"] === true || kind === "RATE_LIMITED" || kind === "TIMEOUT" || kind === "UNAVAILABLE",
     // Machine token only — provider prose is untrusted and is never echoed.
-    safeMessage: `provider reported failure (${errorCode ?? error ?? "unknown"})`,
+    safeMessage: `provider reported failure (${errorCode ?? kind})`,
+  };
+}
+
+/**
+ * A payload that carries NO result and only an `error_message` — the shape
+ * the document tools (BTK/GİB/KVKK/Rekabet/KİK) and the typed legislation
+ * lookups answer an upstream failure with. Consulted only when the payload
+ * produced no rows/text, so an informational message next to real content
+ * never turns a result into a failure.
+ */
+function failureFromErrorMessage(rec: Record<string, unknown>): ParsedFailure | undefined {
+  const message = asString(rec["error_message"]);
+  if (message === undefined || message.trim() === "") return undefined;
+  const classified = classifyFailureText(message);
+  return {
+    kind: classified.kind,
+    retryable: classified.retryable || classified.kind === "UNAVAILABLE",
+    safeMessage: `provider reported failure (${classified.kind})`,
+  };
+}
+
+/** A failure the provider reported as plain TEXT ("Search error: …"). */
+function textFailure(text: string, safeMessage: string): ParsedFailure {
+  const classified = classifyFailureText(text);
+  return {
+    kind: classified.kind,
+    retryable: classified.retryable || classified.kind === "UNAVAILABLE",
+    safeMessage,
   };
 }
 
@@ -406,19 +432,105 @@ function parseDeepResearchSearch(data: unknown): SearchParse {
 const MEVZUAT_LINE_RE =
   /^-\s*\[(?<no>[^\]]*)\]\s*(?<title>[^|]*?)(?:\s*\((?<kind>[^()|]*)\))?\s*\|\s*mevzuatId:\s*(?<id>\S+)/u;
 
-const TEXT_FAILURE_RE = /^(?:search error|error|an unexpected error|invalid\s)/iu;
+/**
+ * A plain-text tool result that is really a failure: the legacy English
+ * prefixes, plus the shared typed marker ("UNAVAILABLE retry_after=30.0: …")
+ * a text body may carry when an older gateway returns it as a result instead
+ * of raising it.
+ */
+const TEXT_FAILURE_RE =
+  /^(?:search error|error|an unexpected error|invalid\s|(?:RATE_LIMITED|TIMEOUT|UNAVAILABLE|INVALID_REQUEST|UNAUTHORIZED|PARSER_ERROR|NOT_FOUND) retry_after=)/iu;
 
-function parseMevzuatSearchText(data: unknown): SearchParse {
-  if (typeof data !== "string") return { kind: "failure", failure: parserFailure() };
+/**
+ * The legislation TYPE each typed search tool is scoped to, spelled so that
+ * `planner/templates.ts normalizeLegislationKind` lands on a WITHIN_BY_TYPE
+ * key (the row must still pick the right `search_within_*` lane).
+ */
+const TYPED_LEGISLATION_KIND: Readonly<Record<string, string>> = Object.freeze({
+  search_kanun: "Kanun",
+  search_khk: "KHK",
+  search_tuzuk: "Tüzük",
+  search_kurum_yonetmelik: "Kurum Yönetmeliği",
+  search_teblig: "Tebliğ",
+  search_cbk: "Cumhurbaşkanlığı Kararnamesi",
+  search_cbyonetmelik: "CB Yönetmeliği",
+  search_cbbaskankarar: "Cumhurbaşkanı Kararı",
+  search_cbgenelge: "CB Genelgesi",
+});
+
+/**
+ * The ONE sentence the nine typed legislation tools write into
+ * `error_message` for a search that ran and matched nothing
+ * (mevzuat_mcp_server.py: `result.error_message = "No legislation found
+ * matching the specified criteria."`). Every other `error_message` next to
+ * an empty `documents` list is a failure.
+ */
+const TYPED_LEGISLATION_EMPTY_MESSAGE = "No legislation found matching the specified criteria.";
+
+/**
+ * The nine typed legislation searches (`search_kanun`, `search_khk`, …)
+ * return a `MevzuatSearchResultNew` OBJECT, not `search_mevzuat`'s text.
+ *
+ * MEASURED DEFECT, 27.09.2026: this module handed that object to the text
+ * parser, which answered PARSER_ERROR for ANY non-string — so every one of
+ * the nine sources failed in ~10 ms whether the upstream was up or down, and
+ * an outage was reported as "kaynak beklenmedik biçimde yanıt verdi" instead
+ * of "ulaşılamadı".
+ */
+function parseTypedLegislationSearch(toolName: string, rec: Record<string, unknown>): SearchParse {
+  const documents = Array.isArray(rec["documents"]) ? (rec["documents"] as unknown[]) : [];
+  const legislationKind = TYPED_LEGISLATION_KIND[toolName];
+  const hits: LiveSearchHit[] = [];
+  for (const item of documents) {
+    const row = asRecord(item);
+    if (row === undefined) continue;
+    // The fetch step (get_mevzuat_content) needs the Bedesten mevzuatId; a row
+    // without one is dropped, never backfilled from its number.
+    const id =
+      asString(row["mevzuat_id"]) ??
+      (typeof row["mevzuat_id"] === "number" ? String(row["mevzuat_id"]) : undefined);
+    if (id === undefined) continue;
+    const no = asString(row["mevzuat_no"])?.trim() ?? "";
+    const name = asString(row["mev_adi"])?.trim() ?? "";
+    hits.push({
+      hitId: `mevzuat-${id}`,
+      provider: "MEVZUAT",
+      toolName,
+      externalId: id,
+      title: name !== "" ? (no !== "" ? `${no} sayılı ${name}` : name) : `Mevzuat ${id}`,
+      ...(legislationKind !== undefined ? { legislationKind } : {}),
+      ...(/^[0-9]{1,12}$/u.test(no) ? { legislationNo: no } : {}),
+    });
+  }
+  const message = asString(rec["error_message"])?.trim();
+  const reportsFailure = message !== undefined && message !== TYPED_LEGISLATION_EMPTY_MESSAGE;
+  if (reportsFailure && hits.length === 0) {
+    return { kind: "failure", failure: textFailure(message, "legislation search reported an error") };
+  }
+  const totalRecords = hits.length > 0 || !reportsFailure ? readTotalRecords(rec) : undefined;
+  return {
+    kind: "hits",
+    hits,
+    warnings: [],
+    ...(reportsFailure
+      ? { degraded: textFailure(message, "legislation search reported an error") }
+      : {}),
+    ...(totalRecords !== undefined ? { totalRecords } : {}),
+  };
+}
+
+function parseMevzuatSearchText(toolName: string, data: unknown): SearchParse {
+  if (typeof data !== "string") {
+    const rec = asRecord(data);
+    return rec !== undefined && Array.isArray(rec["documents"])
+      ? parseTypedLegislationSearch(toolName, rec)
+      : { kind: "failure", failure: parserFailure() };
+  }
   const text = data.trim();
   if (TEXT_FAILURE_RE.test(text)) {
     return {
       kind: "failure",
-      failure: {
-        kind: text.toLowerCase().includes("rate limit") ? "RATE_LIMITED" : "UNAVAILABLE",
-        retryable: true,
-        safeMessage: "legislation search reported an error",
-      },
+      failure: textFailure(text, "legislation search reported an error"),
     };
   }
   const hits: LiveSearchHit[] = [];
@@ -494,10 +606,7 @@ function parseGenericSearch(toolName: string, data: unknown): SearchParse {
   if (typeof payload === "string") {
     const text = payload.trim();
     if (TEXT_FAILURE_RE.test(text)) {
-      return {
-        kind: "failure",
-        failure: { kind: "UNAVAILABLE", retryable: true, safeMessage: "search reported an error" },
-      };
+      return { kind: "failure", failure: textFailure(text, "search reported an error") };
     }
     try {
       payload = JSON.parse(text) as unknown;
@@ -541,6 +650,12 @@ function parseGenericSearch(toolName: string, data: unknown): SearchParse {
     });
   }
   if (failure !== undefined && hits.length === 0) return { kind: "failure", failure };
+  // KİK's client answers an outage with `error_message` and an empty list;
+  // an empty list plus a failure sentence is not "no decision matches".
+  if (failure === undefined && hits.length === 0 && rec !== undefined) {
+    const reported = failureFromErrorMessage(rec);
+    if (reported !== undefined) return { kind: "failure", failure: reported };
+  }
   // Only an OBJECT payload can carry a count; a bare JSON array says nothing
   // about how many records the source holds, so it stays unknown.
   const totalRecords = rec !== undefined ? readTotalRecords(rec) : undefined;
@@ -578,6 +693,51 @@ export function unwrapFastMcpResult(data: unknown): unknown {
   return data;
 }
 
+export type WithinParse =
+  | { kind: "ok"; data: unknown }
+  | { kind: "failure"; failure: ParsedFailure };
+
+/**
+ * "Search inside ONE instrument / journal issue" payloads (the
+ * `search_within_*` tools). The result is opaque DATA shown to the lawyer, so
+ * only one question is asked of it: is this an answer, or a failure dressed
+ * as one?
+ *
+ * MEASURED DEFECT, 27.09.2026: `search_within_mevzuat` answered
+ * "Error fetching content for mevzuatId 6098: [SSL: CERTIFICATE_VERIFY_FAILED]
+ * …" as a normal STRING result and `search_within_sigorta_tahkim_issue`
+ * answered `{total_decisions: 0, matches: [], error: "Failed to search …"}`.
+ * Both went to the screen as a 200 result, and the live research trace
+ * counted the first as an "ok" call. The Python tools now raise / carry typed
+ * fields; this check also covers a gateway that still returns the old shapes.
+ */
+export function parseWithinPayload(rawData: unknown): WithinParse {
+  const data = unwrapFastMcpResult(rawData);
+  try {
+    if (typeof data === "string") {
+      const text = data.trim();
+      if (text === "" || TEXT_FAILURE_RE.test(text)) {
+        return {
+          kind: "failure",
+          failure:
+            text === ""
+              ? { kind: "PARSER_ERROR", retryable: false, safeMessage: "search-within returned empty text" }
+              : textFailure(text, "search-within reported an error"),
+        };
+      }
+      return { kind: "ok", data: rawData };
+    }
+    const rec = asRecord(data);
+    if (rec !== undefined) {
+      const failure = failureFromRecord(rec);
+      if (failure !== undefined) return { kind: "failure", failure };
+    }
+    return { kind: "ok", data: rawData };
+  } catch {
+    return { kind: "failure", failure: parserFailure() };
+  }
+}
+
 /** Parse one search-capability tool payload into typed hits (never throws). */
 export function parseSearchPayload(toolName: string, rawData: unknown): SearchParse {
   const data = unwrapFastMcpResult(rawData);
@@ -585,7 +745,7 @@ export function parseSearchPayload(toolName: string, rawData: unknown): SearchPa
     if (toolName === "search_bedesten_unified") return parseBedestenUnified(data);
     if (toolName === "search") return parseDeepResearchSearch(data);
     if ((LEGISLATION_SEARCH_TOOLS as readonly string[]).includes(toolName)) {
-      return parseMevzuatSearchText(data);
+      return parseMevzuatSearchText(toolName, data);
     }
     return parseGenericSearch(toolName, data);
   } catch {
@@ -667,7 +827,7 @@ export function parseFetchPayload(
       const raw = data.trim();
       if (raw.length === 0) return fetchFailure("UNAVAILABLE", "document fetch returned empty text");
       if (TEXT_FAILURE_RE.test(raw)) {
-        return fetchFailure("UNAVAILABLE", "document fetch reported an error");
+        return { kind: "failure", failure: textFailure(raw, "document fetch reported an error") };
       }
       const text = raw.replace(MEVZUAT_CONTENT_HEADER_RE, "");
       return {
@@ -691,8 +851,13 @@ export function parseFetchPayload(
       const text =
         asString(rec["markdown_content"]) ?? asString(rec["text"]) ?? asString(rec["content"]);
       if (text === undefined) {
-        return failure !== undefined
-          ? { kind: "failure", failure }
+        // The document tools answer an outage with `error_message` and no
+        // text; that is the upstream's failure, not an unreadable payload
+        // (measured 27.09.2026: GİB/KVKK/Rekabet showed PARSER_ERROR while
+        // the network was down).
+        const reported = failure ?? failureFromErrorMessage(rec);
+        return reported !== undefined
+          ? { kind: "failure", failure: reported }
           : fetchFailure("PARSER_ERROR", "document payload carried no text field");
       }
       const id = requestedId ?? asString(rec["documentId"]) ?? asString(rec["id"]) ?? "";
