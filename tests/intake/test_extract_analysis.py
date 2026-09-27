@@ -386,3 +386,10 @@ def test_a_date_at_the_end_of_a_sentence_is_still_a_date():
     assert [d["date"] for d in dates] == ["2026-06-20"]
     # Still not a date: a longer dotted number.
     assert analysis.extract_dates("Sürüm 20.06.2026.1 yüklendi.") == []
+
+
+def test_a_sentence_ending_in_a_currency_code_still_ends():
+    parts = [p.strip() for p in analysis.split_sentences(
+        "Talep edilen miktar 10.000 TL. Davalı ödeme yapmamıştır."
+    )]
+    assert parts == ["Talep edilen miktar 10.000 TL.", "Davalı ödeme yapmamıştır."]

@@ -207,6 +207,8 @@ _ABBREVIATIONS = frozenset({
     "iddk", "ybk", "d", "daire", "yarg", "e", "k", "t", "ltd", "şti", "tic",
     "san", "a", "ş", "sk", "sok", "cad", "mah", "apt", "blv", "kat", "tel",
 })
+#: Upper-case tokens that END sentences rather than abbreviate a court.
+_CURRENCY_TOKENS = frozenset({"TL", "YTL", "TRY", "USD", "EUR", "GBP", "CHF"})
 _SPLIT_CANDIDATE_RE = re.compile(r"[.!?;]\s+|\n{2,}")
 _TOKEN_BEFORE_DOT_RE = re.compile(r"(\S+)\.$")
 
@@ -228,6 +230,8 @@ def _is_abbreviation_dot(text: str, dot_index: int) -> bool:
         return len(token) <= 3
     if len(token) == 1:                    # single letter: "E.", "K."
         return True
+    if token in _CURRENCY_TOKENS:          # "… 10.000 TL." ends a sentence
+        return False
     if token.isupper() and len(token) <= 5:  # HD, HGK, İBK, TCK
         return True
     return turkish_lower(token) in _ABBREVIATIONS

@@ -317,6 +317,9 @@ const ABBREVIATIONS = new Set([
   "san", "a", "ş", "sk", "sok", "cad", "mah", "apt", "blv", "kat", "tel",
 ]);
 
+/** Upper-case tokens that END sentences rather than abbreviate a court. */
+const CURRENCY_TOKENS = new Set(["TL", "YTL", "TRY", "USD", "EUR", "GBP", "CHF"]);
+
 function isAbbreviationDot(text: string, dotIndex: number): boolean {
   const before = text.slice(Math.max(0, dotIndex - 40), dotIndex);
   const match = /(\S+)$/u.exec(before);
@@ -326,6 +329,7 @@ function isAbbreviationDot(text: string, dotIndex: number): boolean {
   if (token.includes(".")) return true; // A.Ş, T.C, Ltd.Şti
   if (/^\d+$/u.test(token)) return token.length <= 3; // "9. Hukuk Dairesi", "12. Noterlik"
   if (Array.from(token).length === 1) return true; // "E.", "K."
+  if (CURRENCY_TOKENS.has(token)) return false; // "… 10.000 TL." ends a sentence
   if (token.length <= 5 && token === token.toLocaleUpperCase("tr-TR") && /\p{L}/u.test(token)) {
     return true; // HD, HGK, TCK
   }

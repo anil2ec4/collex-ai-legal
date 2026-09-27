@@ -155,3 +155,10 @@ describe("suggested facts — abbreviation-aware sentences (27.09.2026)", () => 
     expect(facts[0]?.tarih).toBe("02.10.2023");
   });
 });
+
+it("ends a sentence at a currency code (10.000 TL.)", () => {
+  expect(splitSentencesTr("Talep edilen miktar 10.000 TL. Davalı ödeme yapmamıştır.").map((s) => s.trim())).toEqual([
+    "Talep edilen miktar 10.000 TL.",
+    "Davalı ödeme yapmamıştır.",
+  ]);
+});
