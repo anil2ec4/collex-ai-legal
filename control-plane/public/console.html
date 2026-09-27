@@ -4190,8 +4190,21 @@ button.seal { border-radius: var(--r-ctl); }
   var TIME_BUDGET_AFTER_DRAFT_TEXT = "Cevap süre bütçesini tespitler yazıldıktan sonra aştı; doğrulama adımı yine de çalıştı ve her " +
     "tespitin sonucu kendi satırında yazıyor, ancak cevap KISMİ sayıldı ve kesinleştirilmedi.";
 
+  /* W23 · cevap biçimi (answerShape, shape-v1): sunucunun cümlesiyle aynı. */
+  var ANSWER_SHAPE_TR = {
+    DATE: "tarih", AMOUNT: "para tutarı", DURATION: "süre", QUANTITY: "sayı ya da miktar",
+    PERSON: "kişi ya da taraf adı", COURT: "mahkeme ya da daire adı"
+  };
   function warnTR(code, ctx) {
     var raw = String(code === undefined || code === null ? "" : code);
+    var shape = /^ANSWER_SHAPE_NOT_FOUND:([A-Z]+)$/.exec(raw);
+    if (shape && ANSWER_SHAPE_TR[shape[1]]) {
+      return {
+        text: "Soru bir " + ANSWER_SHAPE_TR[shape[1]] + " soruyor; öne çıkan alıntıda bu biçimde bir değer bulunamadı — " +
+          "alıntının soruyu karşıladığı denetlenmedi, alıntıyı kendiniz okuyun.",
+        raw: raw
+      };
+    }
     if (ctx && ctx.claimsWritten === true && /^TIME_BUDGET_EXCEEDED/.test(raw)) {
       return { text: TIME_BUDGET_AFTER_DRAFT_TEXT, raw: raw };
     }
