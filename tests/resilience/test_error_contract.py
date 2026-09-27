@@ -173,3 +173,91 @@ async def test_get_document_plain_text_empty_success_returns_empty_string():
     )
     plain = await mevzuat_mcp_server.bedesten_client.get_document_plain_text("999002")
     assert plain == ""
+
+
+# --- The STRING-returning legislation tools (27.09.2026) --------------------
+# MEASURED DEFECT: with the network down, search_within_mevzuat answered
+# isError:false with the text "Error fetching content for mevzuatId 6098:
+# [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: ..." and
+# POST /v1/sources/within returned it to the lawyer as a 200 result; the live
+# research trace counted search_within_kanun as an "ok" call. A failure is now
+# a typed MCP tool error: isError:true, text "<KIND> retry_after=N.N: <safe>".
+
+STRING_TOOL_CALLS = [
+    ("get_mevzuat_content", {"mevzuat_id": "6098"}),
+    ("search_within_mevzuat", {"mevzuat_id": "6098", "keyword": "kira"}),
+    ("search_within_kanun", {"mevzuat_no": "6098", "keyword": "kira"}),
+    ("search_within_teblig", {"mevzuat_no": "1", "keyword": "kira"}),
+    ("search_mevzuat", {"phrase": "kira"}),
+    ("get_mevzuat_gerekce", {"gerekce_id": "1"}),
+    ("get_mevzuat_madde_tree", {"mevzuat_id": "1"}),
+]
+
+
+@respx.mock
+async def test_string_tools_raise_a_typed_error_instead_of_returning_error_text():
+    from fastmcp import Client
+    from bedesten_rate_limit import bedesten_rate_limiter
+
+    respx.route(host="bedesten.adalet.gov.tr").mock(
+        side_effect=httpx.ConnectError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
+        )
+    )
+    bedesten_rate_limiter.reset()
+    try:
+        async with Client(mevzuat_mcp_server.app) as client:
+            for tool, args in STRING_TOOL_CALLS:
+                result = await client.call_tool_mcp(tool, args)
+                text = result.content[0].text
+                assert result.isError is True, (tool, text)
+                assert text.startswith("UNAVAILABLE retry_after="), (tool, text)
+                # No TLS internals, no English wrapper prose on the wire.
+                assert "SSL" not in text and "CERTIFICATE" not in text, (tool, text)
+    finally:
+        bedesten_rate_limiter.reset()
+
+
+@respx.mock
+async def test_string_tool_genuine_no_match_is_still_a_normal_result():
+    """Guard: an answered search with zero matches is NOT an error."""
+    import base64
+    from fastmcp import Client
+    from bedesten_rate_limit import bedesten_rate_limiter
+
+    body = "<p>MADDE 1 - Bu Kanun sözleşmeleri düzenler.</p>"
+    respx.post(DOC_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "content": base64.b64encode(body.encode("utf-8")).decode("ascii"),
+                    "mimeType": "text/html",
+                },
+                "metadata": {"FMTY": "SUCCESS"},
+            },
+        )
+    )
+    bedesten_rate_limiter.reset()
+    try:
+        async with Client(mevzuat_mcp_server.app) as client:
+            result = await client.call_tool_mcp(
+                "search_within_mevzuat", {"mevzuat_id": "999003", "keyword": "zzzqqq"}
+            )
+        assert result.isError is False
+        assert result.content[0].text.startswith("No articles matching")
+    finally:
+        bedesten_rate_limiter.reset()
+
+
+@respx.mock
+async def test_client_error_message_is_typed_and_carries_no_driver_text():
+    respx.post(SEARCH_URL).mock(
+        side_effect=httpx.ConnectError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
+        )
+    )
+    result = await mevzuat_mcp_server._search_documents_resilient(make_request())
+    assert result.documents == []
+    assert result.error_message.startswith("UNAVAILABLE retry_after=")
+    assert "SSL" not in result.error_message

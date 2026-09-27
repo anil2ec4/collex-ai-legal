@@ -23,6 +23,7 @@ from bedesten_rate_limit import (
     BedestenRateLimited,
     bedesten_rate_limiter,
 )
+from legal_contracts import classify_exception_chain, failure_marker
 from mevzuat_bedesten_models import (
     MevzuatTurEnum,
     BedMevzuatDocument,
@@ -59,6 +60,20 @@ class BedestenContentError(Exception):
         super().__init__(
             f"failed to fetch content for mevzuatId {mevzuat_id}: {cause}"
         )
+
+
+def _failure_text(exc: BaseException) -> str:
+    """Typed, safe error text for a failed Bedesten legislation call.
+
+    ``str(exc)`` used to travel all the way to the lawyer's screen: an
+    unreachable Bedesten answered "[SSL: CERTIFICATE_VERIFY_FAILED] certificate
+    verify failed: self-signed certificate in certificate chain (_ssl.c:1016)"
+    — English TLS internals, with no machine kind a caller could branch on.
+    The shared marker ``"<KIND> retry_after=N.N: <safe message>"`` names the
+    failure class (UNAVAILABLE / TIMEOUT / PARSER_ERROR ...) and carries no
+    upstream or driver text.
+    """
+    return failure_marker(classify_exception_chain(exc))
 
 
 def _wrap(data: dict) -> dict:
@@ -251,7 +266,7 @@ class BedestenClient:
             raise
         except Exception as e:
             logger.exception("bedesten search error")
-            return BedSearchResult(error_message=str(e), query_used=phrase)
+            return BedSearchResult(error_message=_failure_text(e), query_used=phrase)
 
     # ------------------------------------------------------------------
     # 2. Get full document content (base64 HTML/PDF)
@@ -289,7 +304,7 @@ class BedestenClient:
             raise
         except Exception as e:
             logger.exception("bedesten get_document_content error")
-            return BedDocumentContent(error_message=str(e))
+            return BedDocumentContent(error_message=_failure_text(e))
 
     # ------------------------------------------------------------------
     # 3. Get single article content
@@ -320,7 +335,7 @@ class BedestenClient:
             raise
         except Exception as e:
             logger.exception("bedesten get_article_content error")
-            return BedDocumentContent(error_message=str(e))
+            return BedDocumentContent(error_message=_failure_text(e))
 
     # ------------------------------------------------------------------
     # 4. Get article tree (table of contents)
@@ -359,7 +374,7 @@ class BedestenClient:
             raise
         except Exception as e:
             logger.exception("bedesten get_article_tree error")
-            return [], str(e)
+            return [], _failure_text(e)
 
     # ------------------------------------------------------------------
     # 5. Get gerekçe (law rationale)
@@ -402,7 +417,7 @@ class BedestenClient:
             raise
         except Exception as e:
             logger.exception("bedesten get_gerekce_content error")
-            return BedGerekceContent(error_message=str(e))
+            return BedGerekceContent(error_message=_failure_text(e))
 
     # ------------------------------------------------------------------
     # 6. Get mevzuat types

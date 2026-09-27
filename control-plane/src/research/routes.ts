@@ -333,9 +333,16 @@ export class ResearchRunRegistry {
 // Router
 // ---------------------------------------------------------------------------
 
+/**
+ * `run.unreachable` (researchService.ts): no search was answered and no
+ * document was fetched. Since 27.09.2026 that includes a run whose every
+ * search failed while the gateway itself answered (the official sources were
+ * down), so the sentence names the SEARCHES, not the gateway — and says
+ * outright that this is not a "nothing found" answer.
+ */
 const UNREACHABLE_MESSAGE =
-  "Resmî kaynak geçidine hiçbir araç çağrısında ulaşılamadı;" +
-  " canlı araştırma yürütülemedi.";
+  "Resmî kaynaklarda yapılan aramaların hiçbiri cevap vermedi (kaynaklara ulaşılamadı);" +
+  " canlı araştırma yürütülemedi. Bu bir “bulunamadı” sonucu DEĞİLDİR.";
 
 const NOT_CONFIGURED_MESSAGE =
   "Canlı derin araştırma bu sunucuda yapılandırılmamış" +

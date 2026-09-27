@@ -195,7 +195,32 @@ describe("HttpMcpGateway failure mapping", () => {
     if (outcome.status === "error") expect(outcome.error.kind).toBe("INVALID_REQUEST");
   });
 
-  it("maps a tool-level isError result to INVALID_REQUEST", async () => {
+  // 27.09.2026: this case used to pin "every isError is INVALID_REQUEST" —
+  // the defect itself (an outage told the lawyer to rephrase a correct
+  // query). The INVALID_REQUEST half is kept for what really is the caller's
+  // fault, FastMCP's argument validation; an unrecognised tool failure is the
+  // classifier's non-retryable UNAVAILABLE (legal_contracts' unknown branch).
+  it("maps a tool-level ARGUMENT validation error to INVALID_REQUEST", async () => {
+    const { baseUrl } = await startMock((_req, res) =>
+      jsonRpcResult(res, {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text:
+              "1 validation error for call[search_kvkk_decisions]\npage\n" +
+              "  Input should be a valid integer [type=int_parsing]",
+          },
+        ],
+      }),
+    );
+    const gateway = new HttpMcpGateway({ baseUrl, bearerToken: "t" });
+    const outcome = await gateway.callTool({ toolName: "search", args: {} });
+    expect(outcome.status).toBe("error");
+    if (outcome.status === "error") expect(outcome.error.kind).toBe("INVALID_REQUEST");
+  });
+
+  it("maps an unrecognised tool-level isError to non-retryable UNAVAILABLE, never INVALID_REQUEST", async () => {
     const { baseUrl } = await startMock((_req, res) =>
       jsonRpcResult(res, {
         isError: true,
@@ -205,7 +230,10 @@ describe("HttpMcpGateway failure mapping", () => {
     const gateway = new HttpMcpGateway({ baseUrl, bearerToken: "t" });
     const outcome = await gateway.callTool({ toolName: "search", args: {} });
     expect(outcome.status).toBe("error");
-    if (outcome.status === "error") expect(outcome.error.kind).toBe("INVALID_REQUEST");
+    if (outcome.status === "error") {
+      expect(outcome.error.kind).toBe("UNAVAILABLE");
+      expect(outcome.error.retryable).toBe(false);
+    }
   });
 
   it("maps an unparseable body to PARSER_ERROR", async () => {

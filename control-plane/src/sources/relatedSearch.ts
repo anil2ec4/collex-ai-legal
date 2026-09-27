@@ -376,7 +376,11 @@ export interface RelatedQuery {
   aciklama: string;
   /** False when the budget refused to run it — see `skippedQueries[]`. */
   calisti: boolean;
-  /** Rows this query contributed, before deduplication. `null` when not run. */
+  /**
+   * Rows this query contributed, before deduplication. `null` when not run,
+   * AND when it ran but none of the selected sources answered — an unknown
+   * count is never 0 (the console reads that pair as "kaynak cevap vermedi").
+   */
   bulunanSatir: number | null;
   /** Wall time of this query, ms. `null` when not run. */
   sureMs: number | null;
@@ -1454,7 +1458,11 @@ export async function relatedSearch(
     queries.push({
       ...base,
       calisti: true,
-      bulunanSatir: result.rows.length,
+      // 27.09.2026: with every selected source down this was `0`, and the
+      // ALL_SOURCES_FAILED card drew each query with a green "çalıştırıldı"
+      // chip and "0 künye getirdi" — a count nobody measured. No source
+      // answered means the count is UNKNOWN (`null`), never 0.
+      bulunanSatir: result.okSources.length === 0 ? null : result.rows.length,
       sureMs: Math.max(0, Math.round(monotonic() - queryStarted)),
       totalRecords: result.totalRecords,
     });

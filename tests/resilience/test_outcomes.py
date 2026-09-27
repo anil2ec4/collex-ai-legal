@@ -120,3 +120,45 @@ def test_classifier_unknown_exception_is_safe():
     failure = classify_exception(RuntimeError("secret internals"))
     assert failure.kind is FailureKind.UNAVAILABLE
     assert "secret" not in failure.safe_message
+
+
+def test_chain_classifier_looks_through_a_wrapper():
+    """BTK's client re-wraps: ``raise Exception(f"Failed ...: {e}")``."""
+    from legal_contracts import classify_exception_chain
+
+    try:
+        try:
+            raise httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] boom")
+        except Exception as inner:
+            raise Exception(f"Failed to search BTK decisions: {inner}")
+    except Exception as caught:
+        wrapped = caught
+    failure = classify_exception_chain(wrapped)
+    assert failure.kind is FailureKind.UNAVAILABLE
+    assert failure.retryable is True
+    assert "SSL" not in failure.safe_message
+    # the plain classifier still reports the wrapper as unknown
+    assert classify_exception(wrapped).retryable is False
+
+
+def test_chain_classifier_keeps_unknown_when_nothing_is_known():
+    from legal_contracts import classify_exception_chain
+
+    failure = classify_exception_chain(RuntimeError("secret internals"))
+    assert failure.kind is FailureKind.UNAVAILABLE
+    assert failure.retryable is False
+    assert "secret" not in failure.safe_message
+
+
+def test_failure_marker_is_the_shared_machine_prefix():
+    from legal_contracts import classify_exception_chain, failure_marker
+
+    assert failure_marker(classify_exception_chain(httpx.ConnectError("x"))) == (
+        "UNAVAILABLE retry_after=30.0: Could not reach the upstream service."
+    )
+    assert failure_marker(classify_exception_chain(RuntimeError("x"))) == (
+        "UNAVAILABLE retry_after=0.0: Unexpected upstream failure."
+    )
+    assert failure_marker(classify_exception(TimeoutError())).startswith(
+        "TIMEOUT retry_after=30.0: "
+    )

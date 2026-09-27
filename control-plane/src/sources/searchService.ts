@@ -391,20 +391,42 @@ export function fetchKindForSource(source: SourceDescriptor): string | undefined
 // Turkish failure sentences (machine code first, explained)
 // ---------------------------------------------------------------------------
 
-const FAILURE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
-  RATE_LIMITED:
-    "kaynak sunucu istek sınırına takıldı (RATE_LIMITED); biraz sonra tekrar deneyin",
-  TIMEOUT: "kaynak sunucu süresinde yanıt vermedi (TIMEOUT)",
-  UNAVAILABLE: "kaynak sunucuya ulaşılamadı (UNAVAILABLE)",
-  UNAUTHORIZED: "bu kaynak için gerekli kimlik tanımlı değil (UNAUTHORIZED)",
-  INVALID_REQUEST: "arama isteği bu kaynak için geçersiz (INVALID_REQUEST)",
-  PARSER_ERROR: "kaynak beklenmedik biçimde yanıt verdi (PARSER_ERROR)",
-  NOT_FOUND: "kaynakta bu sorguya karşılık kayıt bulunamadı (NOT_FOUND)",
+/** [Turkish clause, trailing advice] per failure kind; the code goes between. */
+const FAILURE_CLAUSES: Readonly<Record<string, readonly [string, string]>> = Object.freeze({
+  RATE_LIMITED: ["kaynak sunucu istek sınırına takıldı", "; biraz sonra tekrar deneyin"],
+  TIMEOUT: ["kaynak sunucu süresinde yanıt vermedi", ""],
+  UNAVAILABLE: ["kaynak sunucuya ulaşılamadı", ""],
+  UNAUTHORIZED: ["bu kaynak için gerekli kimlik tanımlı değil", ""],
+  INVALID_REQUEST: ["arama isteği bu kaynak için geçersiz", ""],
+  PARSER_ERROR: ["kaynak beklenmedik biçimde yanıt verdi", ""],
+  NOT_FOUND: ["kaynakta bu sorguya karşılık kayıt bulunamadı", ""],
 });
 
+/**
+ * The Turkish clause for one failure kind WITHOUT the machine code
+ * ("kaynak sunucuya ulaşılamadı"), for a line that prints the code once at
+ * its own end.
+ */
+export function failureClauseTr(kind: string): string {
+  const clause = FAILURE_CLAUSES[kind];
+  return clause === undefined ? "kaynak bir hata bildirdi" : `${clause[0]}${clause[1]}`;
+}
+
+/**
+ * The Turkish clause for one failure kind, machine code in parentheses
+ * ("kaynak sunucuya ulaşılamadı (UNAVAILABLE)"). Shared by every surface that
+ * must say WHY a source gave nothing, so the same outage reads the same way
+ * on the list, the within search and the research trace.
+ */
+export function failureReasonTr(kind: string): string {
+  const clause = FAILURE_CLAUSES[kind];
+  return clause === undefined
+    ? `kaynak bir hata bildirdi (${kind})`
+    : `${clause[0]} (${kind})${clause[1]}`;
+}
+
 export function failureMessageTr(sourceLabel: string, kind: string): string {
-  const tail = FAILURE_MESSAGES[kind] ?? `kaynak bir hata bildirdi (${kind})`;
-  return `${sourceLabel}: ${tail}. Bu kaynağın sonuçları listede YOK.`;
+  return `${sourceLabel}: ${failureReasonTr(kind)}. Bu kaynağın sonuçları listede YOK.`;
 }
 
 // ---------------------------------------------------------------------------

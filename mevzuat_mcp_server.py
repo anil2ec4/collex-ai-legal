@@ -4,14 +4,17 @@ FastMCP server for mevzuat.gov.tr (direct API).
 Supports searching and PDF content extraction for Kanun (laws).
 """
 import os
+import re
 import asyncio
 import logging
 from pydantic import Field
 from typing import Optional
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError as McpToolError
 
 from bedesten_rate_limit import BedestenCircuitOpen, BedestenRateLimited
+from legal_contracts import classify_exception_chain, failure_marker
 from mevzuat_bedesten_client import BedestenContentError
 from mevzuat_client import MevzuatApiClientNew
 from mevzuat_models import (
@@ -106,6 +109,64 @@ def _circuit_open_message(exc: BedestenCircuitOpen) -> str:
         f"UNAVAILABLE retry_after={exc.retry_after:.1f}: Bedesten circuit breaker "
         f"open for '{exc.endpoint_class}'; retry after "
         f"{exc.retry_after:.1f} seconds."
+    )
+
+
+# --- Typed tool errors for the STRING-returning tools ------------------------
+# search_mevzuat, get_mevzuat_content, search_within_* and friends return a
+# formatted string. Their failures used to be returned as an ordinary string
+# result too ("Error fetching content for mevzuatId 6098: [SSL: ...]"), so an
+# MCP caller received `isError: false` and every consumer that did not grep
+# the English prose treated the outage as a successful, empty answer — the
+# live research trace counted such a call as "ok". A failure is now RAISED as
+# a typed MCP tool error whose text keeps the shared machine prefix
+# "<KIND> retry_after=N.N: <safe message>" (legal_contracts.failure_marker),
+# which the control plane's gateway reads (gateway/failureText.ts). A
+# genuinely empty answer ("No articles found ...") is still a normal result.
+
+_FAILURE_KINDS = (
+    "RATE_LIMITED", "TIMEOUT", "UNAVAILABLE", "INVALID_REQUEST",
+    "UNAUTHORIZED", "PARSER_ERROR", "NOT_FOUND",
+)
+_TYPED_MARKER_RE = re.compile(
+    r"\b(?:" + "|".join(_FAILURE_KINDS) + r") retry_after=\d+(?:\.\d+)?: "
+)
+
+
+def _typed_tool_error(message: str, kind: str, retryable: bool = False) -> McpToolError:
+    """A typed tool error for a failure this module detected itself."""
+    retry_after = 30.0 if retryable else 0.0
+    return McpToolError(f"{kind} retry_after={retry_after:.1f}: {message.strip()}")
+
+
+def _tool_error_from_exception(exc: BaseException) -> McpToolError:
+    """A typed tool error for an unexpected exception; no driver text leaks."""
+    return McpToolError(failure_marker(classify_exception_chain(exc)))
+
+
+def _content_failure(error_message: str) -> McpToolError:
+    """Refuse with the failure a content/search lookup reported as text.
+
+    The Bedesten client already writes a typed marker for every transport
+    failure (mevzuat_bedesten_client._failure_text); the marker is kept from
+    where it starts, so a wrapper prefix ("failed to fetch content for
+    mevzuatId …: ") cannot push the kind out of first position. A message
+    without a marker is classified by what it says: a document that does not
+    exist is NOT_FOUND, an unsupported type is INVALID_REQUEST, and anything
+    else the upstream itself reported (FMTE) is UNAVAILABLE.
+    """
+    text = (error_message or "").strip()
+    match = _TYPED_MARKER_RE.search(text)
+    if match is not None:
+        return McpToolError(text[match.start():])
+    if text.startswith("No Bedesten document found") or "not found" in text.lower():
+        return _typed_tool_error(text, "NOT_FOUND")
+    if text.startswith("Unsupported legislation type"):
+        return _typed_tool_error(text, "INVALID_REQUEST")
+    return _typed_tool_error(
+        f"Upstream reported an error: {text}" if text else "Upstream reported an error.",
+        "UNAVAILABLE",
+        retryable=True,
     )
 
 
@@ -302,10 +363,10 @@ async def _semantic_search_within(
     )
 
     if content_result.error_message:
-        return f"Error fetching content: {content_result.error_message}"
+        raise _content_failure(content_result.error_message)
 
     if not content_result.markdown_content:
-        return f"Error: No content found for mevzuat {mevzuat_no}"
+        raise _typed_tool_error(f"No content found for mevzuat {mevzuat_no}", "NOT_FOUND")
 
     content = content_result.markdown_content
 
@@ -317,7 +378,7 @@ async def _semantic_search_within(
         # 3. Process into chunks
         chunks = _processor.process_legislation(content, mevzuat_no, mevzuat_tur)
         if not chunks:
-            return f"Error: Could not split content into searchable segments for mevzuat {mevzuat_no}"
+            raise _typed_tool_error(f"Could not split content into searchable segments for mevzuat {mevzuat_no}", "PARSER_ERROR")
 
         # 4. Encode documents
         texts = [c.text for c in chunks]
@@ -402,7 +463,7 @@ async def _keyword_search_chunks(
     chunks = processor.process_legislation(content, mevzuat_no, mevzuat_tur)
 
     if not chunks:
-        return f"Error: Could not split content into searchable segments for mevzuat {mevzuat_no}"
+        raise _typed_tool_error(f"Could not split content into searchable segments for mevzuat {mevzuat_no}", "PARSER_ERROR")
 
     scored_chunks = []
     for chunk in chunks:
@@ -532,7 +593,7 @@ async def search_kanun(
             page_size=page_size,
             total_pages=0,
             query_used=log_params,
-            error_message=f"An unexpected error occurred: {str(e)}"
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -580,7 +641,10 @@ async def search_within_kanun(
     try:
         if semantic:
             if not SEMANTIC_SEARCH_AVAILABLE:
-                return "Error: Semantic search requires OPENROUTER_API_KEY environment variable."
+                raise _typed_tool_error(
+                    "Semantic search requires OPENROUTER_API_KEY environment variable.",
+                    "UNAUTHORIZED",
+                )
             return await _semantic_search_within(
                 mevzuat_no=mevzuat_no, query=keyword, mevzuat_tur=1,
                 mevzuat_tertip=mevzuat_tertip, max_results=max_results
@@ -591,7 +655,7 @@ async def search_within_kanun(
             mevzuat_no=mevzuat_no, mevzuat_tur=1, mevzuat_tertip=mevzuat_tertip
         )
         if content_result.error_message:
-            return f"Error fetching legislation content: {content_result.error_message}"
+            raise _content_failure(content_result.error_message)
 
         matches = search_articles_by_keyword(
             markdown_content=content_result.markdown_content,
@@ -605,9 +669,11 @@ async def search_within_kanun(
             return f"No articles found containing '{keyword}' in Kanun {mevzuat_no}"
         return format_search_results(result)
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception(f"Error in tool 'search_within_kanun' for {mevzuat_no}")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 @app.tool()
@@ -694,7 +760,7 @@ async def search_teblig(
             page_size=page_size,
             total_pages=0,
             query_used=log_params,
-            error_message=f"An unexpected error occurred: {str(e)}"
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -743,7 +809,7 @@ async def get_teblig_content(
             madde_id=mevzuat_no,
             mevzuat_id=mevzuat_no,
             markdown_content="",
-            error_message=f"An unexpected error occurred: {str(e)}"
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -830,7 +896,7 @@ async def search_cbk(
             page_size=page_size,
             total_pages=0,
             query_used=log_params,
-            error_message=f"An unexpected error occurred: {str(e)}"
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -878,7 +944,10 @@ async def search_within_cbk(
     try:
         if semantic:
             if not SEMANTIC_SEARCH_AVAILABLE:
-                return "Error: Semantic search requires OPENROUTER_API_KEY environment variable."
+                raise _typed_tool_error(
+                    "Semantic search requires OPENROUTER_API_KEY environment variable.",
+                    "UNAUTHORIZED",
+                )
             return await _semantic_search_within(
                 mevzuat_no=mevzuat_no, query=keyword, mevzuat_tur=19,
                 mevzuat_tertip=mevzuat_tertip, max_results=max_results
@@ -888,7 +957,7 @@ async def search_within_cbk(
             mevzuat_no=mevzuat_no, mevzuat_tur=19, mevzuat_tertip=mevzuat_tertip
         )
         if content_result.error_message:
-            return f"Error fetching decree content: {content_result.error_message}"
+            raise _content_failure(content_result.error_message)
 
         matches = search_articles_by_keyword(
             markdown_content=content_result.markdown_content,
@@ -902,9 +971,11 @@ async def search_within_cbk(
             return f"No articles found containing '{keyword}' in CBK {mevzuat_no}"
         return format_search_results(result)
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception(f"Error in tool 'search_within_cbk' for {mevzuat_no}")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 @app.tool()
@@ -988,7 +1059,7 @@ async def search_cbyonetmelik(
             page_size=page_size,
             total_pages=0,
             query_used={"aranacak_ifade": aranacak_ifade},
-            error_message=f"An unexpected error occurred: {str(e)}"
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -1036,7 +1107,10 @@ async def search_within_cbyonetmelik(
     try:
         if semantic:
             if not SEMANTIC_SEARCH_AVAILABLE:
-                return "Error: Semantic search requires OPENROUTER_API_KEY environment variable."
+                raise _typed_tool_error(
+                    "Semantic search requires OPENROUTER_API_KEY environment variable.",
+                    "UNAUTHORIZED",
+                )
             return await _semantic_search_within(
                 mevzuat_no=mevzuat_no, query=keyword, mevzuat_tur=21,
                 mevzuat_tertip=mevzuat_tertip, max_results=max_results
@@ -1046,9 +1120,9 @@ async def search_within_cbyonetmelik(
             mevzuat_no=mevzuat_no, mevzuat_tur=21, mevzuat_tertip=mevzuat_tertip
         )
         if content_result.error_message:
-            return f"Error: {content_result.error_message}"
+            raise _content_failure(content_result.error_message)
         if not content_result.markdown_content:
-            return f"Error: No content found for regulation {mevzuat_no}"
+            raise _typed_tool_error(f"No content found for regulation {mevzuat_no}", "NOT_FOUND")
 
         matches = search_articles_by_keyword(
             markdown_content=content_result.markdown_content,
@@ -1063,9 +1137,11 @@ async def search_within_cbyonetmelik(
         )
         return format_search_results(result)
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception(f"Error in tool 'search_within_cbyonetmelik' for regulation {mevzuat_no}")
-        return f"Error: An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 @app.tool()
@@ -1153,7 +1229,7 @@ async def search_cbbaskankarar(
             page_size=page_size,
             total_pages=0,
             query_used=log_params,
-            error_message=f"An unexpected error occurred: {str(e)}"
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -1203,7 +1279,7 @@ async def get_cbbaskankarar_content(
             madde_id=mevzuat_no,
             mevzuat_id=mevzuat_no,
             markdown_content="",
-            error_message=f"An unexpected error occurred: {str(e)}"
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -1285,7 +1361,7 @@ async def search_cbgenelge(
             page_size=page_size,
             total_pages=0,
             query_used={"aranacak_ifade": aranacak_ifade},
-            error_message=f"An unexpected error occurred: {str(e)}"
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -1343,7 +1419,7 @@ async def get_cbgenelge_content(
             madde_id=mevzuat_no,
             mevzuat_id=mevzuat_no,
             markdown_content="",
-            error_message=f"An unexpected error occurred: {str(e)}"
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -1430,8 +1506,8 @@ async def search_khk(
             current_page=page_number,
             page_size=page_size,
             total_pages=0,
-            query_used={"error": str(e)},
-            error_message=f"An unexpected error occurred: {str(e)}"
+            query_used={"error": failure_marker(classify_exception_chain(e))},
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -1479,7 +1555,10 @@ async def search_within_khk(
     try:
         if semantic:
             if not SEMANTIC_SEARCH_AVAILABLE:
-                return "Error: Semantic search requires OPENROUTER_API_KEY environment variable."
+                raise _typed_tool_error(
+                    "Semantic search requires OPENROUTER_API_KEY environment variable.",
+                    "UNAUTHORIZED",
+                )
             return await _semantic_search_within(
                 mevzuat_no=mevzuat_no, query=keyword, mevzuat_tur=4,
                 mevzuat_tertip=mevzuat_tertip, max_results=max_results
@@ -1489,7 +1568,7 @@ async def search_within_khk(
             mevzuat_no=mevzuat_no, mevzuat_tur=4, mevzuat_tertip=mevzuat_tertip
         )
         if content_result.error_message:
-            return f"Error fetching KHK content: {content_result.error_message}"
+            raise _content_failure(content_result.error_message)
 
         matches = search_articles_by_keyword(
             markdown_content=content_result.markdown_content,
@@ -1503,9 +1582,11 @@ async def search_within_khk(
             return f"No articles found containing '{keyword}' in KHK {mevzuat_no}"
         return format_search_results(result)
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception(f"Error in tool 'search_within_khk' for {mevzuat_no}")
-        return f"An unexpected error occurred while searching KHK {mevzuat_no}: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 # ============================================================================
@@ -1590,8 +1671,8 @@ async def search_tuzuk(
             current_page=page_number,
             page_size=page_size,
             total_pages=0,
-            query_used={"error": str(e)},
-            error_message=f"An unexpected error occurred: {str(e)}"
+            query_used={"error": failure_marker(classify_exception_chain(e))},
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -1639,7 +1720,10 @@ async def search_within_tuzuk(
     try:
         if semantic:
             if not SEMANTIC_SEARCH_AVAILABLE:
-                return "Error: Semantic search requires OPENROUTER_API_KEY environment variable."
+                raise _typed_tool_error(
+                    "Semantic search requires OPENROUTER_API_KEY environment variable.",
+                    "UNAUTHORIZED",
+                )
             return await _semantic_search_within(
                 mevzuat_no=mevzuat_no, query=keyword, mevzuat_tur=2,
                 mevzuat_tertip=mevzuat_tertip, max_results=max_results
@@ -1649,7 +1733,7 @@ async def search_within_tuzuk(
             mevzuat_no=mevzuat_no, mevzuat_tur=2, mevzuat_tertip=mevzuat_tertip
         )
         if content_result.error_message:
-            return f"Error fetching statute content: {content_result.error_message}"
+            raise _content_failure(content_result.error_message)
 
         matches = search_articles_by_keyword(
             markdown_content=content_result.markdown_content,
@@ -1663,9 +1747,11 @@ async def search_within_tuzuk(
             return f"No articles found containing '{keyword}' in Tüzük {mevzuat_no}"
         return format_search_results(result)
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception(f"Error in tool 'search_within_tuzuk' for {mevzuat_no}")
-        return f"An unexpected error occurred while searching Tüzük {mevzuat_no}: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 # ============================================================================
@@ -1754,8 +1840,8 @@ async def search_kurum_yonetmelik(
             current_page=page_number,
             page_size=page_size,
             total_pages=0,
-            query_used={"error": str(e)},
-            error_message=f"An unexpected error occurred: {str(e)}"
+            query_used={"error": failure_marker(classify_exception_chain(e))},
+            error_message=failure_marker(classify_exception_chain(e))
         )
 
 
@@ -1803,7 +1889,10 @@ async def search_within_kurum_yonetmelik(
     try:
         if semantic:
             if not SEMANTIC_SEARCH_AVAILABLE:
-                return "Error: Semantic search requires OPENROUTER_API_KEY environment variable."
+                raise _typed_tool_error(
+                    "Semantic search requires OPENROUTER_API_KEY environment variable.",
+                    "UNAUTHORIZED",
+                )
             return await _semantic_search_within(
                 mevzuat_no=mevzuat_no, query=keyword, mevzuat_tur=7,
                 mevzuat_tertip=mevzuat_tertip, max_results=max_results
@@ -1813,7 +1902,7 @@ async def search_within_kurum_yonetmelik(
             mevzuat_no=mevzuat_no, mevzuat_tur=7, mevzuat_tertip=mevzuat_tertip
         )
         if content_result.error_message:
-            return f"Error fetching regulation content: {content_result.error_message}"
+            raise _content_failure(content_result.error_message)
 
         matches = search_articles_by_keyword(
             markdown_content=content_result.markdown_content,
@@ -1827,9 +1916,11 @@ async def search_within_kurum_yonetmelik(
             return f"No articles found containing '{keyword}' in Kurum Yönetmeliği {mevzuat_no}"
         return format_search_results(result)
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception(f"Error in tool 'search_within_kurum_yonetmelik' for {mevzuat_no}")
-        return f"An unexpected error occurred while searching Kurum Yönetmeliği {mevzuat_no}: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 # ============================================================================
@@ -1882,7 +1973,10 @@ async def search_within_teblig(
     try:
         if semantic:
             if not SEMANTIC_SEARCH_AVAILABLE:
-                return "Error: Semantic search requires OPENROUTER_API_KEY environment variable."
+                raise _typed_tool_error(
+                    "Semantic search requires OPENROUTER_API_KEY environment variable.",
+                    "UNAUTHORIZED",
+                )
             return await _semantic_search_within(
                 mevzuat_no=mevzuat_no, query=keyword, mevzuat_tur=9,
                 mevzuat_tertip=mevzuat_tertip, max_results=max_results
@@ -1893,9 +1987,9 @@ async def search_within_teblig(
             mevzuat_no=mevzuat_no, mevzuat_tur=9, mevzuat_tertip=mevzuat_tertip
         )
         if content_result.error_message:
-            return f"Error fetching communiqué content: {content_result.error_message}"
+            raise _content_failure(content_result.error_message)
         if not content_result.markdown_content:
-            return f"Error: No content found for Tebliğ {mevzuat_no}"
+            raise _typed_tool_error(f"No content found for Tebliğ {mevzuat_no}", "NOT_FOUND")
 
         # Try article-based search first
         matches = search_articles_by_keyword(
@@ -1916,9 +2010,11 @@ async def search_within_teblig(
             case_sensitive=case_sensitive, max_results=max_results
         )
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception(f"Error in tool 'search_within_teblig' for {mevzuat_no}")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 @app.tool()
@@ -1967,7 +2063,10 @@ async def search_within_cbbaskankarar(
     try:
         if semantic:
             if not SEMANTIC_SEARCH_AVAILABLE:
-                return "Error: Semantic search requires OPENROUTER_API_KEY environment variable."
+                raise _typed_tool_error(
+                    "Semantic search requires OPENROUTER_API_KEY environment variable.",
+                    "UNAUTHORIZED",
+                )
             return await _semantic_search_within(
                 mevzuat_no=mevzuat_no, query=keyword, mevzuat_tur=20,
                 mevzuat_tertip=mevzuat_tertip, max_results=max_results
@@ -1978,9 +2077,9 @@ async def search_within_cbbaskankarar(
             mevzuat_no=mevzuat_no, mevzuat_tur=20, mevzuat_tertip=mevzuat_tertip
         )
         if content_result.error_message:
-            return f"Error fetching decision content: {content_result.error_message}"
+            raise _content_failure(content_result.error_message)
         if not content_result.markdown_content:
-            return f"Error: No content found for CB Kararı {mevzuat_no}"
+            raise _typed_tool_error(f"No content found for CB Kararı {mevzuat_no}", "NOT_FOUND")
 
         return await _keyword_search_chunks(
             content=content_result.markdown_content, keyword=keyword,
@@ -1988,9 +2087,11 @@ async def search_within_cbbaskankarar(
             case_sensitive=case_sensitive, max_results=max_results
         )
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception(f"Error in tool 'search_within_cbbaskankarar' for {mevzuat_no}")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 @app.tool()
@@ -2044,7 +2145,10 @@ async def search_within_cbgenelge(
     try:
         if semantic:
             if not SEMANTIC_SEARCH_AVAILABLE:
-                return "Error: Semantic search requires OPENROUTER_API_KEY environment variable."
+                raise _typed_tool_error(
+                    "Semantic search requires OPENROUTER_API_KEY environment variable.",
+                    "UNAUTHORIZED",
+                )
             return await _semantic_search_within(
                 mevzuat_no=mevzuat_no, query=keyword, mevzuat_tur=22,
                 mevzuat_tertip=mevzuat_tertip, max_results=max_results,
@@ -2057,9 +2161,9 @@ async def search_within_cbgenelge(
             resmi_gazete_tarihi=resmi_gazete_tarihi
         )
         if content_result.error_message:
-            return f"Error fetching circular content: {content_result.error_message}"
+            raise _content_failure(content_result.error_message)
         if not content_result.markdown_content:
-            return f"Error: No content found for CB Genelgesi {mevzuat_no}"
+            raise _typed_tool_error(f"No content found for CB Genelgesi {mevzuat_no}", "NOT_FOUND")
 
         return await _keyword_search_chunks(
             content=content_result.markdown_content, keyword=keyword,
@@ -2067,9 +2171,11 @@ async def search_within_cbgenelge(
             case_sensitive=case_sensitive, max_results=max_results
         )
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception(f"Error in tool 'search_within_cbgenelge' for {mevzuat_no}")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 # ============================================================================
@@ -2237,7 +2343,10 @@ async def search_mevzuat(
         if mevzuat_tur:
             tur_list = [t.strip().upper() for t in mevzuat_tur.split(",") if t.strip().upper() in _BED_VALID_TYPES]
             if not tur_list:
-                return f"Invalid mevzuat_tur: '{mevzuat_tur}'. Valid types: {', '.join(sorted(_BED_VALID_TYPES))}"
+                raise _typed_tool_error(
+                    f"Invalid mevzuat_tur: '{mevzuat_tur}'. Valid types: {', '.join(sorted(_BED_VALID_TYPES))}",
+                    "INVALID_REQUEST",
+                )
 
         # API requires mevzuatTurList for browsing (no search terms). If no type given, search all.
         if not phrase and not mevzuat_adi and not mevzuat_no and not tur_list:
@@ -2255,7 +2364,7 @@ async def search_mevzuat(
         )
 
         if result.error_message:
-            return f"Search error: {result.error_message}"
+            raise _content_failure(result.error_message)
 
         search_desc = ""
         if phrase:
@@ -2299,13 +2408,15 @@ async def search_mevzuat(
 
     except BedestenRateLimited as e:
         logger.warning("Bedesten rate limit in search_mevzuat; retry after %.1fs", e.retry_after)
-        return f"Search error: {_rate_limited_message(e)}"
+        raise McpToolError(_rate_limited_message(e)) from e
     except BedestenCircuitOpen as e:
         logger.warning("Bedesten circuit open in search_mevzuat; retry after %.1fs", e.retry_after)
-        return f"Search error: {_circuit_open_message(e)}"
+        raise McpToolError(_circuit_open_message(e)) from e
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception("Error in search_mevzuat")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 def _paginate_text(text: str, page_number: int, page_size: int) -> tuple[str, int, int]:
     """Return a bounded text page so MCP responses stay below client limits."""
@@ -2347,20 +2458,22 @@ async def get_mevzuat_content(
     try:
         plain = await bedesten_client.get_document_plain_text(mevzuat_id)
         if not plain:
-            return f"Error: No content found for mevzuatId {mevzuat_id}"
+            raise _typed_tool_error(f"No content found for mevzuatId {mevzuat_id}", "NOT_FOUND")
         chunk, current, total = _paginate_text(plain, page_number, page_size)
         header = f"Mevzuat {mevzuat_id} | page {current}/{total} | page_size {page_size}"
         return f"{header}\n\n{chunk}"
     except BedestenContentError as e:
         logger.warning("Bedesten content error in get_mevzuat_content: %s", e.cause)
-        return f"Error fetching content for mevzuatId {mevzuat_id}: {e.cause}"
+        raise _content_failure(e.cause) from e
     except BedestenRateLimited as e:
-        return f"Error: {_rate_limited_message(e)}"
+        raise McpToolError(_rate_limited_message(e)) from e
     except BedestenCircuitOpen as e:
-        return f"Error: {_circuit_open_message(e)}"
+        raise McpToolError(_circuit_open_message(e)) from e
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception("Error in get_mevzuat_content")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 @app.tool()
@@ -2407,7 +2520,7 @@ async def search_within_mevzuat(
     try:
         plain = await bedesten_client.get_document_plain_text(mevzuat_id)
         if not plain:
-            return f"Error: No content found for mevzuatId {mevzuat_id}"
+            raise _typed_tool_error(f"No content found for mevzuatId {mevzuat_id}", "NOT_FOUND")
 
         matches = search_plain_text_articles(plain, keyword, case_sensitive, max_results)
 
@@ -2425,14 +2538,16 @@ async def search_within_mevzuat(
 
     except BedestenContentError as e:
         logger.warning("Bedesten content error in search_within_mevzuat: %s", e.cause)
-        return f"Error fetching content for mevzuatId {mevzuat_id}: {e.cause}"
+        raise _content_failure(e.cause) from e
     except BedestenRateLimited as e:
-        return f"Error: {_rate_limited_message(e)}"
+        raise McpToolError(_rate_limited_message(e)) from e
     except BedestenCircuitOpen as e:
-        return f"Error: {_circuit_open_message(e)}"
+        raise McpToolError(_circuit_open_message(e)) from e
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception("Error in search_within_mevzuat")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 @app.tool()
@@ -2464,20 +2579,22 @@ async def get_mevzuat_gerekce(
     try:
         result = await bedesten_client.get_gerekce_content(gerekce_id)
         if result.error_message:
-            return f"Error fetching gerekçe: {result.error_message}"
+            raise _content_failure(result.error_message)
         if not result.content:
-            return f"Error: No gerekçe content found for gerekceId {gerekce_id}"
+            raise _typed_tool_error(f"No gerekçe content found for gerekceId {gerekce_id}", "NOT_FOUND")
 
         plain = _strip_html(result.content)
         if not plain:
-            return f"Error: Gerekçe content is empty for gerekceId {gerekce_id}"
+            raise _typed_tool_error(f"Gerekçe content is empty for gerekceId {gerekce_id}", "NOT_FOUND")
 
         chunk, current, total = _paginate_text(plain, page_number, page_size)
         header = f"Gerekçe {gerekce_id} | page {current}/{total} | page_size {page_size}"
         return f"{header}\n\n{chunk}"
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception("Error in get_mevzuat_gerekce")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 @app.tool()
@@ -2510,7 +2627,7 @@ async def get_mevzuat_madde_tree(
     try:
         nodes, err = await bedesten_client.get_article_tree(mevzuat_id)
         if err:
-            return f"Article tree not available for mevzuatId {mevzuat_id}: {err}"
+            raise _content_failure(err)
         if not nodes:
             return f"No article tree available for mevzuatId {mevzuat_id}."
 
@@ -2523,9 +2640,11 @@ async def get_mevzuat_madde_tree(
 
         return "\n".join(output)
 
+    except McpToolError:
+        raise
     except Exception as e:
         logger.exception("Error in get_mevzuat_madde_tree")
-        return f"An unexpected error occurred: {str(e)}"
+        raise _tool_error_from_exception(e) from e
 
 
 def main():

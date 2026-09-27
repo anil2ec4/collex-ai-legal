@@ -3089,7 +3089,11 @@ paths:
       description: >
         Thin, honest wrapper over the `search_within_*` MCP lane. `sonuc` is
         the provider payload and is NOT evidence; the console prints it with
-        `textContent` only.
+        `textContent` only. A provider failure is ALWAYS the typed 502 — also
+        when the tool returned it as a result (an error string, or an `error`
+        field next to an empty match list); `error.kind` is the FailureKind,
+        `error.message` a Turkish sentence with the code in parentheses, and
+        the provider's own text is never echoed.
       requestBody:
         required: true
         content:
@@ -9244,7 +9248,8 @@ components:
           nullable: true
           description: >
             Rows this query contributed before deduplication; `null` when it
-            did not run.
+            did not run, and `null` when it ran but none of the selected
+            sources answered (an unknown count is never 0).
         sureMs:
           type: integer
           nullable: true

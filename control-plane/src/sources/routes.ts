@@ -18,9 +18,11 @@
  * UPPER_SNAKE and is explained in Turkish where it is shown.
  */
 
+import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
-import { fieldIssues } from "../api/zodIssues.js";
+import { fieldIssues, UNRECOGNIZED_FIELD_MESSAGE_TR } from "../api/zodIssues.js";
+import { parseWithinPayload } from "../research/payloads.js";
 import type { EmbeddingResolution } from "../retrieval/embeddingConfig.js";
 import { MAX_RERANK_DOCUMENTS } from "../retrieval/semanticRerank.js";
 import type { ProviderGateway } from "../gateway/gateway.js";
@@ -51,6 +53,7 @@ import {
   type RelatedSearchResult,
 } from "./relatedSearch.js";
 import {
+  failureReasonTr,
   MAX_SOURCE_SEARCH_LIMIT,
   NoSourcesSelectedError,
   searchSources,
@@ -183,6 +186,50 @@ const withinSchema = z
   })
   .strict();
 
+/**
+ * zod's residual ENGLISH defaults, translated (dictionary rule: lawyer
+ * Turkish; the field is named by `path`).
+ *
+ * MEASURED, 27.09.2026: `/v1/sources/*` answered a bad field with "Invalid
+ * enum value. Expected 'yargitay' | …", "Number must be less than or equal to
+ * 200" and "Unrecognized key(s) in object: 'x'" — the only API routes still
+ * printing zod's English. The schema's own Turkish messages pass through
+ * untouched; an English default no rule knows falls back to one Turkish
+ * sentence rather than reaching the screen.
+ */
+export function turkishSourcesZodMessage(message: string): string {
+  const bound = (re: RegExp): string | undefined => re.exec(message)?.[1];
+  if (message === "Required") return "Bu alan zorunludur.";
+  if (message === "Invalid input") return "Geçersiz değer.";
+  if (message === "Invalid") return "Geçersiz biçim.";
+  if (message.startsWith("Invalid enum value")) return "Geçersiz seçim — bu değer tanınmıyor.";
+  if (message.startsWith("Invalid literal value")) return "Geçersiz seçim.";
+  if (message.startsWith("Unrecognized key")) return UNRECOGNIZED_FIELD_MESSAGE_TR;
+  if (message.startsWith("Expected integer")) return "Tam sayı olmalı.";
+  if (message.startsWith("Expected ")) return "Geçersiz değer türü.";
+  let n = bound(/^Number must be less than or equal to (-?[0-9.]+)$/u);
+  if (n !== undefined) return `En çok ${n} olabilir.`;
+  n = bound(/^Number must be greater than or equal to (-?[0-9.]+)$/u);
+  if (n !== undefined) return `En az ${n} olabilir.`;
+  n = bound(/^Number must be less than (-?[0-9.]+)$/u);
+  if (n !== undefined) return `${n} değerinden küçük olmalı.`;
+  n = bound(/^Number must be greater than (-?[0-9.]+)$/u);
+  if (n !== undefined) return `${n} değerinden büyük olmalı.`;
+  n = bound(/^String must contain at most ([0-9]+) character\(s\)$/u);
+  if (n !== undefined) return `En çok ${n} karakter olabilir.`;
+  n = bound(/^String must contain at least ([0-9]+) character\(s\)$/u);
+  if (n !== undefined) return `En az ${n} karakter olmalı.`;
+  n = bound(/^Array must contain at most ([0-9]+) element\(s\)$/u);
+  if (n !== undefined) return `En çok ${n} öğe seçilebilir.`;
+  n = bound(/^Array must contain at least ([0-9]+) element\(s\)$/u);
+  if (n !== undefined) return `En az ${n} öğe gerekli.`;
+  // Any other zod default is English prose; never let it reach the screen.
+  if (/^(?:Invalid|Expected|Number|String|Array|Required|Unrecognized|Too|Should)\b/u.test(message)) {
+    return "Geçersiz değer.";
+  }
+  return message;
+}
+
 function invalidBody(issues: Array<{ path: string; message: string }>): {
   error: { kind: string; message: string; issues: Array<{ path: string; message: string }> };
 } {
@@ -214,10 +261,24 @@ export function libraryChipLabel(fetchedAtIso: string): string {
   return `resmî kaynak · alınma ${day}`;
 }
 
+/**
+ * The within search's failure sentence: Turkish first, the machine code in
+ * parentheses (failureReasonTr), and — because the lawyer's next move depends
+ * on it — an explicit "this is not a 'no match' answer".
+ */
+export function withinFailureMessageTr(kind: string): string {
+  const tail =
+    kind === "INVALID_REQUEST"
+      ? "İsteği düzeltip yeniden deneyin."
+      : "Bu bir “eşleşme yok” cevabı DEĞİLDİR; belge içinde arama yapılamadı.";
+  return `Belge içinde arama yapılamadı: ${failureReasonTr(kind)}. ${tail}`;
+}
+
 export function createSourcesRouter(deps: SourcesRouterDeps = {}): Hono {
   const app = new Hono();
   const library = deps.library ?? new DisabledLocalLibrary();
   const now = deps.now ?? (() => new Date().toISOString());
+  const newCorrelationId = deps.newId ?? (() => randomUUID());
 
   const parse = async <T>(
     raw: Promise<unknown>,
@@ -237,7 +298,7 @@ export function createSourcesRouter(deps: SourcesRouterDeps = {}): Hono {
       return {
         ok: false,
         body: invalidBody(
-          fieldIssues(parsed.error),
+          fieldIssues(parsed.error, turkishSourcesZodMessage),
         ),
       };
     }
@@ -575,14 +636,26 @@ export function createSourcesRouter(deps: SourcesRouterDeps = {}): Hono {
         max_results: request.maxResults ?? 10,
       },
     });
+    // A failure is a typed 502 whether the gateway reported it (isError) or
+    // the payload only LOOKS like an answer: an error string ("Error fetching
+    // content for mevzuatId 6098: [SSL: …]") or an `error` field next to
+    // `total_decisions: 0`. Measured 27.09.2026: both went to the lawyer as a
+    // 200 "result". The provider's own text is never echoed.
+    let failureKind: string | undefined;
     if (outcome.status === "error") {
+      failureKind = outcome.error.kind;
+    } else {
+      const parsed = parseWithinPayload(outcome.data);
+      if (parsed.kind === "failure") failureKind = parsed.failure.kind;
+    }
+    if (outcome.status === "error" || failureKind !== undefined) {
+      const kind = failureKind ?? "UNAVAILABLE";
       return c.json(
         {
           error: {
-            kind: outcome.error.kind,
-            message:
-              `Belge içinde arama yapılamadı (${outcome.error.kind});` +
-              " kaynak sunucuya ulaşılamadı veya istek reddedildi.",
+            kind,
+            message: withinFailureMessageTr(kind),
+            correlationId: newCorrelationId(),
           },
         },
         502,

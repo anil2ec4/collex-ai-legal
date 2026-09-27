@@ -151,28 +151,20 @@ class GibApiClient:
             params.page, params.pageSize, sorted(body.keys()),
         )
 
+        # A failed request is RAISED, never turned into an empty result: an
+        # empty GibSearchResult is exactly what "no özelge matches" looks
+        # like, and the tool facade (mcp_server_main.search_gib_ozelge) is
+        # the one place that turns the exception into a typed failure.
         try:
             resp = await self.http_client.post(self.LIST_PATH, params=query, json=body)
             resp.raise_for_status()
             payload = resp.json()
         except httpx.HTTPStatusError as e:
             logger.error("GibApiClient: HTTP %s during search", e.response.status_code)
-            return GibSearchResult(
-                ozelgeler=[],
-                total_results=0,
-                total_pages=0,
-                current_page=params.page,
-                page_size=params.pageSize,
-            )
+            raise
         except Exception as e:
             logger.error("GibApiClient: search request failed: %s", e)
-            return GibSearchResult(
-                ozelgeler=[],
-                total_results=0,
-                total_pages=0,
-                current_page=params.page,
-                page_size=params.pageSize,
-            )
+            raise
 
         container = (payload or {}).get("resultContainer") or {}
         raw_items = container.get("content") or []

@@ -317,6 +317,137 @@ async def test_legitimate_empty_result_carries_no_error_fields():
         assert key not in deep, key
 
 
+# --- Regulator facades (Rekabet, BTK, GİB) ----------------------------------
+# MEASURED DEFECT, 27.09.2026: with the network down, POST /v1/sources/search
+# {"sources":["rekabet"]} answered 200 with okSources:["rekabet"],
+# failedSources:[] and the console printed "Kaynaklar cevap verdi; sonuç
+# gerçekten boş." All three tool wrappers caught EVERY exception and returned
+# the model's empty result with no error field (GİB's client even swallowed it
+# one layer further down). They now carry the court facades' typed fields.
+#
+# Their upstreams are not Bedesten, so every host is intercepted here; no
+# request leaves the process.
+
+REGULATOR_FAILURE_MODES = (
+    "rate_limited_429",
+    "timeout",
+    "connect_error",
+    "server_error_500",
+    "html_garbage",
+)
+
+
+async def probe_search_rekabet() -> Probe:
+    payload = await _call("search_rekabet_kurumu_decisions", {"PdfText": "hakim durum"})
+    return Probe(
+        tool="search_rekabet_kurumu_decisions",
+        items=payload["decisions"],
+        marker=payload.get("message", ""),
+        code=payload.get("error_code"),
+        typed=True,
+        payload=payload,
+    )
+
+
+async def probe_search_btk() -> Probe:
+    payload = await _call("search_btk_decisions", {"keywords": "numara taşıma"})
+    return Probe(
+        tool="search_btk_decisions",
+        items=payload["decisions"],
+        marker=payload.get("message", ""),
+        code=payload.get("error_code"),
+        typed=True,
+        payload=payload,
+    )
+
+
+async def probe_search_gib() -> Probe:
+    payload = await _call("search_gib_ozelge", {"keywords": "KDV oranı"})
+    return Probe(
+        tool="search_gib_ozelge",
+        items=payload["ozelgeler"],
+        marker=payload.get("message", ""),
+        code=payload.get("error_code"),
+        typed=True,
+        payload=payload,
+    )
+
+
+REGULATOR_PROBES = (probe_search_rekabet, probe_search_btk, probe_search_gib)
+
+
+@pytest.mark.parametrize("mode", REGULATOR_FAILURE_MODES)
+@respx.mock
+async def test_regulator_facades_never_return_a_silent_empty_list(mode):
+    respx.route().mock(**FAILURE_MODES[mode])
+    for probe_fn in REGULATOR_PROBES:
+        probe = await probe_fn()
+        assert_structured_failure(probe, mode)
+        if mode == "connect_error":
+            assert probe.code == "UNAVAILABLE", probe.tool
+        if mode == "timeout":
+            assert probe.code == "TIMEOUT", probe.tool
+        if mode == "rate_limited_429":
+            assert probe.code == "RATE_LIMITED", probe.tool
+        if mode == "server_error_500":
+            assert probe.code == "UNAVAILABLE", probe.tool
+        if mode == "html_garbage":
+            # A 200 that is not the documented contract is a parse failure,
+            # not "no decision matches".
+            assert probe.code == "PARSER_ERROR", probe.tool
+        # The safe message never carries the driver's own text.
+        assert "connection refused" not in probe.marker, probe.tool
+        assert "upstream timed out" not in probe.marker, probe.tool
+
+
+@respx.mock
+async def test_regulator_wrapped_tls_failure_is_unavailable():
+    """BTK re-wraps the cause (``raise Exception(f"Failed ...: {e}")``).
+
+    The classification must look THROUGH the wrapper: the real outage was an
+    SSL failure, and a bare "Unexpected upstream failure" is not the same
+    sentence to a lawyer.
+    """
+    respx.route().mock(
+        side_effect=httpx.ConnectError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
+        )
+    )
+    probe = await probe_search_btk()
+    assert_structured_failure(probe, "tls")
+    assert probe.code == "UNAVAILABLE"
+    assert probe.payload["retryable"] is True
+    assert "SSL" not in probe.marker and "CERTIFICATE" not in probe.marker
+
+
+@respx.mock
+async def test_regulator_legitimate_empty_results_carry_no_error_fields():
+    """Guard against false positives on the three regulator facades."""
+    respx.route(host="www.rekabet.gov.tr").mock(
+        return_value=httpx.Response(
+            200,
+            text=(
+                '<html><body><div class="yazi01">Toplam : 0</div>'
+                '<div id="kararList"></div></body></html>'
+            ),
+            headers={"Content-Type": "text/html"},
+        )
+    )
+    respx.route(host="www.btk.tr").mock(
+        return_value=httpx.Response(200, json={"data": [], "total": 0})
+    )
+    respx.route().mock(
+        return_value=httpx.Response(
+            200, json={"resultContainer": {"content": [], "totalElements": 0, "totalPages": 0}}
+        )
+    )
+    for probe_fn in REGULATOR_PROBES:
+        probe = await probe_fn()
+        assert probe.items == [], probe.tool
+        for key in ("error", "error_code", "message", "retry_after"):
+            assert key not in probe.payload, (probe.tool, key)
+
+
 @respx.mock
 async def test_rate_limited_and_circuit_open_share_one_shape():
     """Contract parity: the two 'cannot take another request yet' failures.

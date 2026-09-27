@@ -14,6 +14,8 @@ from legal_contracts.outcomes import (
     partial,
     error,
     classify_exception,
+    classify_exception_chain,
+    failure_marker,
 )
 
 __all__ = [
@@ -26,4 +28,6 @@ __all__ = [
     "partial",
     "error",
     "classify_exception",
+    "classify_exception_chain",
+    "failure_marker",
 ]

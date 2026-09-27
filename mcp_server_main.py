@@ -43,6 +43,8 @@ except ImportError:
     tiktoken = None
 from fastmcp import Context
 
+from legal_contracts import classify_exception_chain, failure_marker
+
 # Use standard exception for tool errors
 class ToolError(Exception):
     """Tool execution error"""
@@ -966,12 +968,13 @@ async def search_kik_v2_decisions(
         
     except Exception as e:
         logger.exception(f"Error in KİK v2 {decision_type} search tool 'search_kik_v2_decisions'.")
+        fields = upstream_failure_fields(e)
         return {
             "decisions": [],
             "total_records": 0,
             "page": 1,
-            "error_code": "TOOL_ERROR",
-            "error_message": str(e)
+            **fields,
+            "error_message": fields["message"],
         }
 
 @app.tool(
@@ -1010,12 +1013,14 @@ async def get_kik_v2_document_markdown(
 
     except Exception as e:
         logger.exception(f"Error in KİK v2 document retrieval tool for gundemMaddesiId: {gundemMaddesiId}")
+        fields = upstream_failure_fields(e)
         return {
             "document_id": gundemMaddesiId,
             "kararNo": "",
             "markdown_content": "",
             "source_url": "",
-            "error_message": f"Tool-level error during document retrieval: {str(e)}"
+            "error_message": fields["message"],
+            **fields,
         }
 @app.tool(
     description="Use this when searching Turkish competition law and antitrust decisions (Rekabet Kurumu).",
@@ -1067,12 +1072,20 @@ async def search_rekabet_kurumu_decisions(
     )
     logger.info(f"Tool 'search_rekabet_kurumu_decisions' called. Query: {search_query.model_dump_json(exclude_none=True, indent=2)}")
     try:
-       
+
         result = await rekabet_client_instance.search_decisions(search_query)
         return result.model_dump()
-    except Exception:
+    except Exception as e:
         logger.exception("Error in tool 'search_rekabet_kurumu_decisions'.")
-        return RekabetSearchResult(decisions=[], retrieved_page_number=page, total_records_found=0, total_pages=0).model_dump()
+        # Never a silent empty list: an unreachable Rekabet Kurumu used to
+        # answer exactly like "no decision matches", and the lawyer read
+        # "Kaynaklar cevap verdi; sonuç gerçekten boş." (tests/test_facade_contracts.py)
+        return {
+            **RekabetSearchResult(
+                decisions=[], retrieved_page_number=page, total_records_found=0, total_pages=0
+            ).model_dump(),
+            **upstream_failure_fields(e),
+        }
 
 @app.tool(
     description="Use this when retrieving full text of a Competition Authority decision. Returns paginated Markdown format.",
@@ -1205,6 +1218,44 @@ def bedesten_failure_fields(exc: BaseException) -> Dict[str, Any]:
         "retryable": retryable,
         "message": f"{kind} retry_after={retry_after:.1f}: {safe_message}",
     }
+
+
+def upstream_failure_fields(exc: BaseException) -> Dict[str, Any]:
+    """``bedesten_failure_fields``' shape for the NON-Bedesten facades.
+
+    The regulator tools (Rekabet, BTK, GİB, KVKK, BDDK, Sigorta Tahkim, KİK)
+    used to answer an upstream failure with an EMPTY result and no error
+    field at all — a dead source read exactly like "nothing matches". Their
+    clients also re-wrap the real cause (``raise Exception(f"Failed ...:
+    {e}")``), so the classification looks through the exception chain
+    (``legal_contracts.classify_exception_chain``). Keys and meanings are the
+    court facades' own, so one reader (control-plane/src/research/payloads.ts
+    ``failureFromRecord``) serves every lane; ``message`` never carries driver
+    or upstream text.
+    """
+    failure = classify_exception_chain(exc)
+    kind = failure.kind.value
+    error_name, default_status = _FAILURE_KIND_TO_ERROR.get(
+        kind, ("service_unavailable", 503)
+    )
+    if failure.retry_after_ms is not None:
+        retry_after = failure.retry_after_ms / 1000.0
+    else:
+        retry_after = 30.0 if failure.retryable else 0.0
+    return {
+        "error": error_name,
+        "error_code": kind,
+        "status_code": failure.upstream_status or default_status,
+        "retry_after": f"{retry_after:.1f}",
+        "retryable": failure.retryable,
+        "message": failure_marker(failure),
+    }
+
+
+# A module switched off for want of a credential is not an outage. The
+# additive error_code lets the control plane say "bu kaynak için gerekli
+# kimlik tanımlı değil" instead of "kaynak sunucuya ulaşılamadı".
+MODULE_DISABLED_ERROR_CODE = "UNAUTHORIZED"
 
 
 # --- MCP Tools for Bedesten (Unified Search Across All Courts) ---
@@ -2141,6 +2192,7 @@ async def search_kvkk_decisions(
             "decisions": [], "total_results": 0, "page": page,
             "pageSize": pageSize, "query": keywords,
             "error": "KVKK module disabled: set BRAVE_API_TOKEN in the environment.",
+            "error_code": MODULE_DISABLED_ERROR_CODE,
         }
 
 
@@ -2156,14 +2208,17 @@ async def search_kvkk_decisions(
         return result.model_dump()
     except Exception as e:
         logger.exception(f"Error in KVKK search: {e}")
-        # Return empty result on error
-        return KvkkSearchResult(
-            decisions=[],
-            total_results=0,
-            page=page,
-            pageSize=pageSize,
-            query=keywords
-        ).model_dump()
+        # An empty result WITH the typed failure — never a silent empty list.
+        return {
+            **KvkkSearchResult(
+                decisions=[],
+                total_results=0,
+                page=page,
+                pageSize=pageSize,
+                query=keywords
+            ).model_dump(),
+            **upstream_failure_fields(e),
+        }
 
 @app.tool(
     description="Use this when retrieving full text of a KVKK data protection decision. Returns paginated Markdown with metadata.",
@@ -2184,6 +2239,7 @@ async def get_kvkk_document_markdown(
             "source_url": decision_url, "markdown_chunk": None,
             "current_page": page_number, "total_pages": 0, "is_paginated": False,
             "error_message": "KVKK module disabled: set BRAVE_API_TOKEN in the environment.",
+            "error_code": MODULE_DISABLED_ERROR_CODE,
         }
 
 
@@ -2223,18 +2279,22 @@ async def get_kvkk_document_markdown(
         
     except Exception as e:
         logger.exception(f"Error retrieving KVKK document: {e}")
-        return KvkkDocumentMarkdown(
-            source_url=HttpUrl(decision_url),
-            title=None,
-            decision_date=None,
-            decision_number=None,
-            subject_summary=None,
-            markdown_chunk=None,
-            current_page=page_number or 1,
-            total_pages=0,
-            is_paginated=False,
-            error_message=f"Error retrieving KVKK document: {str(e)}"
-        ).model_dump()
+        fields = upstream_failure_fields(e)
+        return {
+            **KvkkDocumentMarkdown(
+                source_url=HttpUrl(decision_url),
+                title=None,
+                decision_date=None,
+                decision_number=None,
+                subject_summary=None,
+                markdown_chunk=None,
+                current_page=page_number or 1,
+                total_pages=0,
+                is_paginated=False,
+                error_message=fields["message"]
+            ).model_dump(),
+            **fields,
+        }
 
 # --- MCP Tools for BDDK (Banking Regulation Authority) ---
 @app.tool(
@@ -2259,6 +2319,7 @@ async def search_bddk_decisions(
             "decisions": [], "total_results": 0, "page": page,
             "pageSize": pageSize,
             "error": "BDDK module disabled: set TAVILY_API_KEY in the environment.",
+            "error_code": MODULE_DISABLED_ERROR_CODE,
         }
 
     
@@ -2293,7 +2354,7 @@ async def search_bddk_decisions(
             "total_results": 0,
             "page": page,
             "pageSize": pageSize,
-            "error": str(e)
+            **upstream_failure_fields(e),
         }
 
 @app.tool(
@@ -2315,6 +2376,7 @@ async def get_bddk_document_markdown(
             "document_id": document_id, "markdown_content": "",
             "page_number": page_number, "total_pages": 0,
             "error": "BDDK module disabled: set TAVILY_API_KEY in the environment.",
+            "error_code": MODULE_DISABLED_ERROR_CODE,
         }
 
     
@@ -2345,7 +2407,7 @@ async def get_bddk_document_markdown(
             "markdown_content": "",
             "page_number": page_number,
             "total_pages": 0,
-            "error": str(e)
+            **upstream_failure_fields(e),
         }
 
 # --- MCP Tools for BTK (Information and Communication Technologies Authority) ---
@@ -2393,14 +2455,18 @@ async def search_btk_decisions(
         return result.model_dump()
     except Exception as e:
         logger.exception("Error searching BTK decisions: %s", e)
-        return BtkSearchResult(
-            decisions=[],
-            total_results=0,
-            page=page,
-            pageSize=pageSize,
-            total_pages=0,
-            query_url=""
-        ).model_dump()
+        # Never a silent empty list (tests/test_facade_contracts.py).
+        return {
+            **BtkSearchResult(
+                decisions=[],
+                total_results=0,
+                page=page,
+                pageSize=pageSize,
+                total_pages=0,
+                query_url=""
+            ).model_dump(),
+            **upstream_failure_fields(e),
+        }
 
 @app.tool(
     description="Use this when retrieving full text of a BTK Board decision PDF. Returns paginated Markdown.",
@@ -2433,14 +2499,18 @@ async def get_btk_document_markdown(
         return result.model_dump()
     except Exception as e:
         logger.exception("Error retrieving BTK document: %s", e)
-        return BtkDocumentMarkdown(
-            source_url=HttpUrl(pdf_url),
-            markdown_chunk=None,
-            current_page=page_number or 1,
-            total_pages=0,
-            is_paginated=False,
-            error_message=f"Error retrieving BTK document: {str(e)}"
-        ).model_dump()
+        fields = upstream_failure_fields(e)
+        return {
+            **BtkDocumentMarkdown(
+                source_url=HttpUrl(pdf_url),
+                markdown_chunk=None,
+                current_page=page_number or 1,
+                total_pages=0,
+                is_paginated=False,
+                error_message=fields["message"]
+            ).model_dump(),
+            **fields,
+        }
 
 @app.tool(
     description=(
@@ -2488,13 +2558,17 @@ async def search_gib_ozelge(
         return result.model_dump()
     except Exception as e:
         logger.exception(f"Error searching GİB özelgeler: {e}")
-        return GibSearchResult(
-            ozelgeler=[],
-            total_results=0,
-            total_pages=0,
-            current_page=page,
-            page_size=pageSize,
-        ).model_dump()
+        # Never a silent empty list (tests/test_facade_contracts.py).
+        return {
+            **GibSearchResult(
+                ozelgeler=[],
+                total_results=0,
+                total_pages=0,
+                current_page=page,
+                page_size=pageSize,
+            ).model_dump(),
+            **upstream_failure_fields(e),
+        }
 
 
 @app.tool(
@@ -2520,13 +2594,17 @@ async def get_gib_ozelge_document_markdown(
         return result.model_dump()
     except Exception as e:
         logger.exception(f"Error retrieving GİB document: {e}")
-        return GibDocumentMarkdown(
-            ozelge_id=ozelge_id,
-            current_page=page_number,
-            total_pages=0,
-            is_paginated=False,
-            error_message=str(e),
-        ).model_dump()
+        fields = upstream_failure_fields(e)
+        return {
+            **GibDocumentMarkdown(
+                ozelge_id=ozelge_id,
+                current_page=page_number,
+                total_pages=0,
+                is_paginated=False,
+                error_message=fields["message"],
+            ).model_dump(),
+            **fields,
+        }
 
 
 # --- MCP Tools for Sigorta Tahkim Komisyonu (Insurance Arbitration Commission) ---
@@ -2551,6 +2629,7 @@ async def search_sigorta_tahkim_decisions(
             "decisions": [], "total_results": 0, "page": page,
             "pageSize": pageSize,
             "error": "Sigorta Tahkim module disabled: set TAVILY_API_KEY in the environment.",
+            "error_code": MODULE_DISABLED_ERROR_CODE,
         }
 
     try:
@@ -2585,7 +2664,7 @@ async def search_sigorta_tahkim_decisions(
             "total_results": 0,
             "page": page,
             "pageSize": pageSize,
-            "error": str(e)
+            **upstream_failure_fields(e),
         }
 
 @app.tool(
@@ -2633,7 +2712,7 @@ async def get_sigorta_tahkim_document_markdown(
             "page_number": page_number,
             "total_pages": 0,
             "source_url": "",
-            "error": str(e)
+            **upstream_failure_fields(e),
         }
 
 @app.tool(
@@ -2684,13 +2763,15 @@ async def search_within_sigorta_tahkim_issue(
 
     except Exception as e:
         logger.exception(f"Error in search_within Sigorta Tahkim: {e}")
+        # total_decisions:0 next to an error is NOT "the issue holds no
+        # decision"; the typed fields are what a reader must branch on.
         return {
             "issue_number": issue_number,
             "keyword": keyword,
             "total_decisions": 0,
             "matching_decisions": 0,
             "matches": [],
-            "error": str(e)
+            **upstream_failure_fields(e),
         }
 
 # --- ChatGPT Deep Research Compatible Tools ---

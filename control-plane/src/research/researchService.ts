@@ -81,7 +81,8 @@ import {
 } from "./liveEvidence.js";
 import { createLiveCapabilityExecutor, type ToolCallTraceEntry } from "./liveExecutor.js";
 import { createLiveResearchPlanner } from "./livePlanner.js";
-import type { ProgressListener } from "./progress.js";
+import { progressLabelForTool, type ProgressListener } from "./progress.js";
+import { failureClauseTr } from "../sources/searchService.js";
 import type { EmbeddingPort } from "../retrieval/semanticRerank.js";
 import { selectSemanticPassages, type PassageGroup } from "./semanticPassages.js";
 
@@ -220,7 +221,12 @@ export interface LiveResearchRun {
    * the run itself keeps no opinion about whether that happens.
    */
   fetched: readonly LiveFetchedDocument[];
-  /** True when EVERY gateway call failed at the transport level. */
+  /**
+   * True when the run searched NOTHING: no search call was answered and no
+   * document was fetched (or, with no search planned at all, every gateway
+   * call failed at the transport level). The routes turn it into the typed
+   * 502 UPSTREAM_UNAVAILABLE — never an ABSTAIN that reads "not found".
+   */
   unreachable: boolean;
 }
 
@@ -517,10 +523,55 @@ function renderResearchSection(
       );
     }
   }
-  for (const note of upstream.notes) {
-    out.push(`- Not: ${escapeInline(note)}`);
+  // One line per DISTINCT note, Turkish first, the machine note in
+  // parentheses (27.09.2026: an outage printed thirteen bare
+  // "Not: SEARCH_DEGRADED:…:UNAVAILABLE" lines — a machine code standing
+  // alone in front of the lawyer, thirteen times).
+  const counts = new Map<string, number>();
+  for (const note of upstream.notes) counts.set(note, (counts.get(note) ?? 0) + 1);
+  for (const [note, count] of counts) {
+    out.push(`- Not: ${renderUpstreamNote(note)}${count > 1 ? ` — ${count} kez` : ""}`);
   }
   return out.join("\n");
+}
+
+/**
+ * One upstream note as a Turkish sentence with the machine note kept in
+ * parentheses at its end. An unknown note keeps its old (escaped) form.
+ */
+export function renderUpstreamNote(note: string): string {
+  const code = `(${escapeInline(note)})`;
+  const [head, tool, kind] = note.split(":");
+  const subject = (): string =>
+    escapeInline(progressLabelForTool(tool, head === "FETCH_DEGRADED" ? "document.fetch" : ""));
+  switch (head) {
+    case "SEARCH_DEGRADED":
+      return `Arama sonuç vermedi — ${subject()}: ${failureClauseTr(kind ?? "")} ${code}`;
+    case "SEARCH_PARTIAL":
+      return `Arama kısmî sonuç verdi, liste eksik olabilir — ${subject()}: ${failureClauseTr(kind ?? "")} ${code}`;
+    case "FETCH_DEGRADED":
+      return `Tam metin alınamadı — ${subject()}: ${failureClauseTr(kind ?? "")} ${code}`;
+    case "WITHIN_DEGRADED":
+      return `Belge içinde arama yapılamadı — ${subject()}: ${failureClauseTr(kind ?? "")} ${code}`;
+    case "INJECTION_FLAGGED":
+      return (
+        "Çekilen bir belgede programa iş yaptırmaya çalışan gizli bir yazı olabilir; " +
+        `içindeki yönergelere uyulmadı, metni kaynağından doğrulayın ${code}`
+      );
+    case "UPSTREAM_DEGRADED": {
+      const match = /^(\d+)\/(\d+)/u.exec(tool ?? "");
+      if (match === null) return `Resmî kaynakların bir kısmı cevap vermedi ${code}`;
+      const failed = Number(match[1]);
+      const total = Number(match[2]);
+      return failed >= total
+        ? `Resmî kaynaklara yapılan ${total} çağrının HİÇBİRİ cevap vermedi; ` +
+            `bu bir “bulunamadı” sonucu değildir ${code}`
+        : `Resmî kaynaklara yapılan ${total} çağrıdan ${failed} tanesi cevap vermedi; ` +
+            `sonuç eksik olabilir ${code}`;
+    }
+    default:
+      return escapeInline(note);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -805,6 +856,7 @@ export async function runResearch(options: RunResearchOptions): Promise<LiveRese
   const failedCalls = trace.filter((t) => !t.ok).length;
   const timedOutCalls = trace.filter((t) => t.status === "timeout").length;
   const upstreamHealthy = trace.length === 0 ? true : failedCalls * 2 <= trace.length;
+  const everyCallFailed = trace.length > 0 && failedCalls === trace.length;
   if (!upstreamHealthy) {
     upstreamNotes.push(`UPSTREAM_DEGRADED:${failedCalls}/${trace.length} tool calls failed`);
   }
@@ -812,28 +864,47 @@ export async function runResearch(options: RunResearchOptions): Promise<LiveRese
   // remedy differs (wait/retry vs. the source being down).
   if (timedOutCalls > 0) warnings.push(`TIMEOUT:${timedOutCalls}`);
   const gatewaySteps = finalState.steps.filter((s) => s.decision.toolName !== undefined);
+  // MEASURED DEFECT, 27.09.2026: `unreachable` required EVERY step to be
+  // UNAVAILABLE/TIMEOUT, so with 13 of 14 calls failed — the 14th a
+  // search-within whose "result" was an error string — the run answered 200
+  // PARTIAL with NO_EVIDENCE, which the console reads as "Bu bilgisayardaki
+  // arşivde … bulunamadı": a false negative the lawyer would rely on. The
+  // question is not what KIND each failure had but whether ANY search was
+  // answered: evidence only ever comes from a search hit that was fetched, so
+  // a run in which no search answered and nothing was fetched searched
+  // nothing.
+  const searchSteps = gatewaySteps.filter((s) => SEARCH_CAPABILITIES.has(s.decision.capability));
+  const searchAnswered = searchSteps.some((s) => s.outcome.status !== "error");
+  const noSearchAnswered = searchSteps.length > 0 && !searchAnswered && docStore.list().length === 0;
   const unreachable =
     gatewaySteps.length > 0 &&
-    gatewaySteps.every(
-      (s) =>
-        s.outcome.status === "error" &&
-        (s.outcome.error.kind === "UNAVAILABLE" || s.outcome.error.kind === "TIMEOUT"),
-    );
+    (noSearchAnswered ||
+      gatewaySteps.every(
+        (s) =>
+          s.outcome.status === "error" &&
+          (s.outcome.error.kind === "UNAVAILABLE" || s.outcome.error.kind === "TIMEOUT"),
+      ));
 
   const degradedReasons: string[] = [];
   if (finalState.status === "partial" || finalState.status === "failed") {
     degradedReasons.push(finalState.partialReason ?? "RESEARCH_COVERAGE_INCOMPLETE");
   }
-  if (!upstreamHealthy) degradedReasons.push("UPSTREAM_DEGRADED");
+  // "Some sources did not answer" and "none did" are different sentences.
+  if (!upstreamHealthy) degradedReasons.push(everyCallFailed ? "UPSTREAM_DEGRADED:ALL" : "UPSTREAM_DEGRADED");
   if (drafterFailed) degradedReasons.push("DRAFTER_DEGRADED");
 
+  // NO_EVIDENCE means "we looked and found nothing". With no answered search
+  // nobody looked, so that sentence may not be shown.
+  const baseReasons = noSearchAnswered
+    ? document.reasons.filter((reason) => reason !== "NO_EVIDENCE")
+    : document.reasons;
   const finalDocument: AnswerDocument =
-    degradedReasons.length > 0
+    degradedReasons.length > 0 || baseReasons !== document.reasons
       ? {
           ...document,
           status: "PARTIAL",
           finalizable: false,
-          reasons: [...document.reasons, ...degradedReasons],
+          reasons: [...baseReasons, ...degradedReasons],
         }
       : document;
 
