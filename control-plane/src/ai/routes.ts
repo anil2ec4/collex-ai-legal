@@ -534,7 +534,7 @@ export function createAiRouter(deps: AiRouterDeps): Hono {
         inputTokensPerDay: AI_MAX_INPUT_TOKENS_PER_DAY,
       },
       note:
-        "Bu kayıt defteri yalnızca çağrının şeklini tutar: tarih, uç, dosya, " +
+        "Bu kayıt defteri yalnızca çağrının şeklini tutar: tarih, yapılan işlem, dosya, " +
         "karakter sayısı, model. Belge metni, istem ve model çıktısı SAKLANMAZ.",
     });
   });

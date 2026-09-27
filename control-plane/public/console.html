@@ -312,6 +312,12 @@ nav.views {
   position: relative;
 }
 .bench::before { content: none; }
+/* 27.09.2026 (UI review): a .bench and a .verdict carry no bottom margin, so
+   the card after them touched them (Ayarlar profile → Sistem durumu; the
+   answer verdict → its meta card). */
+.bench + .card, .bench + section, .verdict + .card, .verdict + section { margin-top: 16px; }
+/* An empty grid output was drawn as a blank 46 px card before any run. */
+#gridout:empty { display: none; }
 form.query { display: grid; gap: 22px; position: relative; }
 .fieldlabel {
   display: flex; align-items: center; gap: 12px;
@@ -2726,6 +2732,14 @@ details.tech .techline {
 .relwhy b { color: var(--ink); font-weight: 600; }
 .relcollapsed { margin: var(--sp-2) 0 0; }
 .relcollapsed .fl { font-size: var(--fs-sm); color: var(--ink-soft); line-height: var(--lh-body); }
+/* 27.09.2026 (UI review, keyboard): three box-shadow rules replaced the
+   focus ring — the active view tab (and its dark-theme variants), the drop
+   zone and "Aslını indir". A focused control always shows the ring. */
+:root .viewtab.active:focus-visible,
+:root:not([data-theme="light"]) .viewtab.active:focus-visible,
+:root[data-theme="dark"] .viewtab.active:focus-visible,
+:root .dropzone:focus-visible,
+:root a.dl.alt:focus-visible { box-shadow: var(--ring); }
 </style>
 </head>
 <body>
@@ -3422,7 +3436,7 @@ details.tech .techline {
         <a class="dl" id="takvim-ics" href="/v1/matters/calendar.ics">Takvimime aktar</a>
       </div>
       <p class="screenlead">Bu ekranda dosyalarınızdaki süreleri ve duruşmaları ay ay görürsünüz. Bir güne tıklarsanız o günün kayıtları altta açılır.</p>
-      <p class="note-p" id="takvim-icsnote">“Takvime aktar” düğmesi bir takvim dosyası indirir; Outlook ve Google Takvim bu dosyayı açar. Dosya bir kez indirilir; sonradan eklenen süreler için yeniden indirin.</p>
+      <p class="note-p" id="takvim-icsnote">“Takvimime aktar” düğmesi bir takvim dosyası indirir; Outlook ve Google Takvim bu dosyayı açar. Dosya bir kez indirilir; sonradan eklenen süreler için yeniden indirin.</p>
       <div class="calbar">
         <button type="button" class="ghost small" id="takvim-prev">‹ Önceki ay</button>
         <span class="mname" id="takvim-month" role="status" aria-live="polite"></span>
@@ -4221,14 +4235,19 @@ details.tech .techline {
      sunucu platformu bildirdiğinde (health) aynı kural onlara da uygulanır. */
   function applyPlatformTexts() {
     if (restartSentenceTr() === RESTART_WINDOWS_TR) { return; }
-    var nodes = document.querySelectorAll("[title], .statusline, .offreason, #livehint, #nolive");
+    var nodes = document.querySelectorAll("[title]");
     for (var i = 0; i < nodes.length; i += 1) {
-      var node = nodes[i];
-      var title = node.getAttribute("title");
-      if (title) { node.setAttribute("title", platformText(title)); }
-      if (node.children.length === 0 && node.textContent) {
-        var swapped = platformText(node.textContent);
-        if (swapped !== node.textContent) { node.textContent = swapped; }
+      var title = nodes[i].getAttribute("title");
+      if (title) { nodes[i].setAttribute("title", platformText(title)); }
+    }
+    /* Every TEXT node, not a hand-picked list of elements: #livedowncard and
+       the "henüz açık değil" cards were missed, and an element with child
+       elements was skipped whole, so one screen gave the Mac and the Windows
+       restart instruction side by side (27.09.2026). */
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (var t = walker.nextNode(); t; t = walker.nextNode()) {
+      if (t.nodeValue && t.nodeValue.indexOf(RESTART_WINDOWS_TR) >= 0) {
+        t.nodeValue = platformText(t.nodeValue);
       }
     }
   }
@@ -4635,9 +4654,15 @@ details.tech .techline {
     /* N-5: sayılar katlanmış kartta da görünür. W15: "Karşıt otorite" kanonik
        sözlükte "aleyhe kaynak"tır ve sayaç artık cümle gibi okunur. */
     var failed = (claim.citationChecks || []).filter(function (c) { return !c.ok; });
+    /* 27.09.2026: "aleyhe 0 kaynak" was printed on every finding that rests
+       on an upload, on the same screen that says no contrary search is run
+       for an uploaded document — a count of something never searched (W15
+       §2). An upload-backed finding now says the search did not run. */
     var countBits = [
       (claim.evidenceIds || []).length + " kaynağa dayanıyor",
-      "aleyhe " + ((claim.contraryEvidenceIds || []).length) + " kaynak"
+      uploadClaim && (claim.contraryEvidenceIds || []).length === 0
+        ? "aleyhe kaynak taranmadı"
+        : "aleyhe " + ((claim.contraryEvidenceIds || []).length) + " kaynak"
     ];
     if (failed.length) { countBits.push(failed.length + " atıf reddedildi"); }
     box.appendChild(el("p", "claimcounts", countBits.join(" · ")));
@@ -5426,7 +5451,26 @@ details.tech .techline {
       if (!key || have[key] === true || !TERM_TR[key]) { return; }
       if (!node.parentNode || !document.body.contains(node)) { return; }
       have[key] = true;
-      node.parentNode.insertBefore(qmarkButton(key), node.nextSibling);
+      var q = qmarkButton(key);
+      /* 27.09.2026 (UI review): a ? for text INSIDE a link (the UDF
+         "deneysel" tag) became a <button> nested in an <a>, and a ? after a
+         block-level label ("Belgenin parmak izi", "Aleyhe kaynak") dropped
+         onto a line of its own. The ? goes after the interactive ancestor,
+         or inside the block it explains. */
+      var interactive = node.parentNode.closest ? node.parentNode.closest("a, button, summary, label") : null;
+      if (interactive && interactive.parentNode) {
+        interactive.parentNode.insertBefore(q, interactive.nextSibling);
+        return;
+      }
+      var disp = "";
+      try { disp = window.getComputedStyle(node).display || ""; } catch (e) { disp = ""; }
+      var formControl = /^(SELECT|INPUT|TEXTAREA|BUTTON|A)$/.test(node.tagName || "");
+      if (!formControl && disp && disp.indexOf("inline") !== 0 && disp !== "contents" && disp !== "none") {
+        node.appendChild(document.createTextNode(" "));
+        node.appendChild(q);
+        return;
+      }
+      node.parentNode.insertBefore(q, node.nextSibling);
     });
   }
 
@@ -5455,7 +5499,10 @@ details.tech .techline {
     while (n && n.nodeType === 1 && n !== document.body && steps < 8) {
       var d = "";
       try { d = window.getComputedStyle(n).display; } catch (e) { d = ""; }
-      if (d && d.indexOf("inline") !== 0 && d !== "contents") { return n; }
+      /* A card never opens INSIDE a link, a button or a flex row of actions
+         (the UDF card pushed Sürümler / Atıfları denetle aside). */
+      var isAction = /^(A|BUTTON|SUMMARY|LABEL)$/.test(n.tagName || "");
+      if (!isAction && d && d.indexOf("inline") !== 0 && d !== "contents") { return n; }
       n = n.parentNode;
       steps += 1;
     }
@@ -5550,10 +5597,12 @@ details.tech .techline {
        W15 adım 3: damgaya YALNIZ gerçek bir not yazılır. Sunucu not
        göndermediyse damga hiç çizilmez — eskiden "(veri kaynağı bilgisi
        verilmedi)" diye, hiçbir şey söylemeyen bir cümle yazıyordu. */
-    if (!(health && health.demoCorpus === true)) {
-      stripState.corpusNote = data.corpusNotice ? String(data.corpusNotice) : "";
-      applyStrips();
-    }
+    /* 27.09.2026: the answer's own provenance notice used to be copied into
+       this GLOBAL stamp, which then stayed on Dosyalarım, Taslak and Ayarlar
+       — screens with no answer — and repeated, word for word, the answer
+       card's own "Veri kaynağı:" line (a sentence twice). The stamp now
+       carries only installation-level states (deneme belgeleri, program
+       kapalı); the notice belongs to the answer card. */
     /* B2: canlı kayıtta origin eksikse "live" varsayılır (eski satırlar). */
     if (data.mode === "live") {
       (data.evidence || []).forEach(function (e) { if (e && !e.origin) { e.origin = "live"; } });
@@ -5610,7 +5659,7 @@ details.tech .techline {
     var finLine = el("div", "fin warnline " + (data.finalizable ? "yes" : "no"));
     finLine.textContent = data.status === "ABSTAIN"
       ? ABSTAIN_NEUTRAL_TR
-      : (data.finalizable ? FINALIZE_TR.yes : FINALIZE_TR.no) + (uploadOnly ? " " + UPLOAD_ONLY_EVIDENCE_TEXT : "");
+      : (data.finalizable ? FINALIZE_TR.yes : FINALIZE_TR.no) + (uploadOnly ? ". " + UPLOAD_ONLY_EVIDENCE_TEXT : "");
     mid.appendChild(countNotice(finLine));
     /* W15 adım 13/f: künye tek sessiz satırdır. Bir UYARI DEĞİLDİR — bilgi
        satırıdır, bu yüzden noticeLine()'dan geçmez ve uyarı bütçesini
@@ -8357,6 +8406,9 @@ details.tech .techline {
         return;
       }
       openEditor(res.body || {}, {});
+      /* The "Kayıtlı taslaklar — Henüz kayıtlı taslağınız yok" card stayed
+         above the editor right after v1 was saved (27.09.2026). */
+      if (templatesCache.length) { renderSavedDrafts(); }
       if (activeMatter && matterPageState.id === activeMatter.id) { matterPageState.stale = true; }
     }).catch(function (error) {
       dtiming.textContent = "";
@@ -11037,7 +11089,9 @@ details.tech .techline {
       if (dup) {
         err.textContent = "";
         err.appendChild(document.createTextNode(
-          "Bu başlıkla açık bir dosyanız zaten var (" + dup.why + "): “" + dup.m.title + "”. " +
+          (dup.why === "aynı esas numarası"
+            ? "Bu esas numarasıyla açık bir dosyanız zaten var: “"
+            : "Bu başlıkla açık bir dosyanız zaten var: “") + dup.m.title + "”. " +
           "Aynı dosyayı ikinci kez açmak istemiyorsanız mevcut dosyayı kullanın."));
         var row = el("div", "actions");
         row.appendChild(ghostBtn("Mevcut dosyayı aç", function () {
@@ -14058,7 +14112,7 @@ details.tech .techline {
     panelHead(card, "Yapay zekâ incelemesi — Bulut yapay zekâ");
     card.appendChild(el("p", "note-p",
       "Belgenin parçaları Anthropic'e gönderilir; model özet, taraflar, talepler, dayanaklar, tarihler, riskler, eksikler ve karşı argümanları çıkarır. " +
-      "Her madde belgeden birebir alıntıyla sunucuda doğrulanır; doğrulanamayan madde silinmez, ⚠ KAYNAKSIZ işaretlenir. Bağlayıcı değildir."));
+      "Her madde belgeden birebir alıntıyla ColleX tarafından doğrulanır; doğrulanamayan madde silinmez, ⚠ KAYNAKSIZ işaretlenir. Bağlayıcı değildir."));
     var row = el("div", "controls");
     var focus = selectInput([["genel", "Odak: genel"], ["dilekce", "Odak: dilekçe"], ["sozlesme", "Odak: sözleşme (maddeler)"]], "genel");
     focus.setAttribute("aria-label", "Analiz odağı");
@@ -14707,7 +14761,10 @@ details.tech .techline {
       : (cloudRefused
         ? "kapalı — anahtar tanımlı ama yapay zekâ ilkesi bulutu kapatıyor; bu bilgisayardan dışarı hiçbir metin gitmiyor"
         : "kapalı — bu bilgisayardan dışarı hiçbir metin gitmiyor"));
-    row("Taranmış belgeyi metne çevirme", cloudUsable
+    /* 27.09.2026: this row read "kapalı — önce bulut yapay zekâ açılmalı"
+       right above a row saying local scanned-page reading is ready — it is
+       about the CLOUD lane only, and now says so in its name. */
+    row("Taranmış belgeyi bulut yapay zekâ ile metne çevirme", cloudUsable
       ? "açık — belge sayfasındaki “Taranmış belgeyi metne çevir” düğmesiyle kullanılır (en çok 32 MB ve 100 sayfa)"
       : (cloudRefused
         ? "kullanılamaz — anahtar tanımlı ama yapay zekâ ilkesi bulutu kapatıyor; taranmış belge bulut yapay zekâya gönderilmez"
@@ -14730,7 +14787,9 @@ details.tech .techline {
     }
     var ocr = h.ocr;
     row("Taranmış sayfaları bu bilgisayarda okuma", ocr
-      ? (ocr.state === "OCR_READY" ? "kurulu ve kullanılabilir" : "kullanılamıyor") + " — " + (ocr.messageTr || ocr.state)
+      ? (ocr.state === "OCR_READY"
+        ? "kurulu ve kullanılabilir — okunan metin hata içerebilir; alıntıları belgenin aslıyla karşılaştırın"
+        : "kullanılamıyor — " + (ocr.messageTr || ocr.state))
       : "denetleniyor — sonuç gelene kadar taranmış sayfalar okunmamış sayılır");
     var c = h.corpus;
     row("Bu bilgisayardaki arşiv", c
@@ -17107,8 +17166,18 @@ details.tech .techline {
       var mid = el("div", "grow");
       var titleLine = el("div", null, it.title);
       if (it.type === "hearing") {
-        titleLine.appendChild(document.createTextNode(" "));
-        titleLine.appendChild(chip(HEARING_KIND_TR[it.row.payload.kind] || "Duruşma", "mute"));
+        /* The kind chip repeated the title ("Duruşma Duruşma") and the status
+           was never shown: a postponed hearing counted down like a live one. */
+        var kindTr = HEARING_KIND_TR[it.row.payload.kind] || "Duruşma";
+        if (kindTr !== it.title) {
+          titleLine.appendChild(document.createTextNode(" "));
+          titleLine.appendChild(chip(kindTr, "mute"));
+        }
+        var hst = it.row.payload.status || "planlandi";
+        if (hst !== "planlandi") {
+          titleLine.appendChild(document.createTextNode(" "));
+          titleLine.appendChild(chip(HEARING_STATUS_TR[hst] || hst, hst === "ertelendi" ? "warn" : "mute"));
+        }
       }
       mid.appendChild(titleLine);
       var mt = el("div", "mt");
@@ -17122,7 +17191,9 @@ details.tech .techline {
       }
       mid.appendChild(mt);
       row.appendChild(mid);
-      if (it.type === "hearing") {
+      if (it.type === "hearing" && (it.row.payload.status || "planlandi") !== "planlandi") {
+        row.appendChild(el("span", "days", it.row.payload.status === "ertelendi" ? "ertelendi — yeni tarihi girin" : "yapıldı"));
+      } else if (it.type === "hearing") {
         var left = daysUntil(it.date);
         row.appendChild(el("span", "days" + (left !== null && left < 0 ? " late" : left !== null && left <= 7 ? " red" : ""),
           left === null ? "tarih yok" : left < 0 ? "geçti" : left === 0 ? "BUGÜN" : left + " gün kaldı"));
@@ -17502,6 +17573,21 @@ details.tech .techline {
       if (ev.key !== "Escape" || menu.hidden) { return; }
       closeHelpMenu();
       if (btn.focus) { btn.focus(); }
+    });
+    /* role="menu" promises arrow-key movement (27.09.2026: ArrowDown did
+       nothing). Up/Down move and wrap; Home/End jump. */
+    menu.addEventListener("keydown", function (ev) {
+      var items = Array.prototype.slice.call(menu.querySelectorAll('button[role="menuitem"]'));
+      if (!items.length) { return; }
+      var at = items.indexOf(document.activeElement);
+      var next = -1;
+      if (ev.key === "ArrowDown") { next = at < 0 ? 0 : (at + 1) % items.length; }
+      else if (ev.key === "ArrowUp") { next = at <= 0 ? items.length - 1 : at - 1; }
+      else if (ev.key === "Home") { next = 0; }
+      else if (ev.key === "End") { next = items.length - 1; }
+      if (next < 0) { return; }
+      ev.preventDefault();
+      items[next].focus();
     });
   }
 

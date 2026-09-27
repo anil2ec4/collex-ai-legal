@@ -270,7 +270,7 @@ function partyField(label: string, help: string): TemplateField {
 }
 
 const PARTY_HELP_DILEKCE =
-  "Her satır 'Rol : Ad' (örn. 'Davacı : Ayşe Yılmaz'). T.C. kimlik no, adres ve" +
+  "Her taraf için adı ya da unvanı yazıp rolünü seçin (örn. Ayşe Yılmaz — Davacı). T.C. kimlik no, adres ve" +
   " vekil bilgileri HMK m.119 için taraf kaydına eklenir.";
 
 function vekilFields(): TemplateField[] {
@@ -343,7 +343,7 @@ function contractPartyField(roles: string): TemplateField {
     required: true,
     multiline: true,
     kind: "party-list",
-    help: "Her satır 'Rol : Ad'. Vergi/T.C. kimlik no ve adres taraf kaydına eklenir.",
+    help: "Her taraf için adı ya da unvanı yazıp rolünü seçin. Vergi/T.C. kimlik no ve adres taraf kaydına eklenir.",
     group: FIELD_GROUPS.taraflar,
   });
 }
@@ -949,7 +949,7 @@ const IHTARNAME: DraftTemplate = {
     field("matter.ekBilgiler.yer", "Düzenleme yeri", { placeholder: "İstanbul", group: FIELD_GROUPS.belge }),
     partyField(
       "Taraflar (ad ve rol: İhtar Eden / Muhatap)",
-      "Her satır 'Rol : Ad'. Adres bilgisi tebligat için taraf kaydına eklenmelidir.",
+      "Her taraf için adı ya da unvanı yazıp rolünü seçin. Adres bilgisi tebligat için taraf kaydına eklenmelidir.",
     ),
     ...vekilFields(),
     olaylarField("Olaylar (her satır bir olgu)"),
@@ -1070,7 +1070,7 @@ const ICRA_ITIRAZ: DraftTemplate = {
     field("matter.ekBilgiler.yer", "Düzenleme yeri", { placeholder: "İstanbul", group: FIELD_GROUPS.belge }),
     partyField(
       "Taraflar (ad ve rol: İtiraz Eden Borçlu / Alacaklı)",
-      "Her satır 'Rol : Ad'. Borçlunun T.C. kimlik no ve adresi taraf kaydına eklenmelidir.",
+      "Her taraf için adı ya da unvanı yazıp rolünü seçin. Borçlunun T.C. kimlik no ve adresi taraf kaydına eklenmelidir.",
     ),
     ...vekilFields(),
     ek("tebligTarihi", "Ödeme emrinin tebliğ tarihi", {
@@ -1196,7 +1196,7 @@ const ARABULUCULUK_BASVURUSU: DraftTemplate = {
     field("matter.ekBilgiler.yer", "Düzenleme yeri", { placeholder: "İstanbul", group: FIELD_GROUPS.belge }),
     partyField(
       "Taraflar (ad ve rol: Başvurucu / Karşı Taraf)",
-      "Her satır 'Rol : Ad'. Karşı tarafın adresi ve varsa telefon/e-posta bilgisi taraf kaydına eklenmelidir (HUAK m.18/A-4).",
+      "Her taraf için adı ya da unvanı yazıp rolünü seçin. Karşı tarafın adresi ve varsa telefon/e-posta bilgisi taraf kaydına eklenmelidir (HUAK m.18/A-4).",
     ),
     ...vekilFields(),
     ek("uyusmazlikTuru", "Uyuşmazlık türü", {
@@ -2443,7 +2443,7 @@ const HUKUKI_MUTALAA: DraftTemplate = {
     }),
     partyField(
       "İlgililer (ad ve rol: Mütalaa İsteyen / Karşı Taraf)",
-      "Her satır 'Rol : Ad'. Mütalaa mahkemeye verilmez; taraf kaydı görüşün kime ve" +
+      "Her taraf için adı ya da unvanı yazıp rolünü seçin. Mütalaa mahkemeye verilmez; taraf kaydı görüşün kime ve" +
         " hangi ilişki için verildiğini gösterir.",
     ),
     ...vekilFields(),

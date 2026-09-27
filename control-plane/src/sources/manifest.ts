@@ -248,6 +248,22 @@ function statusFor(
   };
 }
 
+/**
+ * Turkish names of the catalog's decision-type codes. The Kapsam screen
+ * printed the notes as they came — "Karar türü seçilebilir: norm_denetimi,
+ * bireysel_basvuru" — machine codes in the lawyer's line (27.09.2026).
+ */
+const DECISION_TYPE_TR: Readonly<Record<string, string>> = Object.freeze({
+  norm_denetimi: "norm denetimi",
+  bireysel_basvuru: "bireysel başvuru",
+  uyusmazlik: "uyuşmazlık",
+  duzenleyici: "düzenleyici işlem",
+  mahkeme: "mahkeme kararı",
+  daire: "daire kararı",
+  genel_kurul: "genel kurul kararı",
+  temyiz_kurulu: "temyiz kurulu kararı",
+});
+
 function sourceNotes(
   supportsChamber: boolean,
   supportsDateRange: boolean,
@@ -258,7 +274,9 @@ function sourceNotes(
   if (supportsChamber) notes.push("Daire süzgeci desteklenir.");
   if (supportsDateRange) notes.push("Tarih/yıl aralığı süzgeci desteklenir.");
   if (decisionTypes !== undefined && decisionTypes.length > 0) {
-    notes.push(`Karar türü seçilebilir: ${decisionTypes.join(", ")}.`);
+    notes.push(
+      `Karar türü seçilebilir: ${decisionTypes.map((t) => DECISION_TYPE_TR[t] ?? t).join(", ")}.`,
+    );
   }
   if (gap !== undefined) notes.push(gap);
   if (notes.length === 0) notes.push("Ek süzgeç yoktur; yalnız serbest metin aranır.");

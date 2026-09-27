@@ -2101,7 +2101,10 @@ describe("W14 F-UI · V-10 / V-12 / V-13 / V-17: the four interaction defects", 
     // only on the templates fetch and on closeEditor — a draft created on the
     // matter page used to stay invisible until a hard reload.
     expect(html).toContain("dönüşte yeniden çekilir. */\n      if (templatesCache.length) { renderSavedDrafts(); }");
-    expect((html.match(/renderSavedDrafts\(\);/gu) ?? []).length).toBe(3);
+    // 27.09.2026: a fourth call site — right after "Taslağı oluştur" saves
+    // v1, the list no longer says "Henüz kayıtlı taslağınız yok".
+    expect((html.match(/renderSavedDrafts\(\);/gu) ?? []).length).toBe(4);
+    expect(html).toContain("above the editor right after v1 was saved");
   });
 
   it("V-13: an empty query leaves a PERSISTENT validation line, not a 3.6 s toast", () => {

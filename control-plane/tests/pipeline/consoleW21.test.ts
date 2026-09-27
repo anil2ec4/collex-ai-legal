@@ -70,7 +70,11 @@ describe("W21 · Ayarlar shows the AI policy, the local model and local OCR", ()
     expect(html).toContain('row("Taranmış sayfaları bu bilgisayarda okuma", ocr');
     // Only OCR_READY is usable (said in words, never a bare "hazır" — the W15
     // lock); no answer yet is "denetleniyor", never usable.
-    expect(html).toContain('(ocr.state === "OCR_READY" ? "kurulu ve kullanılabilir" : "kullanılamıyor")');
+    // 27.09.2026: the READY branch no longer prints the engine name
+    // ("tesseract") into the lawyer's line; the non-ready branch still
+    // carries the server's own reason.
+    expect(html).toContain('(ocr.state === "OCR_READY"\n        ? "kurulu ve kullanılabilir');
+    expect(html).toContain(': "kullanılamıyor — " + (ocr.messageTr || ocr.state))');
     expect(html).toContain("denetleniyor — sonuç gelene kadar taranmış sayfalar okunmamış sayılır");
     expect(html).toContain("canlı sınanmadı");
     for (const policy of ["LOCAL_ONLY", "LOCAL_PREFERRED", "CLOUD_ALLOWED", "DETERMINISTIC_ONLY"]) {

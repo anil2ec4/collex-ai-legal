@@ -105,3 +105,12 @@ describe("paged regulator documents are sealed whole or not at all", () => {
     expect(gateway.calls).toHaveLength(1);
   });
 });
+
+describe("Kapsam notes speak Turkish, not catalog codes", () => {
+  it("names decision types in words", async () => {
+    const { buildCoverageManifest } = await import("../../src/sources/manifest.js");
+    const notes = JSON.stringify(buildCoverageManifest());
+    expect(notes).not.toMatch(/norm_denetimi|bireysel_basvuru|genel_kurul|temyiz_kurulu/u);
+    expect(notes).toContain("norm denetimi, bireysel başvuru");
+  });
+});

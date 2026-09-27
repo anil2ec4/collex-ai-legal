@@ -176,16 +176,16 @@ describe("W21 #26 · a cloud key under a LOCAL_ONLY policy is never shown as usa
     const rows = sysStatusRows(HEALTH_LOCAL_ONLY);
     expect(rows["Bulut yapay zekâ"]).not.toMatch(/^açık/u);
     expect(rows["Bulut yapay zekâ"]).toContain("anahtar tanımlı ama yapay zekâ ilkesi bulutu kapatıyor");
-    expect(rows["Taranmış belgeyi metne çevirme"]).not.toMatch(/^açık/u);
-    expect(rows["Taranmış belgeyi metne çevirme"]).toContain("yapay zekâ ilkesi bulutu kapatıyor");
+    expect(rows["Taranmış belgeyi bulut yapay zekâ ile metne çevirme"]).not.toMatch(/^açık/u);
+    expect(rows["Taranmış belgeyi bulut yapay zekâ ile metne çevirme"]).toContain("yapay zekâ ilkesi bulutu kapatıyor");
 
     const open = sysStatusRows(HEALTH_CLOUD_ALLOWED);
     expect(open["Bulut yapay zekâ"]).toMatch(/^açık/u);
-    expect(open["Taranmış belgeyi metne çevirme"]).toMatch(/^açık — /u);
+    expect(open["Taranmış belgeyi bulut yapay zekâ ile metne çevirme"]).toMatch(/^açık — /u);
 
     const noKey = sysStatusRows(HEALTH_NO_KEY);
     expect(noKey["Bulut yapay zekâ"]).toBe("kapalı — bu bilgisayardan dışarı hiçbir metin gitmiyor");
-    expect(noKey["Taranmış belgeyi metne çevirme"]).toBe("kapalı — önce bulut yapay zekâ açılmalı");
+    expect(noKey["Taranmış belgeyi bulut yapay zekâ ile metne çevirme"]).toBe("kapalı — önce bulut yapay zekâ açılmalı");
   });
 
   it("the cloud-AI chip is disabled under LOCAL_ONLY and names the policy as the reason", () => {
