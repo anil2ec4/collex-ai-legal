@@ -2895,7 +2895,7 @@ button.seal { border-radius: var(--r-ctl); }
         <!-- W15 adım 7 · TEK KAPI: hiçbir açıklama kendiliğinden açılmaz;
              kapatıldığı yerde kapalı kalır ve geri dönüş yalnız buradan olur. -->
         <div class="tools">
-          <button type="button" class="helpbtn" id="palbtn" title="Hızlı arama: dosya, belge, cevap, taslak ya da ekran adı (Ctrl+K)">⌕ Ara</button>
+          <button type="button" class="helpbtn" id="palbtn" title="Ne yapmak istediğinizi yazın ya da bir dosya, belge, cevap, taslak veya ekran arayın (Ctrl+K)">⌕ Ara</button>
           <div class="helpwrap">
             <button type="button" class="helpbtn" id="helpbtn" aria-expanded="false" aria-haspopup="true" aria-controls="helpmenu" title="Anlatım, sözlük ve neyi taradığımız">? Yardım</button>
             <div class="helpmenu" id="helpmenu" role="menu" aria-label="Yardım" hidden></div>
@@ -12450,6 +12450,8 @@ button.seal { border-radius: var(--r-ctl); }
     custom.textContent = "Özel süre — gün/hafta/ay/yıl olarak kendim gireyim";
     ruleSel.appendChild(custom);
     labelInput(form, "Süre kuralı (usule göre)", ruleSel, "dl-rule");
+    /* W23: hızlı aramadaki "Önerilen iş" bir kuralı önceden seçebilir. */
+    if (opts.ruleId && byId[opts.ruleId] && byId[opts.ruleId].computable !== false) { ruleSel.value = opts.ruleId; }
 
     var nonComputable = (rules.rules || []).filter(function (r) { return r.computable === false; });
     if (nonComputable.length) {
@@ -12517,7 +12519,7 @@ button.seal { border-radius: var(--r-ctl); }
     }
     ruleSel.addEventListener("change", syncRule);
     var firstComputable = (rules.rules || []).filter(function (r) { return r.computable !== false; })[0];
-    if (firstComputable) { ruleSel.value = firstComputable.id; }
+    if (firstComputable && !(opts.ruleId && ruleSel.value === opts.ruleId)) { ruleSel.value = firstComputable.id; }
     syncRule();
 
     var controls = el("div", "controls");
@@ -19192,9 +19194,95 @@ button.seal { border-radius: var(--r-ctl); }
   }
   function togglePalette() { if (pal.open) { closePalette(); } else { openPalette(); } }
 
+  /* ====== W23 · hızlı aramada "Önerilen iş" ======
+     Avukat ne yapmak istediğini kendi cümlesiyle yazar ("ödeme emrine itiraz
+     süresi", "istinaf harcı", "karşı tarafın dilekçesini incele"); kurallı bir
+     eşleştirici doğru ekranı ÖNERİR. Model yok, tahmin yok: hiçbir şey
+     kendiliğinden çalışmaz, avukat seçer. Eşleşme yoksa öneri de yoktur —
+     yalnız "Bu soruyu araştır" satırı çıkar. */
+  function palFold(s) {
+    var from = "ıçğöşüâîû", to = "icgosuaiu";
+    return String(s || "").toLocaleLowerCase("tr-TR").replace(/[ıçğöşüâîû]/g, function (c) { return to.charAt(from.indexOf(c)); });
+  }
+  var PAL_INTENTS = [
+    { all: [/odeme emr/, /itiraz/], rule: "iik-odeme-emri-itiraz", title: "Ödeme emrine itiraz süresini hesapla (İİK m.62)" },
+    { all: [/kambiyo/], rule: "iik-kambiyo-itiraz", title: "Kambiyo takibinde itiraz süresini hesapla" },
+    { all: [/istinaf/, /ceza|cmk/, /sure|son gun|ne zaman|kac gun/], rule: "cmk-istinaf", title: "Ceza istinaf süresini hesapla (CMK)" },
+    { all: [/istinaf/, /idare|iyuk|vergi/, /sure|son gun|ne zaman|kac gun/], rule: "iyuk-istinaf", title: "İdarî yargıda istinaf süresini hesapla (İYUK)" },
+    { all: [/istinaf/, /sure|son gun|ne zaman|kac gun/], rule: "hmk-istinaf", title: "İstinaf süresini hesapla (HMK m.345)" },
+    { all: [/temyiz/, /ceza|cmk/, /sure|son gun|ne zaman|kac gun/], rule: "cmk-temyiz", title: "Ceza temyiz süresini hesapla (CMK)" },
+    { all: [/temyiz/, /idare|iyuk|danistay/, /sure|son gun|ne zaman|kac gun/], rule: "iyuk-temyiz", title: "İdarî yargıda temyiz süresini hesapla (İYUK)" },
+    { all: [/temyiz/, /sure|son gun|ne zaman|kac gun/], rule: "hmk-temyiz", title: "Temyiz süresini hesapla (HMK m.361)" },
+    { all: [/cevap/, /sure|son gun|ne zaman|kac gun/], rule: "hmk-cevap", title: "Cevap dilekçesi süresini hesapla (HMK m.127)" },
+    { all: [/bilirkisi/, /itiraz/], rule: "hmk-bilirkisi-rapor-itiraz", title: "Bilirkişi raporuna itiraz süresini hesapla (HMK m.281)" },
+    { all: [/ise iade/], rule: "is-ise-iade-arabulucu-basvuru", title: "İşe iade için arabulucuya başvuru süresini hesapla" },
+    { all: [/bireysel basvuru/], rule: "aym-bireysel-basvuru", title: "Anayasa Mahkemesi bireysel başvuru süresini hesapla" },
+    { all: [/mirasin reddi|reddi miras/], rule: "tmk-mirasin-reddi", title: "Mirasın reddi süresini hesapla (TMK m.606)" },
+    { all: [/sure hesap|son gun|sure ne zaman|kac gun sure/], rule: "", title: "Süre hesapla" },
+    { all: [/harc|gider avansi|masraf/], view: "harc", title: "Harç ve gider hesapla" },
+    { all: [/faiz/], view: "faiz", title: "Faiz hesapla" },
+    { all: [/karsi (taraf|dilekce)|dilekce(yi|sini)? (incele|analiz)|cevap dilekcesini incele/], view: "dilekce", title: "Karşı dilekçeyi incele" },
+    { all: [/atif|kaynak denetle|atiflari denetle/], view: "denetim", title: "Dilekçemdeki atıfları denetle" },
+    { all: [/sozlesme/, /incele|kontrol|madde|eksik/], view: "sozlesme", title: "Sözleşmeyi kontrol listemle karşılaştır" },
+    { all: [/dilekce|ihtarname|taslak|mutalaa/, /yaz|hazirla|olustur|taslak/], view: "taslak", title: "Taslak hazırla" },
+    { all: [/karar ara|ictihat|emsal|yargitay karar|danistay karar/], view: "karar-ara", title: "Resmî kaynaklarda karar ara", query: true },
+    { all: [/takvim|durusma/], view: "takvim", title: "Takvimi aç" },
+    { all: [/yedek/], view: "ayarlar", title: "Yedekleme (Ayarlar)" }
+  ];
+  var PAL_QUERY_STRIP = /\b(karar ara|ictihat ara|ictihat|emsal karar|emsal|yargitay kararlari?|danistay kararlari?|ara|bul)\b/g;
+  function paletteIntents(q) {
+    var f = palFold(q);
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < PAL_INTENTS.length; i += 1) {
+      var it = PAL_INTENTS[i];
+      if (!it.all.every(function (re) { return re.test(f); })) { continue; }
+      var key = it.rule !== undefined ? "rule" : it.view;
+      if (seen[key]) { continue; }
+      seen[key] = true;
+      out.push(it);
+    }
+    return out;
+  }
+  function paletteIntentItems(q) {
+    var text = String(q || "").trim();
+    if (text.length < 4) { return []; }
+    var out = paletteIntents(text).map(function (it) {
+      if (it.rule !== undefined) {
+        return palItem("Önerilen iş", it.title, "Süre penceresi bu kural seçili açılır; tebliğ tarihini siz girersiniz.", function () {
+          openDeadlineModal(it.rule ? { ruleId: it.rule } : {});
+        });
+      }
+      return palItem("Önerilen iş", it.title, "", function () {
+        gotoView(it.view);
+        if (it.query) {
+          var rest = palFold(text).replace(PAL_QUERY_STRIP, " ").replace(/\s+/g, " ").trim();
+          var box = document.getElementById("karar-q");
+          if (box && rest.length >= 2) { box.value = text.length ? restoreCase(text, rest) : rest; }
+        }
+      });
+    });
+    if (text.length >= 8 && text.indexOf(" ") > 0) {
+      out.push(palItem("Önerilen iş", "Bu soruyu araştır: “" + text + "”", "Araştır ekranında soru kutusuna yazılır; siz başlatırsınız.", function () {
+        gotoView("arastir");
+        var qbox = document.getElementById("q");
+        if (qbox) { qbox.value = text; if (qbox.focus) { qbox.focus(); } }
+      }));
+    }
+    return out;
+  }
+  /* The query box keeps the lawyer's own spelling: the folded remainder is
+     only used to find WHICH words survive the strip. */
+  function restoreCase(original, foldedRest) {
+    var words = original.split(/\s+/);
+    var keep = foldedRest.split(" ");
+    return words.filter(function (w) { return keep.indexOf(palFold(w)) >= 0; }).join(" ") || foldedRest;
+  }
+  /* ====== /W23 önerilen iş ====== */
+
   function paletteLocalItems(q) {
     var needle = foldTR(q.trim());
-    var out = [];
+    var out = paletteIntentItems(q);
     if (!needle) {
       readRecent().slice(0, 8).forEach(function (r) {
         out.push(palItem("Son açılan", recentLabel(r), RECENT_KIND_TR[r.k] + " · " + fmtDateTimeTR(r.at), function () { openRecent(r); }));
@@ -19223,7 +19311,7 @@ button.seal { border-radius: var(--r-ctl); }
     var t = q.trim();
     renderPalette(t.length >= 2 ? "" : t.length
       ? "Kayıtlarınızda aramak için en az iki karakter yazın."
-      : "Yazmaya başlayın: dosya, belge, cevap, taslak ya da ekran adı. Ok tuşlarıyla seçip ⏎ ile açın.");
+      : "Ne yapmak istediğinizi yazın (ör. “ödeme emrine itiraz süresi”) ya da bir dosya, belge, cevap, taslak veya ekran adı. Ok tuşlarıyla seçip ⏎ ile açın.");
   }
   function paletteSearch(q) {
     var query = q.trim();
@@ -19245,7 +19333,10 @@ button.seal { border-radius: var(--r-ctl); }
       PAL_GROUP_ORDER.forEach(function (g) {
         (groups[g] || []).forEach(function (row) { var it = palRowItem(g, row); if (it) { found.push(it); } });
       });
-      pal.items = found.concat(local);
+      /* Önerilen işler en üstte kalır; kayıtlar onların altında. */
+      var intents = local.filter(function (it) { return it.kind === "Önerilen iş"; });
+      var rest = local.filter(function (it) { return it.kind !== "Önerilen iş"; });
+      pal.items = intents.concat(found, rest);
       pal.active = 0;
       var note = found.length ? "" : "Kayıtlarınızda eşleşme yok.";
       if (body.documentsSearched === false) { note = (note ? note + " " : "") + "Belge içeriği bu sunucuda aranamıyor."; }
