@@ -1248,6 +1248,8 @@ export class AnalysisWorker {
       // A weighing row counts only for a claim the run still holds.
       claimRefs: state.items.filter((item) => item.kind === "claim").map(itemRef),
       defenseRefs: state.items.filter((item) => item.kind === "defense").map(itemRef),
+      // W22: what the value comparison compared, so the result can say it.
+      valueComparison: state.valueComparison,
     });
     const ledger = await this.store.loadLedger(run.runId);
 

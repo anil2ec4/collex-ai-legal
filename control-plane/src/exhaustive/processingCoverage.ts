@@ -224,14 +224,20 @@ export function coverageSentenceTr(coverage: ProcessingCoverage): string {
     return "İncelenecek belge seçilmedi.";
   }
   if (coverage.complete) {
+    // W22: a scope of page-less documents (text files, DOCX) has no page
+    // count to print — "(0 sayfa)" read as "nothing was read".
     return (
       `Seçtiğiniz ${coverage.filesTotal} belgenin tamamı okundu` +
-      ` (${coverage.pagesTotal} sayfa).`
+      (coverage.pagesTotal > 0 ? ` (${coverage.pagesTotal} sayfa).` : ".")
     );
   }
+  // W22: "9 belgenin 9 tanesi okundu. Bu nedenle ... kapsamıyor" named no
+  // reason at all when the gap was a low-confidence OCR page; every gap that
+  // is not one of the counts below is named by qualityGapsTr.
   const parts: string[] = [
-    `Seçtiğiniz ${coverage.filesTotal} belgenin` +
-      ` ${coverage.filesProcessed} tanesi okundu`,
+    coverage.filesProcessed === coverage.filesTotal
+      ? `Seçtiğiniz ${coverage.filesTotal} belgenin tamamı işlendi`
+      : `Seçtiğiniz ${coverage.filesTotal} belgenin ${coverage.filesProcessed} tanesi okundu`,
   ];
   if (coverage.pagesUnreadable > 0) {
     parts.push(`${coverage.pagesUnreadable} sayfa okunamadı`);
@@ -252,11 +258,41 @@ export function coverageSentenceTr(coverage: ProcessingCoverage): string {
   if (coverage.gaps.some((gap) => gap.reason === "SYNTHESIS_FAILED")) {
     parts.push("değerlendirme aşaması tamamlanamadı");
   }
+  parts.push(...qualityGapsTr(coverage));
   return (
     parts.join("; ") +
     ". Bu nedenle bu inceleme dosyanın tamamını kapsamıyor;" +
     " eksik kalan yerler aşağıda listelendi."
   );
+}
+
+/**
+ * W22: the gaps that no count of the coverage shows — a page read by OCR with
+ * low confidence, a page with almost no text, text outside every unit, a
+ * document without a page map or without any unit, a place excluded on
+ * request — one plain clause per reason, with how many. Without them the
+ * sentence and the "Kaynak kapsamı" line said "eksik" next to "5 / 5 sayfa
+ * işlendi" and never said what was missing.
+ */
+export function qualityGapsTr(coverage: ProcessingCoverage): string[] {
+  const count = (...reasons: CoverageGapReason[]): number =>
+    coverage.gaps.filter((gap) => reasons.includes(gap.reason)).length;
+  const documents = (reason: CoverageGapReason): number =>
+    new Set(coverage.gaps.filter((gap) => gap.reason === reason).map((gap) => gap.fileId)).size;
+  const out: string[] = [];
+  const lowConfidence = count("OCR_LOW_CONFIDENCE");
+  if (lowConfidence > 0) out.push(`${lowConfidence} sayfa OCR ile düşük güvenle okundu (aslıyla karşılaştırılmalı)`);
+  const sparse = count("SPARSE_PAGE", "SPARSE_TEXT");
+  if (sparse > 0) out.push(`${sparse} sayfada çok az metin çıktı (sayfa görüntü olabilir)`);
+  const outside = documents("TEXT_OUTSIDE_UNITS");
+  if (outside > 0) out.push(`${outside} belgede incelenmemiş metin kaldı`);
+  const unmapped = documents("NO_SOURCE_MAP");
+  if (unmapped > 0) out.push(`${unmapped} belgenin sayfa eşlemesi yok`);
+  const empty = documents("NO_ANALYSIS_UNITS");
+  if (empty > 0) out.push(`${empty} belgede incelenecek bölüm bulunamadı`);
+  const excluded = count("EXCLUDED_BY_REQUEST");
+  if (excluded > 0) out.push(`${excluded} yer incelemeden çıkarıldı`);
+  return out;
 }
 
 /**

@@ -11487,7 +11487,8 @@ details.tech .techline {
       card.appendChild(el("h3", null, "Önceki incelemeler"));
       res.body.runs.slice(0, 10).forEach(function (r) {
         var row = el("div", "itemrow");
-        row.appendChild(el("div", "when", fmtDateTR(r.createdAt) || "-"));
+        /* W22: günü ve saati; aynı gün iki inceleme ayırt edilebilsin. */
+        row.appendChild(el("div", "when", fmtDateTimeTR(r.createdAt) || "-"));
         var g = el("div", "grow");
         g.appendChild(el("div", null, r.taskTitle));
         var sub = el("div", "sub");
@@ -11500,11 +11501,13 @@ details.tech .techline {
           sub.appendChild(chip("güncel değil: dosyaya sonradan belge eklendi, değişti ya da çıkarıldı", "warn"));
         } else if (!active) {
           sub.appendChild(document.createTextNode(" "));
-          sub.appendChild(chip(r.complete ? "dosyanın tamamı okundu" : "dosyanın tamamı okunmadı", r.complete ? "ok" : "bad"));
+          /* W22: çipin sözü sunucudan gelir (readTr): seçilen 2 belgelik bir
+             inceleme “dosyanın tamamı okundu” diye listelenmez. */
+          sub.appendChild(chip(r.readTr || (r.complete ? "dosyanın tamamı okundu" : "dosyanın tamamı okunmadı"), r.complete ? "ok" : "bad"));
           if (r.status === "done") {
             // W21: bütün sayfaların okunması ile incelemenin tamamlanması ayrı iddialardır.
             sub.appendChild(document.createTextNode(" "));
-            sub.appendChild(chip(r.analysisComplete ? "inceleme tamamlandı" : "inceleme eksik kaldı", r.analysisComplete ? "ok" : "warn"));
+            sub.appendChild(chip(r.analysisTr || (r.analysisComplete ? "inceleme tamamlandı" : "inceleme eksik kaldı"), r.analysisComplete ? "ok" : "warn"));
           }
         }
         g.appendChild(sub);
@@ -11616,10 +11619,13 @@ details.tech .techline {
       ["Kaynak kapsamı", ac.sectionsTr.source, ac.sourceComplete],
       ["Çıkarım kapsamı", ac.sectionsTr.extraction, ac.extractionComplete],
       ["Analiz kapsamı", ac.sectionsTr.analysis, ac.intelligenceComplete]
-    ].forEach(function (layer) {
+    ].forEach(function (layer, index) {
       var rowl = el("div", "anlz-layer");
       rowl.appendChild(el("strong", null, layer[0]));
-      rowl.appendChild(chip(layer[2] ? "tamam" : "eksik", layer[2] ? "ok" : "warn"));
+      /* W22: yalnız eşleşen değer çiftlerini karşılaştıran bir analiz, bitmiş
+         olsa da “tamam” değildir (sunucunun analysisLimited bayrağı). */
+      var limitedLayer = index === 2 && ac.analysisLimited === true;
+      rowl.appendChild(chip(limitedLayer ? "sınırlı" : layer[2] ? "tamam" : "eksik", layer[2] && !limitedLayer ? "ok" : "warn"));
       rowl.appendChild(el("span", null, layer[1]));
       box.appendChild(rowl);
     });
@@ -11642,15 +11648,18 @@ details.tech .techline {
     if (run.stale) {
       var st = el("div", "res3 broke");
       st.setAttribute("role", "status");
+      /* W22: belgeler kimlikleriyle değil adlarıyla anılır (sunucunun sourceNames alanı). */
+      var docNames = run.sourceNames || {};
+      var named = function (ids) { return ids.map(function (id) { return docNames[id] || id; }).join(", "); };
       var changedDocs = run.sourceChanged || [];
       var addedDocs = run.sourceAdded || [];
       var removedDocs = run.sourceRemoved || [];
       st.appendChild(el("strong", "r3t", changedDocs.length && !addedDocs.length && !removedDocs.length
         ? "Bu inceleme belgelerin eski sürümüne dayanıyor."
         : "Bu inceleme dosyanın bugünkü hâlini yansıtmıyor."));
-      if (changedDocs.length) { st.appendChild(el("p", null, "Sonradan değişen ya da silinen belgeler: " + changedDocs.join(", ") + ".")); }
-      if (addedDocs.length) { st.appendChild(el("p", null, "İncelemeden sonra dosyaya eklenen, bu incelemede okunmamış belgeler: " + addedDocs.join(", ") + ".")); }
-      if (removedDocs.length) { st.appendChild(el("p", null, "Dosyadan çıkarılan ama bu sonuçta hâlâ yer alan belgeler: " + removedDocs.join(", ") + ".")); }
+      if (changedDocs.length) { st.appendChild(el("p", null, "Sonradan değişen ya da silinen belgeler: " + named(changedDocs) + ".")); }
+      if (addedDocs.length) { st.appendChild(el("p", null, "İncelemeden sonra dosyaya eklenen, bu incelemede okunmamış belgeler: " + named(addedDocs) + ".")); }
+      if (removedDocs.length) { st.appendChild(el("p", null, "Dosyadan çıkarılan ama bu sonuçta hâlâ yer alan belgeler: " + named(removedDocs) + ".")); }
       st.appendChild(el("p", null, "Güncel sonuç için incelemeyi yeniden başlatın."));
       card.appendChild(st);
     }
@@ -11660,7 +11669,9 @@ details.tech .techline {
     if (active || !cov || cov.complete !== false) { return; }
     var box = el("div", "res3 broke");
     box.setAttribute("role", "status");
-    box.appendChild(el("strong", "r3t", "Dosyanın tamamı okunmadı; bu sonuç “bütün dosya” için söylenemez."));
+    /* W22: “dosyanın tamamı okunmadı” cümlesini yukarıdaki başlık (headlineTr)
+       zaten söyler; bu kutu yalnız yerleri sayar — aynı cümle iki kez yazılmaz. */
+    box.appendChild(el("strong", "r3t", "Okunamayan ya da güvenilir biçimde okunamayan yerler:"));
     var list = el("ul", "audnotices");
     (cov.gaps || []).slice(0, 30).forEach(function (gp) {
       list.appendChild(el("li", null, (gp.fileName || gp.fileId) + " — " + gp.locator + ": " + (GAP_TR[gp.reason] || gp.reason)));
@@ -11707,6 +11718,8 @@ details.tech .techline {
           ? "İnceleme durdurulduğu için tespitler derlenmedi; bu, okunan bölümlerde tespit olmadığı anlamına gelmez."
           : (f.status === "failed" || (f.summary && f.summary.saveFailed))
             ? "İnceleme tamamlanamadığı için tespitler kaydedilmedi; dosyada tespit olmadığı sonucuna varılamaz."
+            : (acE && acE.state === "LIMITED")
+              ? "Karşılaştırılan değer çiftlerinde çelişki çıkmadı; yalnız eşleşen çiftler karşılaştırıldığı için bu, dosyada çelişki olmadığı anlamına gelmez."
             : (acE && acE.complete === false)
               ? "Gösterilecek tespit yok; ancak inceleme eksik kaldığı için bu, dosyada tespit olmadığı anlamına gelmez."
               : "Bu incelemede gösterilecek bir tespit çıkmadı. Ne kadarının okunduğu yukarıda yazıyor.");
@@ -11751,6 +11764,8 @@ details.tech .techline {
       btn.type = "button";
       btn.addEventListener("click", function () { gotoDocument(src.fileId, src.chunkId ? { focusChunk: src.chunkId } : {}); });
       s2.appendChild(btn);
+      /* W22: taranmış sayfadan gelen alıntı OCR motorunun okumasıdır. */
+      if (src.ocr === true) { s2.appendChild(chip("OCR ile okundu — aslıyla karşılaştırın", "warn")); }
       s2.appendChild(el("q", "anlz-quote", cpTruncate(src.quote || "", 260)));
       row.appendChild(s2);
     });
@@ -12747,6 +12762,10 @@ details.tech .techline {
   };
   var GRID_SUPPORT_TR = {
     verified: ["Kaynakla destekleniyor", "ok"],
+    /* W22: the quote verifies the sentence, but its passage lacks a core word
+       of the question; that it ANSWERS the question was not checked (the
+       server's reviewTables/store.ts QUOTE_ONLY_SUPPORT_TR). */
+    quote_only: ["Alıntı doğrulandı; soruyu karşıladığı denetlenmedi", "warn"],
     partially_verified: ["Kısmen destekleniyor", "warn"],
     unverified: ["Dayanak yetersiz", "bad"],
     exhaustive_complete: ["Belgenin tamamı okundu", "ok"],
@@ -13212,6 +13231,7 @@ details.tech .techline {
       legacyCensus = true;
     }
     if (support === "exhaustive_complete" && status !== "COMPLETE") { support = "exhaustive_partial"; }
+    if (support === "verified" && status === "QUESTION_NOT_CHECKED") { support = "quote_only"; }
     var cell = {
       covered: c.supportState !== "abstained" && c.supportState !== "no_evidence",
       status: status,
@@ -13401,7 +13421,7 @@ details.tech .techline {
         rows.push([
           f.name, f.fileId, q,
           c.error ? "hesaplanamadı" : (c.cancelled ? "iptal edildi" : (c.covered
-            ? (STATUS_TR[c.status] ? STATUS_TR[c.status][0] : c.status)
+            ? (c.support === "quote_only" ? GRID_SUPPORT_TR.quote_only[0] : STATUS_TR[c.status] ? STATUS_TR[c.status][0] : c.status)
             : (Object.prototype.hasOwnProperty.call(GRID_SUPPORT_TR, c.support) ? GRID_SUPPORT_TR[c.support] : GRID_SUPPORT_TR.abstained)[0])),
           c.text, c.chunkId || "",
           (c.startChar === "" || c.startChar === undefined) ? "" : c.startChar + "-" + c.endChar,

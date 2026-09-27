@@ -34,7 +34,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { z } from "zod";
-import { fieldIssues } from "../api/zodIssues.js";
+import { fieldIssues, zodMessageTr } from "../api/zodIssues.js";
 import { trustLabelTr, type EndpointTrust } from "../llm/endpointTrust.js";
 import { matterFileIds, resolveMatterScope } from "../matters/scope.js";
 import type { MatterStore } from "../matters/types.js";
@@ -42,6 +42,7 @@ import {
   deriveAnalysisCompleteness,
   deriveExtractionCoverage,
   deriveIntelligenceCoverage,
+  type AnalysisCompleteness,
   type ExtractionCoverage,
   type IntelligenceCoverage,
 } from "./analysisCoverage.js";
@@ -146,14 +147,63 @@ function modelReady(routes: WorkerModelRoutes): boolean {
   return routes.extraction !== undefined && routes.synthesis !== undefined;
 }
 
-/** Source read, extraction complete and every analytical stage complete. */
+/**
+ * The combined statement of a FINISHED run, from its stored layers, through
+ * the one contract (deriveAnalysisCompleteness) — never re-assembled from the
+ * three flags. W21 read `analysisComplete` off the three flags alone, so a
+ * contradictions run that compared only matched pairs was listed "inceleme
+ * tamamlandı" while its own view refused that claim (W22).
+ */
+function storedCompleteness(run: DurableRunRow): AnalysisCompleteness | null {
+  if (
+    run.status !== "done" ||
+    run.coverage === undefined ||
+    run.extractionCoverage === undefined ||
+    run.intelligenceCoverage === undefined
+  ) {
+    return null;
+  }
+  return deriveAnalysisCompleteness({
+    task: run.task,
+    source: run.coverage,
+    extraction: run.extractionCoverage,
+    intelligence: run.intelligenceCoverage,
+    active: false,
+  });
+}
+
+/** Source read, extraction complete, every analytical stage complete, and not limited. */
 function analysisCompleteOf(run: DurableRunRow): boolean {
-  return (
-    run.status === "done" &&
-    run.coverage?.complete === true &&
-    run.extractionCoverage?.complete === true &&
-    run.intelligenceCoverage?.complete === true
-  );
+  return storedCompleteness(run)?.complete === true;
+}
+
+/** What a run read: the whole matter, or documents the lawyer selected (W22). */
+export type RunScope = "whole_matter" | "selected";
+
+function scopeOf(run: DurableRunRow): RunScope {
+  return run.snapshot?.wholeMatter === false ? "selected" : "whole_matter";
+}
+
+/**
+ * W22: the list's reading chip, said by the server. A run over 2 of the 8
+ * documents was listed "dosyanın tamamı okundu" — the console composed that
+ * from `complete` alone and never knew the scope.
+ */
+export function readLabelTr(scope: RunScope, documentCount: number, complete: boolean): string {
+  if (scope === "selected") {
+    return complete
+      ? `seçilen ${documentCount} belgenin tamamı okundu (dosyanın tamamı değil)`
+      : `seçilen ${documentCount} belgenin tamamı okunmadı`;
+  }
+  return complete ? "dosyanın tamamı okundu" : "dosyanın tamamı okunmadı";
+}
+
+/** W22: the list's analysis chip, from the derived completeness contract. */
+export function analysisLabelTr(completeness: AnalysisCompleteness | null): string {
+  if (completeness === null) return "inceleme eksik kaldı";
+  if (completeness.complete) return "inceleme tamamlandı";
+  if (completeness.state === "LIMITED") return "inceleme bitti; yalnız eşleşen değer çiftleri karşılaştırıldı";
+  return "inceleme eksik kaldı";
 }
 
 export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
@@ -269,6 +319,38 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
     };
   }
 
+  /**
+   * W22: the lawyer-facing names of the documents a drift names. The stale
+   * banner printed "dosyaya eklenen belgeler: 3f9a1c0d2b7e4a51" — a raw id.
+   * A pinned file is named by its document title, an added one by the name
+   * it was filed under in the matter; an id is shown only when neither exists.
+   */
+  async function driftNames(run: DurableRunRow, drift: ScopeDrift): Promise<Record<string, string>> {
+    const ids = new Set([...drift.changed, ...drift.added, ...drift.removed]);
+    const names: Record<string, string> = {};
+    if (ids.size === 0) return names;
+    try {
+      const pinned = (run.snapshot?.versions ?? []).filter(([fileId]) => ids.has(fileId));
+      if (pinned.length > 0) {
+        for (const document of await deps.store.loadVersionDocuments(pinned, { withText: false })) {
+          if (document.extractionFailed !== true && document.fileName !== "") names[document.fileId] = document.fileName;
+        }
+      }
+    } catch {
+      // Names are a courtesy; the ids stay.
+    }
+    try {
+      for (const item of await deps.matters.listItems(run.matterId)) {
+        if (item.kind !== "file" || item.refId === null || !ids.has(item.refId) || names[item.refId] !== undefined) continue;
+        const fileName = item.payload["fileName"];
+        if (typeof fileName === "string" && fileName.trim() !== "") names[item.refId] = fileName;
+      }
+    } catch {
+      // As above.
+    }
+    return names;
+  }
+
   async function runView(run: DurableRunRow): Promise<Record<string, unknown>> {
     const coverage = await coverageOf(run);
     const progress = await deps.store.progress(run.runId);
@@ -289,11 +371,19 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
     const sourceChanged = drift.changed;
     const stale = isDrifted(drift);
     const notCurrent = stale ? RUN_NOT_CURRENT_TR : drift.membersUnknown ? MATTER_MEMBERS_UNKNOWN_TR : null;
-    // A run that was complete for the documents it froze is not complete for
-    // the matter as it is now.
-    const completeness =
-      derived !== null && notCurrent !== null && derived.complete
-        ? { ...derived, complete: false, refusedBecause: notCurrent, headlineTr: notCurrent }
+    // A run that was complete (or finished-but-limited) for the documents it
+    // froze is not complete for the matter as it is now. W22: the STATE says
+    // so too — "COMPLETE" next to complete:false was the stale run's view.
+    const completeness: AnalysisCompleteness | null =
+      derived !== null && notCurrent !== null && !active && (derived.complete || derived.state === "LIMITED")
+        ? {
+            ...derived,
+            state: "INCOMPLETE",
+            analysisLimited: false,
+            complete: false,
+            refusedBecause: notCurrent,
+            headlineTr: notCurrent,
+          }
         : derived;
     return {
       runId: run.runId,
@@ -329,7 +419,12 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
       sourceChanged,
       sourceAdded: drift.added,
       sourceRemoved: drift.removed,
+      // W22 (additive): the names of the documents above, by id.
+      sourceNames: await driftNames(run, drift),
       stale,
+      // W22 (additive): what the run read — the whole matter or a selection.
+      scope: scopeOf(run),
+      documentCount: run.snapshot?.fileIds.length ?? null,
       summary: run.summary,
       model: run.modelId,
       limitsTr: spec.limitsTr,
@@ -394,7 +489,8 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
           error: {
             kind: "INVALID_REQUEST",
             message: "İnceleme isteği doğrulanamadı.",
-            issues: fieldIssues(parsed.error),
+            // W22: Turkish sentences, the field named by its path.
+            issues: fieldIssues(parsed.error, zodMessageTr),
           },
         },
         400,
@@ -545,6 +641,11 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
     for (const run of runs) {
       const drift = await scopeDrift(run, members);
       const stale = isDrifted(drift);
+      const complete = !stale && (run.coverage?.complete ?? false);
+      const current = !stale && !drift.membersUnknown;
+      const completeness = current ? storedCompleteness(run) : null;
+      const scope = scopeOf(run);
+      const documentCount = run.snapshot?.fileIds.length ?? 0;
       views.push({
         runId: run.runId,
         task: run.task,
@@ -554,8 +655,16 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
         finishedAt: run.finishedAt,
         // A run over documents the matter no longer has as they were is not
         // "the whole file read" or "complete" for the matter now.
-        complete: !stale && (run.coverage?.complete ?? false),
-        analysisComplete: !stale && !drift.membersUnknown && analysisCompleteOf(run),
+        complete,
+        analysisComplete: completeness?.complete === true,
+        // W22 (additive): the derived state, what the run read, and the two
+        // chips as the server says them — a 2-of-8 selection is never
+        // "dosyanın tamamı okundu", a matched-pairs run never "tamamlandı".
+        analysisState: completeness?.state ?? null,
+        scope,
+        documentCount,
+        readTr: readLabelTr(scope, documentCount, complete),
+        analysisTr: analysisLabelTr(completeness),
         stale,
         sourceChanged: drift.changed,
         sourceAdded: drift.added,

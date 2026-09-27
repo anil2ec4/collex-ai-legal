@@ -128,7 +128,12 @@ describe("POST /v1/matters/{id}/analysis", () => {
     expect(coverage.analysisUnitsTotal).toBeGreaterThan(0);
     expect(coverage.complete).toBe(true);
     expect(run.coverageSummary).toContain("tamamı okundu");
-    expect(run.exhaustiveClaimRefusedBecause).toBeNull();
+    // W22: every source was read and every stage finished, but this task
+    // compares only the value pairs its pairing rule matched — "tüm
+    // çelişkiler" is refused, through the derived completeness contract.
+    expect(run.analysisCompleteness.state).toBe("LIMITED");
+    expect(run.analysisCompleteness.complete).toBe(false);
+    expect(run.exhaustiveClaimRefusedBecause).toContain("Tüm çelişkiler");
     expect(run.stale).toBe(false);
   });
 
@@ -305,5 +310,89 @@ describe("GET /v1/matters/{id}/analysis", () => {
     expect(wrong.status).toBe(404);
     const wrongFindings = await get(app, `/v1/matters/${b.id}/analysis/${started.runId}/findings`);
     expect(wrongFindings.status).toBe(404);
+  });
+});
+
+/**
+ * W22: what a run says about itself, on the investigator's findings (a
+ * realistic iş davası file). Every block fails on the W21 routes: the list
+ * called a 2-of-8 selection "dosyanın tamamı okundu", a stale run's state
+ * stayed COMPLETE next to complete:false, the stale banner named a document
+ * by its raw id, an OCR'd quote was not marked, and a bad body answered in
+ * zod's English.
+ */
+describe("W22 · what a run says about itself", () => {
+  beforeAll(async () => {
+    await insertUpload(sql, {
+      fileId: "eeee5555",
+      title: "SGK hizmet dökümü (taranmış)",
+      blocks: paragraphs(["Taranmış dökümde ödenen kira bedeli 30.000 TL olarak görünmektedir."], 4),
+      ocr: true,
+    });
+    await insertUpload(sql, {
+      fileId: "ffff6666",
+      title: "Tanık beyanı (ek)",
+      blocks: paragraphs(["Tanık, kira sözleşmesinin 01.02.2023 tarihinde imzalandığını söyledi."], 4),
+    });
+  });
+
+  it("a selected scope is listed as the selection, with its time, and a matched-pairs run is never 'tamamlandı'", async () => {
+    const matter = await matters.create({ title: "Seçili belgeler" });
+    await linkFiles(matters, matter.id, ["aaaa1111", "bbbb2222", "ffff6666"]);
+    const { started, run } = await analyze(matter.id, { task: "contradictions", fileIds: ["aaaa1111", "bbbb2222"] });
+    expect(run.processingCoverage.complete).toBe(true);
+    expect(run.scope).toBe("selected");
+    expect(run.documentCount).toBe(2);
+    expect(run.intelligenceCoverage.valueComparison.candidatePairs).toBeGreaterThan(0);
+    expect(run.analysisCompleteness.state).toBe("LIMITED");
+    expect(run.exhaustiveClaimRefusedBecause).toContain("Tüm çelişkiler");
+
+    const list = await get(app, `/v1/matters/${matter.id}/analysis`);
+    const row = list.body.runs.find((entry: { runId: string }) => entry.runId === started.runId);
+    expect(row.createdAt).toMatch(/T\d{2}:\d{2}/u);
+    expect(row.scope).toBe("selected");
+    expect(row.documentCount).toBe(2);
+    expect(row.readTr).toBe("seçilen 2 belgenin tamamı okundu (dosyanın tamamı değil)");
+    expect(row.analysisComplete).toBe(false);
+    expect(row.analysisState).toBe("LIMITED");
+    expect(row.analysisTr).toBe("inceleme bitti; yalnız eşleşen değer çiftleri karşılaştırıldı");
+  });
+
+  it("a stale run's STATE is not COMPLETE, and the added document is named, not shown by id", async () => {
+    const matter = await matters.create({ title: "Sonradan belge eklenen" });
+    await linkFiles(matters, matter.id, ["aaaa1111"]);
+    const { started, run } = await analyze(matter.id, { task: "chronology" });
+    expect(run.analysisCompleteness.state).toBe("COMPLETE");
+    await linkFiles(matters, matter.id, ["ffff6666"]);
+
+    const view = (await get(app, `/v1/matters/${matter.id}/analysis/${started.runId}`)).body;
+    expect(view.stale).toBe(true);
+    expect(view.sourceAdded).toEqual(["ffff6666"]);
+    expect(view.analysisCompleteness.complete).toBe(false);
+    expect(view.analysisCompleteness.state).toBe("INCOMPLETE");
+    expect(view.sourceNames).toEqual({ ffff6666: "ffff6666.pdf" });
+    const list = await get(app, `/v1/matters/${matter.id}/analysis`);
+    const row = list.body.runs.find((entry: { runId: string }) => entry.runId === started.runId);
+    expect(row.analysisState).toBeNull();
+    expect(row.analysisComplete).toBe(false);
+  });
+
+  it("a quote from an OCR'd page is marked as OCR in the findings", async () => {
+    const matter = await matters.create({ title: "Taranmış belge" });
+    await linkFiles(matters, matter.id, ["aaaa1111", "eeee5555"]);
+    const { started } = await analyze(matter.id, { task: "contradictions" });
+    const findings = (await get(app, `/v1/matters/${matter.id}/analysis/${started.runId}/findings`)).body;
+    const sources = findings.items.flatMap((item: { sources: Array<{ fileId: string; ocr: boolean }> }) => item.sources);
+    expect(sources.some((source: { fileId: string }) => source.fileId === "eeee5555")).toBe(true);
+    for (const source of sources) expect(source.ocr).toBe(source.fileId === "eeee5555");
+  });
+
+  it("a bad request is answered in Turkish, the field named by its path", async () => {
+    const matter = await matters.create({ title: "Hatalı istek" });
+    const response = await post(app, `/v1/matters/${matter.id}/analysis`, { task: "bogus" });
+    expect(response.status).toBe(400);
+    expect(response.body.error.issues).toEqual([
+      { path: "task", message: "Geçersiz seçim; izin verilen değerlerden biri olmalı." },
+    ]);
   });
 });

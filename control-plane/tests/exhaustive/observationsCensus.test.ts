@@ -83,7 +83,9 @@ const NBSP = String.fromCharCode(0x00a0);
 describe("R2-22 · every Turkish month name is read, however it is written", () => {
   it("the rules changed, so the extractor version did (runs cannot mix observations of two rule sets)", () => {
     // extract-v6 (third verifier round): which amounts are read changed again ("TL 2,5 katı", "7500 Türk\nLirası"; see the last block).
-    expect(EXTRACTOR_VERSION).toBe("extract-v7");
+    // extract-v8 (W22): what a value is ABOUT changed (topic words, event anchors, decision dates,
+    // partial claims) and money-shaped numbers that were not read are named (tests/exhaustive/w22File.test.ts).
+    expect(EXTRACTOR_VERSION).toBe("extract-v8");
   });
 
   for (const [month, mm] of MONTHS) {
@@ -120,7 +122,8 @@ describe("R2-22 · every Turkish month name is read, however it is written", () 
   it("a month name inside the value is not part of its topic key", () => {
     const [draft] = extractPropositions("İhtarname 11 Mart 2024 tarihinde tebliğ edilmiştir.");
     expect(draft!.subject).not.toMatch(/mart/u);
-    expect(draft!.subject).toContain("ihtarnam");
+    // extract-v8: a topic word is the first five letters of the folded stem.
+    expect(draft!.subject).toContain("ihtar");
   });
 });
 

@@ -63,23 +63,16 @@ const PAIRS: ReadonlyArray<readonly [string, boolean, [string, string], [string,
   ["two clauses in one sentence", false,
     ["Dava 05.01.2024 tarihinde açılmış, kira sözleşmesi ise 01.02.2023 tarihinde imzalanmıştır.", "05.01.2024"],
     ["Kira sözleşmesi 01.03.2023 tarihinde imzalanmıştır.", "01.03.2023"]],
+  // W20's KNOWN MISS, fixed by extract-v8: "ihtar" and "ihtarname" were two
+  // stems; a topic word is now the first five letters of the folded stem.
+  ["notices of the same kind with different wording", true,
+    ["Tahliye ihtarı 11.03.2024 tarihinde tebliğ edilmiştir.", "11.03.2024"],
+    ["İhtarname davalıya 18.03.2024 tarihinde tebliğ edilmiştir.", "18.03.2024"]],
 ];
 
 describe("topic keys decide which values are compared", () => {
   it.each(PAIRS)("%s → compared: %s", (_name, expected, a, b) => {
     expect(compared(a, b)).toBe(expected);
-  });
-
-  // KNOWN MISS, pinned as such: "ihtar" and "ihtarname" stem differently, so
-  // two notices served on different dates are not compared. If a better key
-  // fixes this, this test fails and should become an ordinary case above.
-  it.fails("notices of the same kind with different wording are compared (known miss)", () => {
-    expect(
-      compared(
-        ["Tahliye ihtarı 11.03.2024 tarihinde tebliğ edilmiştir.", "11.03.2024"],
-        ["İhtarname davalıya 18.03.2024 tarihinde tebliğ edilmiştir.", "18.03.2024"],
-      ),
-    ).toBe(true);
   });
 
   it("a key never contains the value itself", () => {

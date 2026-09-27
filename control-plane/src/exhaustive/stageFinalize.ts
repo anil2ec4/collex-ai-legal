@@ -34,13 +34,13 @@
 import { createHash } from "node:crypto";
 import { foldTurkishCase } from "../retrieval/turkishAnalyzer.js";
 import { partySide, sameParty } from "./candidateDiscovery.js";
-import { subjectOverlap, type RelationVerdict } from "./contradictions.js";
+import { subjectOverlap, type RelationVerdict, type ValueComparisonStats } from "./contradictions.js";
 import {
   buildDeterministicIntel,
   clip,
+  compareStoredValues,
   INTEL_VERSION,
   itemRef,
-  relationsFromObservations,
   type IntelItemDraft,
   type IntelLinkDraft,
   type IntelSourceRef,
@@ -100,6 +100,8 @@ export interface AnalyticalState {
   readonly danglingObservationRefs?: number | undefined;
   /** Claims whose "no support" was reached on clipped text (see WeighCandidate.quoteClipped). */
   readonly clippedComparisons?: number | undefined;
+  /** How much of the value census the deterministic lane compared (contradiction-v3). */
+  readonly valueComparison?: ValueComparisonStats | undefined;
 }
 
 function shortHash(value: string): string {
@@ -161,7 +163,8 @@ export interface AnalyticalStateInput {
  * contradiction lane. Deterministic given the stored rows.
  */
 export function buildAnalyticalState(input: AnalyticalStateInput): AnalyticalState {
-  const relations = relationsFromObservations(input.observations);
+  const compared = compareStoredValues(input.observations);
+  const relations = compared.verdicts;
   const base = buildDeterministicIntel(input.task, input.observations, relations);
   const items = base.items.map((item) => ({ ...item, attributes: { ...item.attributes }, sources: [...item.sources] }));
   const links: IntelLinkDraft[] = [...base.links];
@@ -509,6 +512,7 @@ export function buildAnalyticalState(input: AnalyticalStateInput): AnalyticalSta
     observationIds,
     danglingObservationRefs,
     clippedComparisons,
+    valueComparison: compared.stats,
   };
 }
 
