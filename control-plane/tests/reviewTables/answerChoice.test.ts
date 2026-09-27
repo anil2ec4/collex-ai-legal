@@ -97,6 +97,32 @@ describe("W22 · such a cell is never labelled 'kaynağıyla doğrulandı'", () 
   });
 });
 
+describe("W23 · grid-v8 moved only because extract-v9 re-tags events", () => {
+  it("a grid-v7 census and a grid-v7 verified answer are still current, shown as stored", () => {
+    // extract-v9 changed which event a date is tagged with, not which values are read.
+    const census: ReviewCell = {
+      rowNo: 1,
+      columnNo: 2,
+      state: "done",
+      attempts: 1,
+      answerStatus: "COMPLETE",
+      answerText: "2 ayrı tarih: 01.03.2018 (s. 1); 15.01.2024 (s. 1).",
+      supportState: "exhaustive_complete",
+      provenance: [],
+      processingCoverage: { complete: true },
+      answerRunId: null,
+      generatorVersion: "grid-v7",
+      error: null,
+    };
+    expect(REVIEW_TABLE_GENERATOR_VERSION).toBe("grid-v8");
+    expect(presentStoredCell(census)).toBe(census);
+    const verified: ReviewCell = { ...census, columnNo: 1, answerText: ALI, supportState: "verified", generatorVersion: "grid-v7" };
+    expect(presentStoredCell(verified)).toBe(verified);
+    // A cell of the version before still is not.
+    expect(presentStoredCell({ ...verified, generatorVersion: "grid-v6" }).answerStatus).toBe(QUESTION_NOT_CHECKED_STATUS);
+  });
+});
+
 describe("W22 · a grid-v6 amount census could miss a header-currency table", () => {
   it("its amount census is re-stated; its date and ratio censuses are kept", () => {
     expect(supersededCensusTr("3 ayrı tutar: 45.000 TL (s. 1); 32.000 TL (s. 2).", "grid-v6")).toContain("204.962,34");

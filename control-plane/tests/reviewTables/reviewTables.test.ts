@@ -637,7 +637,9 @@ describe("W21 #17/#18: cells stored before grid-v3 are never repeated as stored"
     // Third verifier round: grid-v4 → grid-v5, because the census extractor changed (extract-v6); grid-v4 answers keep theirs.
     // Closing re-check: grid-v5 → grid-v6 with extract-v7 (an exchange rate is no longer an amount).
     // W22: grid-v6 → grid-v7 (the answering claim is chosen; extract-v8 names money-shaped numbers).
-    expect(REVIEW_TABLE_GENERATOR_VERSION).toBe("grid-v7");
+    // W23: grid-v7 → grid-v8 with extract-v9 (event tags only; the values a census counts are unchanged,
+    // so grid-v7 cells stay current — tests/exhaustive/w23EventAnchors.test.ts).
+    expect(REVIEW_TABLE_GENERATOR_VERSION).toBe("grid-v8");
     // A census is tied to the extractor it counts with: bumping one without the other fails here.
     expect(CENSUS_EXTRACTOR_VERSION).toBe(EXTRACTOR_VERSION);
   });

@@ -203,11 +203,20 @@ export function readLabelTr(scope: RunScope, documentCount: number, complete: bo
   return complete ? "dosyanın tamamı okundu" : "dosyanın tamamı okunmadı";
 }
 
-/** W22: the list's analysis chip, from the derived completeness contract. */
-export function analysisLabelTr(completeness: AnalysisCompleteness | null): string {
+/**
+ * W22: the list's analysis chip, from the derived completeness contract.
+ * W23: a model task (full_review, red_team) that is LIMITED ran every stage;
+ * only its rule lane compared matched value pairs, and the chip says that
+ * instead of implying the whole task compared only value pairs.
+ */
+export function analysisLabelTr(completeness: AnalysisCompleteness | null, task?: AnalysisTask): string {
   if (completeness === null) return "inceleme eksik kaldı";
   if (completeness.complete) return "inceleme tamamlandı";
-  if (completeness.state === "LIMITED") return "inceleme bitti; yalnız eşleşen değer çiftleri karşılaştırıldı";
+  if (completeness.state === "LIMITED") {
+    return task !== undefined && TASK_SPECS[task].requiresModel
+      ? "inceleme bitti; tarih, tutar ve oranlarda yalnız eşleşen değer çiftleri karşılaştırıldı"
+      : "inceleme bitti; yalnız eşleşen değer çiftleri karşılaştırıldı";
+  }
   return "inceleme eksik kaldı";
 }
 
@@ -672,7 +681,7 @@ export function createExhaustiveRouter(deps: ExhaustiveRouterDeps): Hono {
         scope,
         documentCount,
         readTr: readLabelTr(scope, documentCount, complete),
-        analysisTr: analysisLabelTr(completeness),
+        analysisTr: analysisLabelTr(completeness, run.task),
         stale,
         sourceChanged: drift.changed,
         sourceAdded: drift.added,

@@ -76,8 +76,15 @@ import { LOCAL_TENANT_ID } from "../exhaustive/store.js";
  * extractor moved to extract-v8, which names a money-shaped number it did not
  * read ("204.962,34" under a "Brüt (TL)" header), so a grid-v6 amount census
  * is re-stated; its dates and ratios were read by the same rules.
+ *
+ * grid-v8 (W23): cells as in grid-v7; the census extractor moved to
+ * extract-v9, which changed only WHICH EVENT a date is tagged with (a
+ * witness's "sorumlu olarak geldi" is an işe giriş). The values a census
+ * counts are read by the same rules as extract-v8, so a grid-v7 census is
+ * still current (CURRENT_CENSUS_VERSIONS) and a grid-v7 answer cell was
+ * checked the same way (QUESTION_CHECKED_VERSIONS).
  */
-export const REVIEW_TABLE_GENERATOR_VERSION = "grid-v7";
+export const REVIEW_TABLE_GENERATOR_VERSION = "grid-v8";
 
 /**
  * W22: the answer status of a cell whose claim is verified against its quote,
@@ -96,7 +103,7 @@ export const QUOTE_ONLY_SUPPORT_TR = "alıntı doğrulandı; soruyu karşıladı
  * version must move as well, or census cells counted under the old rules are
  * shown as current (the grid-v4 residual of the third verifier round).
  */
-export const CENSUS_EXTRACTOR_VERSION = "extract-v8";
+export const CENSUS_EXTRACTOR_VERSION = "extract-v9";
 
 /**
  * Versions whose abstention sentences were checked against the whole pinned
@@ -109,6 +116,7 @@ const WHOLE_TEXT_CHECKED_VERSIONS: ReadonlySet<string> = new Set([
   "grid-v4",
   "grid-v5",
   "grid-v6",
+  "grid-v7",
   REVIEW_TABLE_GENERATOR_VERSION,
 ]);
 
@@ -118,7 +126,18 @@ const WHOLE_TEXT_CHECKED_VERSIONS: ReadonlySet<string> = new Set([
  * moves for a reason that leaves the extractor as it is, add the old version
  * here; when the extractor changes, do not: its census cells are re-stated.
  */
-const CURRENT_CENSUS_VERSIONS: ReadonlySet<string> = new Set([REVIEW_TABLE_GENERATOR_VERSION]);
+const CURRENT_CENSUS_VERSIONS: ReadonlySet<string> = new Set([
+  // grid-v7 counted with extract-v8, whose VALUES extract-v9 reads alike (W23).
+  "grid-v7",
+  REVIEW_TABLE_GENERATOR_VERSION,
+]);
+
+/**
+ * W23: versions whose verified answer cells were chosen and checked as
+ * grid-v7 does (the claim carrying the question's core words; a passage
+ * lacking one is QUESTION_NOT_CHECKED). A version outside it is re-stated.
+ */
+const QUESTION_CHECKED_VERSIONS: ReadonlySet<string> = new Set(["grid-v7", REVIEW_TABLE_GENERATOR_VERSION]);
 
 /**
  * W21 R2-22 (third verifier round): versions whose census cells were scoped
@@ -538,7 +557,7 @@ export function presentStoredCell(cell: ReviewCell): ReviewCell {
   // answers the question was not.
   if (
     cell.supportState === "verified" &&
-    cell.generatorVersion !== REVIEW_TABLE_GENERATOR_VERSION &&
+    (cell.generatorVersion === null || !QUESTION_CHECKED_VERSIONS.has(cell.generatorVersion)) &&
     cell.answerStatus !== QUESTION_NOT_CHECKED_STATUS
   ) {
     return { ...cell, answerStatus: QUESTION_NOT_CHECKED_STATUS };

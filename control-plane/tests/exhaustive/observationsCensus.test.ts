@@ -85,7 +85,9 @@ describe("R2-22 · every Turkish month name is read, however it is written", () 
     // extract-v6 (third verifier round): which amounts are read changed again ("TL 2,5 katı", "7500 Türk\nLirası"; see the last block).
     // extract-v8 (W22): what a value is ABOUT changed (topic words, event anchors, decision dates,
     // partial claims) and money-shaped numbers that were not read are named (tests/exhaustive/w22File.test.ts).
-    expect(EXTRACTOR_VERSION).toBe("extract-v8");
+    // extract-v9 (W23): which EVENT a date is tagged with changed (a witness's "sorumlu olarak geldi" is an
+    // işe giriş; a witness's own first-person start is not the case's) — tests/exhaustive/w23EventAnchors.test.ts.
+    expect(EXTRACTOR_VERSION).toBe("extract-v9");
   });
 
   for (const [month, mm] of MONTHS) {

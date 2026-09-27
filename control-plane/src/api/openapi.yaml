@@ -11331,14 +11331,24 @@ components:
           enum: [COMPLETE, LIMITED, INCOMPLETE, IN_PROGRESS]
           description: >-
             W22 LIMITED — every layer finished, but the task compares only the
-            value pairs its pairing rule matched (the "contradictions" task);
-            complete is false and refusedBecause says what was compared.
+            value pairs its pairing rule matched (the "contradictions" task;
+            W23: also the rule lane of full_review and red_team); complete is
+            false and refusedBecause says what was compared.
         sourceComplete: { type: boolean }
         extractionComplete: { type: boolean }
         intelligenceComplete: { type: boolean }
         analysisLimited:
           type: boolean
           description: W22 (additive) — state LIMITED; the analysis layer is drawn "sınırlı", never "tamam".
+        comparisonLimitTr:
+          type: string
+          nullable: true
+          description: >-
+            W23 (additive) — the "N of M value pairs compared" sentence of a
+            task whose rule lane compares only matched pairs (contradictions,
+            full_review, red_team), once the comparison has run; null for any
+            other task or before the run is finalized. The same sentence ends
+            sectionsTr.analysis.
         complete: { type: boolean }
         headlineTr: { type: string }
         sectionsTr:

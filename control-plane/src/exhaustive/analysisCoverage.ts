@@ -597,6 +597,14 @@ export interface AnalysisCompleteness {
    * pairs, so its result never covers "every contradiction" (state LIMITED).
    */
   readonly analysisLimited: boolean;
+  /**
+   * W23 (additive): the "N of M value pairs compared" sentence of a task
+   * whose rule lane compares only matched pairs (TaskSpec.matchedPairsOnly:
+   * contradictions, full_review, red_team), once the comparison has run;
+   * null for any other task and before the run is finalized. The same
+   * sentence ends sectionsTr.analysis. Absent on views built before W23.
+   */
+  readonly comparisonLimitTr?: string | null;
   /** All three, and not limited. The ONLY flag that may license "the analysis is complete". */
   readonly complete: boolean;
   readonly headlineTr: string;
@@ -638,15 +646,22 @@ function extractionLine(extraction: ExtractionCoverage): string {
  * that had compared 0 of the 12 pairs that decided the case.
  */
 export function comparisonLimitTr(task: AnalysisTask, intelligence: IntelligenceCoverage): string | null {
-  if (TASK_SPECS[task].matchedPairsOnly !== true) return null;
+  const spec = TASK_SPECS[task];
+  if (spec.matchedPairsOnly !== true) return null;
   const stats = intelligence.valueComparison;
   const tail = "; farklı kelimelerle anlatılan aynı olay kaçabilir.";
+  // W23: in a model task the rule lane is one lane among several; the
+  // sentence names it, so "yalnız … karşılaştırıldı" is never read as the
+  // whole task. The contradictions task's sentence is unchanged.
+  const lane = spec.requiresModel ? "Kurallı tarih, tutar ve oran karşılaştırmasında " : "";
   if (stats === undefined) {
-    return `Yalnız aynı olayı anan ya da konu anahtarı örtüşen değer çiftleri karşılaştırıldı${tail}`;
+    return lane === ""
+      ? `Yalnız aynı olayı anan ya da konu anahtarı örtüşen değer çiftleri karşılaştırıldı${tail}`
+      : `${lane}yalnız aynı olayı anan ya da konu anahtarı örtüşen değer çiftleri karşılaştırıldı${tail}`;
   }
   const compared = stats.pairsComparedByEvent + stats.pairsComparedByTopic;
   return (
-    `Aynı türden ${stats.candidatePairs} değer çiftinden yalnız aynı olayı anan ya da konu anahtarı` +
+    `${lane === "" ? "Aynı" : `${lane}aynı`} türden ${stats.candidatePairs} değer çiftinden yalnız aynı olayı anan ya da konu anahtarı` +
     ` örtüşen ${compared} çift karşılaştırıldı${tail}`
   );
 }
@@ -682,6 +697,9 @@ function analysisLine(intelligence: IntelligenceCoverage, limit: string | null):
         ? "Belgeler arası karşılaştırma tamamlanmadı."
         : "Belgeler arası karşılaştırma henüz bitmedi.";
   }
+  // W23: a model task's rule lane compares only matched value pairs; the
+  // stage counts above say nothing about it, so its limit follows them.
+  if (intelligence.finalized && limit !== null) return `${parts.join("; ")}. ${limit}`;
   return `${parts.join("; ")}.`;
 }
 
@@ -717,6 +735,13 @@ export function deriveAnalysisCompleteness(input: {
     headlineTr =
       `"${title}" tamamlandı: seçilen belgelerin tamamı okundu, çıkarım ve analiz` +
       " aşamalarının hepsi bitti.";
+  } else if (limited && TASK_SPECS[input.task].requiresModel) {
+    // W23: full_review / red_team finished every stage, but their rule lane
+    // compared only matched value pairs.
+    headlineTr =
+      `"${title}" bitti: seçilen belgelerin tamamı okundu, çıkarım ve analiz aşamalarının hepsi bitti;` +
+      " ancak tarih, tutar ve oranlar yalnız eşleşen değer çiftleri arasında karşılaştırıldı, bu yüzden" +
+      " sonuç \"tüm çelişkiler\" olarak okunamaz.";
   } else if (limited) {
     headlineTr =
       `"${title}" bitti: seçilen belgelerin tamamı okundu ve tanınan biçimlerdeki değerler çıkarıldı;` +
@@ -750,6 +775,9 @@ export function deriveAnalysisCompleteness(input: {
     extractionComplete: input.extraction.complete,
     intelligenceComplete: input.intelligence.complete,
     analysisLimited: limited,
+    // W23 (additive): what the rule lane compared ("N of M"), once the
+    // comparison has run, for every matched-pairs-only task.
+    comparisonLimitTr: input.intelligence.finalized ? limit : null,
     complete,
     headlineTr,
     sectionsTr: {

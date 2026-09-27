@@ -219,6 +219,35 @@ describe("L: model-required tasks with a scripted model", () => {
     expect(findings.summary.synthesis.contraryAuthority.performed).toBe(false);
   });
 
+  it("W23: full_review and red_team finish LIMITED — their rule lane compared only matched value pairs, and the view says how many", async () => {
+    for (const [task, extra] of [
+      ["full_review", {}],
+      ["red_team", { clientRole: "davacı" }],
+    ] as const) {
+      const { findings, runId, matterId } = await runTask(new ScriptedModel(`scripted-w23-${task}`), task, extra);
+      const ac = findings.analysisCompleteness;
+      // Every layer finished; only the method of the rule lane is limited.
+      expect(ac.sourceComplete && ac.extractionComplete && ac.intelligenceComplete, task).toBe(true);
+      expect(ac.state, task).toBe("LIMITED");
+      expect(ac.complete).toBe(false);
+      expect(ac.analysisLimited).toBe(true);
+      const stats = findings.intelligenceCoverage.valueComparison;
+      expect(stats.candidatePairs).toBeGreaterThan(0);
+      const compared = stats.pairsComparedByEvent + stats.pairsComparedByTopic;
+      expect(ac.comparisonLimitTr).toBe(
+        `Kurallı tarih, tutar ve oran karşılaştırmasında aynı türden ${stats.candidatePairs} değer çiftinden yalnız` +
+          ` aynı olayı anan ya da konu anahtarı örtüşen ${compared} çift karşılaştırıldı; farklı kelimelerle anlatılan aynı olay kaçabilir.`,
+      );
+      expect(ac.sectionsTr.analysis.endsWith(ac.comparisonLimitTr)).toBe(true);
+      expect(findings.exhaustiveClaimRefusedBecause).toContain("Tüm çelişkiler");
+      const list = await get(routerWith(undefined), `/v1/matters/${matterId}/analysis`);
+      const row = list.body.runs.find((entry: { runId: string }) => entry.runId === runId);
+      expect(row.analysisState).toBe("LIMITED");
+      expect(row.analysisComplete).toBe(false);
+      expect(row.analysisTr).toBe("inceleme bitti; tarih, tutar ve oranlarda yalnız eşleşen değer çiftleri karşılaştırıldı");
+    }
+  });
+
   it("every task's result kinds differ from every other task's", async () => {
     const produced = new Map<string, string>();
     for (const task of Object.keys(TASK_SPECS)) {

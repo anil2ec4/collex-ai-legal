@@ -95,9 +95,30 @@ export interface TaskSpec {
    * (same named event, or overlapping topic keys), never every pair. However
    * completely it ran, its result can never license "tüm çelişkiler"
    * (analysisCoverage.ts deriveAnalysisCompleteness).
+   *
+   * W23: full_review and red_team carry it too. Their rule lane (the
+   * deterministic date / amount / ratio comparison, stageFinalize
+   * buildAnalyticalState) runs with the same pairing rule, and its
+   * contradictions are reported (full_review) or synthesized (red_team); a
+   * run of either was COMPLETE while that lane had compared, say, 85 of 567
+   * pairs. Every task whose result reads the rule lane's contradictions
+   * carries this flag except chronology, whose product is the timeline and
+   * whose limits already say that date conflicts are searched only among
+   * matched statements.
    */
   readonly matchedPairsOnly?: true;
 }
+
+/**
+ * W23: the limit of the rule lane of a model task (full_review, red_team),
+ * shown with its result. The contradictions task says the same in its own
+ * words, because there the rule lane IS the task.
+ */
+export const MATCHED_VALUE_PAIRS_LIMIT_TR =
+  "Tarih, tutar ve oranlar kurallı olarak yalnız eşleşen çiftler arasında karşılaştırılır: aynı olayı" +
+  " (işe giriş, işten çıkış, tebliğ, ihtarname tarihi) anan tarihler ya da çevresindeki kelimeler" +
+  " (konu anahtarı) örtüşen değerler. Farklı kelimelerle anlatılan aynı olay kaçabilir; bu yüzden sonuç" +
+  " \"tüm çelişkiler\" olarak okunamaz.";
 
 const ALL_MODEL_KINDS: readonly ModelItemKind[] = [
   "entity",
@@ -197,9 +218,11 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
       "issue_summary",
       "review_summary",
     ],
+    matchedPairsOnly: true,
     limitsTr: [
       "Lehe ve aleyhe noktalar yalnız müvekkilin sıfatı belirtildiğinde" +
         " çıkarılır.",
+      MATCHED_VALUE_PAIRS_LIMIT_TR,
       "Genel değerlendirme bütün bulguları gruplar hâlinde, kademeli olarak özetler;" +
         " her iddia ve savunma aday delillerle ayrı ayrı karşılaştırılır. Tamamlanamayan" +
         " bir aşama olursa sonuç bunu açıkça belirtir.",
@@ -240,7 +263,9 @@ export const TASK_SPECS: Readonly<Record<AnalysisTask, TaskSpec>> = Object.freez
       "issue_summary",
       "review_summary",
     ],
+    matchedPairsOnly: true,
     limitsTr: [
+      MATCHED_VALUE_PAIRS_LIMIT_TR,
       "Karşı içtihat taraması bu incelemenin parçası değildir; içtihat için" +
         " ayrıca araştırma yapılmalıdır.",
       "Varsayımsal argümanlar her zaman \"varsayımsal\" olarak etiketlenir;" +

@@ -162,7 +162,7 @@ describe("W22 · the decisive contradictions of the file are compared", () => {
   const found = reported(observations);
   const count = (pairs: readonly string[]): number => pairs.filter((pair) => found.has(pair)).length;
 
-  it("işe giriş 01.03.2018 vs 01.03.2019: 9 of the investigator's 12 cross-document pairs (0 before)", () => {
+  it("işe giriş 01.03.2018 vs 01.03.2019: all 12 of the investigator's cross-document pairs (0 in W21, 9 in W22)", () => {
     // The investigator's 12: {dava, tanık Ali, ihtarname, bilirkişi §II} × {cevap, tanık Ayşe, SGK}.
     const bilirkisiII = withValue(observations, "2018-03-01", ["03-bilirkisi"]).filter((o) =>
       o.statement.includes("tanıklarının beyanları"),
@@ -171,9 +171,11 @@ describe("W22 · the decisive contradictions of the file are compared", () => {
     const right = withValue(observations, "2019-03-01", ["02-cevap", "05-tanik-ayse", "07-sgk"]);
     const pairs = crossPairs(left, right);
     expect(pairs).toHaveLength(12);
-    // Measured: the three pairs of the witness who says "depoya sorumlu olarak
-    // geldi" (no event word, no shared topic word) are still not compared.
-    expect(count(pairs)).toBe(9);
+    // W22 (extract-v8) compared 9: the three pairs of the witness who says
+    // "depoya sorumlu olarak geldi" (no event word, no shared topic word)
+    // were missed. extract-v9 reads a job title + "olarak geldi" as an işe
+    // giriş (tests/exhaustive/w23EventAnchors.test.ts).
+    expect(count(pairs)).toBe(12);
   });
 
   it("the tebliğ dates 22.12.2023 / 26.12.2023 are a CONTRADICTION of one event, not a same-month TENSION", () => {

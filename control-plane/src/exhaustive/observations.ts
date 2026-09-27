@@ -157,8 +157,24 @@ export interface PropositionDraft {
  *   - unparsedValueMentions names every money-shaped number ("204.962,34")
  *     that was not read as an amount — a table whose currency sits only in
  *     the column header ("Brüt (TL)") is no longer a COMPLETE census.
+ *
+ * extract-v9 (W23, the same iş davası file). The values read, and so every
+ * census, are those of v8; which EVENT a date is the date of changed. v8
+ * found 9 of the 12 cross-document işe giriş pairs: the three it missed were
+ * all one witness sentence, "Davacı Mehmet, 01.03.2018 tarihinde depoya
+ * sorumlu olarak geldi" — no "işe", no "çalış", and no topic word shared
+ * with "İşe Giriş Tarihi : 01.03.2019" or "01.03.2019 tarihinde işe girdi".
+ * v9 reads a start of work told without "işe": a job title from a CLOSED
+ * list followed by "olarak geldi / başladı / alındı / girdi / istihdam
+ * edildi" (JOB_START_AFTER); "D'den / D tarihinden beri … orada /
+ * şirketteydi" (AT_WORKPLACE_SINCE, a closed list of workplace words that
+ * must be the clause's predicate); "istihdam edildi", "kadroya alındı",
+ * "sigorta girişi". And it drops one false anchor: a WITNESS who tells an
+ * işe giriş or işten çıkış in the first person singular ("… tarihinde işe
+ * başladım") tells the witness's own date, never the case's (a party's own
+ * first-person statement still is).
  */
-export const EXTRACTOR_VERSION = "extract-v8";
+export const EXTRACTOR_VERSION = "extract-v9";
 
 /** How many characters around a value become its quote. */
 const QUOTE_RADIUS = 160;
@@ -743,14 +759,103 @@ function tagged(base: string, tag: string | undefined): string {
 const EVENT_AFTER_WINDOW = 90;
 const EVENT_BEFORE_WINDOW = 60;
 
+/**
+ * Job titles a witness uses when telling how someone STARTED work without
+ * the word "işe" (extract-v9): "01.03.2018 tarihinde depoya sorumlu olarak
+ * geldi", "şoför olarak başladı", "forklift operatörü olarak alındı". A
+ * CLOSED list of ASCII-folded stems; a title outside it ("tanık olarak
+ * geldi", "müşteri olarak geldi", "bilirkişi olarak atandı") never makes a
+ * date an employment start. Litigation roles (tanık, bilirkişi, vekil,
+ * memur, temsilci) are left out on purpose: in a case file they arrive at a
+ * hearing, not at a job.
+ */
+const JOB_TITLE =
+  String.raw`(?:sorumlu|operator|sofor|surucu|isci|eleman|personel|calisan|mudur|sef(?:i|lig)?|ustabasi|usta|cirak|kalfa|amir|yonetici|muhasebe|sekreter|garson|asci|kasiyer|satis|pazarlamaci|muhendis|teknisyen|tekniker|guvenlik|bekci|temizlik|depocu|kurye|asistan|stajyer|hemsire|ogretmen|kaynakci|montajci|tezgahtar|resepsiyonist|komi|bulasikci|forklift)`;
+
+/**
+ * "<job title> olarak (işe) geldi / başladı / alındı / girdi / istihdam
+ * edildi" (extract-v9). At most one word may stand between the title and
+ * "olarak" ("forklift operatörü", "satış temsilcisi"). "çalıştı" / "çalışıyordu"
+ * is not here: "on that date he worked as ..." does not say he started then.
+ */
+const JOB_START_AFTER = new RegExp(
+  String.raw`\b${JOB_TITLE}\w*(?:\s+[a-z]+)?\s+olarak\s+(?:ise\s+|gorev(?:e|ine)\s+)?` +
+    String.raw`(?:gel(?:d|m|ig|ec)|basla|alin(?:d|m|ig)|gir(?:d|m|ig)|istihdam\s+edil)`,
+  "u",
+);
+
+/**
+ * "D'den / D tarihinden beri (bu yana) orada / şirketteydi" (extract-v9): a
+ * witness saying someone has been AT THE WORKPLACE since a date. The place
+ * is a CLOSED list of workplace words or "orada/burada", and it must be the
+ * clause's predicate — a bare locative ("… beri şirkette hiçbir denetim
+ * yapılmadı") or a first-person copula ("oradayım") is not.
+ */
+const AT_WORKPLACE_SINCE = new RegExp(
+  String.raw`^\s*(?:tarihinden|['’]?[dt][ae]n)\s+(?:bu\s+yana|beri)\s+(?:[a-z]+\s+){0,2}?` +
+    String.raw`(?:orada|burada|(?:sirket|isyer|fabrika|depo|magaza|sube|bunye|isletme|santiye|atolye|ofis|buro|firma)[a-z]*?(?:de|da|te|ta))` +
+    String.raw`(?:y?d[iu]r?|y?m[iu]s(?:t[iu]r)?|d[iu]r)?\s*$`,
+  "u",
+);
+
 /** Event wording AFTER a date, in ASCII-folded lower case: the verb that follows it. */
 const EVENT_AFTER: ReadonlyArray<readonly [DateEvent, RegExp]> = [
   ["ihtarname", /^\s*tarihli\s+ihtar/u],
   ["ise_giris", /\bise\s+(?:basla|gir|alin)|\bise\s+giris|\bcalismaya\s+basla|\bisbasi/u],
-  ["ise_giris", /^\s*tarihinden\s+(?:bu\s+yana|beri|itibaren)\b[^.;]{0,70}?\bcalis/u],
+  ["ise_giris", /^\s*(?:tarihinden|['’]?[dt][ae]n)\s+(?:bu\s+yana|beri|itibaren)\b[^.;]{0,70}?\bcalis/u],
+  ["ise_giris", JOB_START_AFTER],
+  ["ise_giris", AT_WORKPLACE_SINCE],
+  ["ise_giris", /\bistihdam\s+edil|\bkadroya\s+alin|\b(?:sigorta|sgk)\w*\s+giris/u],
   ["isten_cikis", /\bfesh|\bfesih|\bisten\s+(?:ayril|cikar|cikis)|\bistifa|\bis\s+akd\w*\s+(?:sona|feshed)|\bsozlesme\w*\s+sona\s+er/u],
   ["teblig", /\bteblig|\btebellug/u],
 ];
+
+/**
+ * Events that belong to ONE PERSON's employment (extract-v9). A WITNESS
+ * telling them in the first person singular ("işe başladım", "operatör
+ * olarak geldim", "işten ayrıldım") tells the witness's own dates, never the
+ * case's işe giriş, and comparing them with the claimant's date would report
+ * a contradiction that does not exist. A party telling them in the first
+ * person ("Davacı asil beyanında: … işe başladım") tells the case's, and so
+ * does a witness who received a tebliğ or an ihtarname, so tebliğ and
+ * ihtarname are not in this set.
+ */
+const PERSONAL_EVENTS: ReadonlySet<DateEvent> = new Set<DateEvent>(["ise_giris", "isten_cikis"]);
+
+/** A first-person singular verb ending (ASCII-folded): -dım, -mışım, -mıştım, -ıyorum, -dığım, -yım. */
+const FIRST_PERSON_VERB = /(?:[dt][iu]m|m[iu]s[iu]m|m[iu]st[iu]m|[iu]yorum|[gk][iu]m|y[iu]m)$/u;
+
+/**
+ * True when the event wording that starts at `index` in `after` is told in
+ * the first person singular: the word the match ends in, or the word after
+ * it ("istifa ettim"), carries a first-person ending.
+ */
+function toldInFirstPerson(after: string, index: number, length: number): boolean {
+  const rest = after.slice(index + length);
+  const words = rest.match(/^[a-z]*(?:\s+[a-z]+)?/u)?.[0] ?? "";
+  const matchedWord =
+    (after.slice(index, index + length).match(/[a-z]+$/u)?.[0] ?? "") + (words.match(/^[a-z]*/u)?.[0] ?? "");
+  const nextWord = words.replace(/^[a-z]*\s*/u, "");
+  return FIRST_PERSON_VERB.test(matchedWord) || (nextWord !== "" && FIRST_PERSON_VERB.test(nextWord));
+}
+
+/** How far back the speaker of a statement is looked for (UTF-16 units). */
+const SPEAKER_WINDOW = 1500;
+/** "Tanık Ali KAYA beyanında:", "Davacı tanığı … ifadesinde" (ASCII-folded). */
+const WITNESS_SPEAKER = /\btanig?\w*\b[^.\n]{0,60}?\b(?:beyan|ifade|anlatim)\w*/gu;
+/** "Davacı asil beyanında:", "Davalı vekili beyanında" — a party speaking. */
+const PARTY_SPEAKER = /\b(?:davaci|davali|asil|musteki|sanik)\b(?:(?!tanig?)[^.\n]){0,40}?\b(?:beyan|ifade|isticvap|anlatim)\w*/gu;
+
+/** The last speaker label before `at`: a witness, a party, or none found. */
+function speakerBefore(text: string, at: number): "witness" | "party" | undefined {
+  const before = asciiFold(text.slice(Math.max(0, at - SPEAKER_WINDOW), at));
+  let witness = -1;
+  for (const match of before.matchAll(WITNESS_SPEAKER)) witness = match.index ?? witness;
+  let party = -1;
+  for (const match of before.matchAll(PARTY_SPEAKER)) party = match.index ?? party;
+  if (witness < 0 && party < 0) return undefined;
+  return witness > party ? "witness" : "party";
+}
 
 /** A label ending right before a date: "İşe Giriş Tarihi : 01.03.2019". */
 const EVENT_BEFORE: ReadonlyArray<readonly [DateEvent, RegExp]> = [
@@ -835,14 +940,24 @@ function dateContext(text: string, date: DateMatch, dates: readonly DateMatch[])
 
   // The event verb after the date, up to the next date: the first one wins.
   const after = asciiFold(text.slice(dateEnd, Math.min(clause.end, nextStart, dateEnd + EVENT_AFTER_WINDOW)));
-  let best: { event: DateEvent; index: number } | undefined;
+  let best: { event: DateEvent; index: number; length: number } | undefined;
   for (const [event, pattern] of EVENT_AFTER) {
     const found = after.match(pattern);
     if (found?.index !== undefined && (best === undefined || found.index < best.index)) {
-      best = { event, index: found.index };
+      best = { event, index: found.index, length: found[0].length };
     }
   }
-  if (best !== undefined) return { event: best.event, decision: false };
+  if (best !== undefined) {
+    // extract-v9: a witness's "işe başladım" is the witness's own start, not the case's.
+    if (
+      PERSONAL_EVENTS.has(best.event) &&
+      toldInFirstPerson(after, best.index, best.length) &&
+      speakerBefore(text, date.at) === "witness"
+    ) {
+      return { decision: false };
+    }
+    return { event: best.event, decision: false };
+  }
 
   // A label right before the date ("İşe Giriş Tarihi : ").
   const before = asciiFold(text.slice(Math.max(clause.start, previousEnd, date.at - EVENT_BEFORE_WINDOW), date.at));
