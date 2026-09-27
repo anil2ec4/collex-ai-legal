@@ -1081,7 +1081,9 @@ describe("W14 B-28 · accessibility: the four P0 ratios are computed, not assert
     ]) {
       expect(html).toContain(rule);
     }
-    expect(html).toContain("--border: #8e836a;");
+    // W23 (27.09.2026): the light palette went neutral; the contrast test
+    // above still requires >= 3:1 on every surface for the new value.
+    expect(html).toContain("--border: #84848c;");
     expect(html).toContain("--border: #8d7d59;");
   });
 

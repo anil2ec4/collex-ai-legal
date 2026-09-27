@@ -25,22 +25,23 @@
   --display: "Segoe UI Variable Display", "SF Pro Display", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --mono: "Cascadia Mono", Consolas, "SFMono-Regular", "SF Mono", Menlo, monospace;
 
-  --r-sm: 10px;
-  --r: 14px;
-  --r-lg: 20px;
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 16px;
+  --r-ctl: 8px;
 
   /* Açık tema: sıcak-nötr kâğıt, beyaz panel, grafit mürekkep, tek vurgu. */
-  --paper-deep: #ebe9e4;
-  --paper: #f4f3ef;
+  --paper-deep: #f1f1ef;
+  --paper: #f6f6f4;
   --panel: #ffffff;
-  --panel-2: #f5f4f0;
-  --ink: #1c1b19;
-  --ink-soft: #57544f;
-  --ink-faint: #6e6b65; /* WCAG: küçük metinde de panel ve panel-2 üstünde 4,5:1 üzeri. */
-  --line: #e6e4df;
-  --line-strong: #cdc9c1;
+  --panel-2: #f3f3f1;
+  --ink: #17171a;
+  --ink-soft: #4f4f57;
+  --ink-faint: #67676f; /* WCAG: küçük metinde de panel ve panel-2 üstünde 4,5:1 üzeri. */
+  --line: #e6e6e3;
+  --line-strong: #d0d0cc;
   /* ZORUNLU denetim sınırı (girdi/seçici kenarı) — panel üstünde 3:1 üzeri. */
-  --border: #8e836a;
+  --border: #84848c;
   --seal: #8a2432;
   --seal-deep: #6c1a26;
   --seal-ink: #fbf7f2;
@@ -58,7 +59,7 @@
   --warn: #8f6a12;
   --bad: #b3382c;
   --abstain: #5a5580;
-  --quote-bg: #f2f0eb;
+  --quote-bg: #f2f2ef;
   /* Gölge YÜKSELTİ anlatır, sis değil: kart yakın, açılır panel bir kademe
      daha yakın. Üç katman; hepsi çok düşük yoğunlukta. */
   --shadow:
@@ -2744,9 +2745,121 @@ details.tech .techline {
 :root[data-theme="dark"] .viewtab.active:focus-visible,
 :root .dropzone:focus-visible,
 :root a.dl.alt:focus-visible { box-shadow: var(--ring); }
+
+/* ======================= W23 · uygulama kabuğu ve sade görünüm =======================
+   27.09.2026. Geniş ekranda (≥ 1100 px) kabuk SOL KENAR ÇUBUĞUDUR: marka,
+   aktif dosya, beş görünüm, yardım/arama/tema ve en altta sistem durumu.
+   İçerik sağda, okunur genişlikte durur. İşaretleme değişmedi — aynı öğeler
+   `display: contents` ve `order` ile kenar çubuğuna dizilir, bu yüzden dar
+   ekran düzeni, klavye sırası ve her test edilmiş dar ekran kuralı aynen
+   geçerlidir. Denetimler (düğme, seçici, giriş) 8 px köşelidir; hap biçimi
+   yalnız DURUM bildiren rozetlerde kalır. */
+.tabico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; display: none; }
+button.ghost, .themebtn, .helpbtn, select.matterpick, label.rchip span { border-radius: var(--r-ctl); }
+button.seal { border-radius: var(--r-ctl); }
+.bench { border-radius: var(--r-lg); border-color: var(--line); }
+.card { border-radius: var(--r); }
+@media screen and (min-width: 1100px) {
+  html { background: var(--paper); }
+  body.shell { --side: 256px; }
+  body.shell .wrap {
+    max-width: none; margin: 0;
+    padding: 20px clamp(28px, 3.2vw, 56px) 120px calc(var(--side) + clamp(28px, 3.2vw, 56px));
+  }
+  body.shell .wrap > :not(.masthead) { max-width: 1120px; margin-left: auto; margin-right: auto; }
+  body.shell .masthead {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 30;
+    width: var(--side);
+    display: grid; grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto auto 1fr auto auto;
+    align-items: start; gap: 8px 6px;
+    padding: 18px 14px 14px;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  body.shell .masthead > .topbar, body.shell .topbar .tools { display: contents; }
+  body.shell .monomark, body.shell .masthead .brandline, body.shell .masthead .rule { display: none; }
+  body.shell .topbar .brandmini,
+  body.shell:not(.compact) .topbar .brandmini { display: inline-flex; grid-column: 1 / -1; grid-row: 1; padding: 2px 8px 10px; font-size: 19px; border-radius: var(--r-ctl); }
+  body.shell .topbar .matterwrap { grid-column: 1 / -1; grid-row: 3; width: 100%; max-width: none; justify-self: auto; }
+  body.shell select.matterpick { width: 100%; max-width: none; flex: 1 1 auto; min-width: 0; height: 38px; }
+  body.shell nav.views,
+  body.shell:not(.compact) nav.views,
+  body.shell.compact nav.views {
+    grid-column: 1 / -1; grid-row: 4;
+    display: flex; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 2px;
+    width: auto; max-width: none; overflow: visible;
+    margin: 14px 0 0; padding: 0;
+    background: none; border: 0; border-radius: 0;
+  }
+  body.shell .viewtab,
+  body.shell:not(.compact) .viewtab,
+  body.shell.compact .viewtab {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; border-radius: var(--r-ctl);
+    font-size: 14.5px; text-align: left; color: var(--ink-soft);
+  }
+  body.shell .viewtab:hover { background: var(--panel-2); color: var(--ink); }
+  body.shell .viewtab .tabico { display: block; }
+  body.shell .viewtab.active,
+  :root[data-theme="dark"] body.shell .viewtab.active {
+    color: var(--seal); background: color-mix(in srgb, var(--seal) 10%, var(--panel));
+    box-shadow: none; font-weight: 600;
+  }
+  body.shell #palbtn {
+    grid-column: 1 / -1; grid-row: 2;
+    display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+    width: 100%; height: 36px; padding: 0 10px;
+    color: var(--ink-faint); background: var(--panel-2); border-color: var(--line);
+  }
+  body.shell #palbtn::after { content: "Ctrl K"; margin-left: auto; font-size: 13px; color: var(--ink-faint); border: 1px solid var(--line-strong); border-radius: 5px; padding: 1px 5px; }
+  body.shell .topbar .helpwrap { grid-column: 1; grid-row: 5; display: flex; padding-top: 12px; border-top: 1px solid var(--line); }
+  body.shell .topbar .themebtn { grid-column: 2; grid-row: 5; margin-top: 12px; position: relative; }
+  body.shell .topbar .themebtn::before { content: ""; position: absolute; left: -6px; right: 0; top: -13px; border-top: 1px solid var(--line); }
+  body.shell .topbar .helpbtn, body.shell .topbar .themebtn { width: 100%; height: 34px; padding: 0 8px; justify-content: center; font-size: 13px; }
+  body.shell .helpmenu { top: auto; bottom: calc(100% + 8px); left: 0; right: auto; }
+  body.shell .topbar .pills,
+  body.shell.compact .topbar .pills {
+    grid-column: 1 / -1; grid-row: 6; justify-self: stretch;
+    display: flex; flex-direction: column; align-items: stretch; flex-wrap: nowrap;
+    border: 0; background: none; padding: 0; margin-top: 2px;
+  }
+  body.shell button.pill, body.shell.compact button.pill { justify-content: flex-start; height: 30px; white-space: normal; text-align: left; border-radius: var(--r-ctl); padding: 0 8px; }
+  body.shell button.pill + button.pill::before { display: none; }
+  body.shell .stamp, body.shell.compact .stamp { margin-top: 0; }
+  /* Taslak düzenleyici üç sütun ister: kenar çubuğu simge şeridine iner. */
+  body.shell.editing { --side: 68px; }
+  body.shell.editing .wrap > :not(.masthead) { max-width: 1380px; }
+  body.shell.editing .masthead { padding: 14px 10px; }
+  body.shell.editing .topbar .brandmini > span,
+  body.shell.editing .topbar .matterwrap,
+  body.shell.editing #palbtn,
+  body.shell.editing .topbar .helpwrap,
+  body.shell.editing .topbar .themebtn,
+  body.shell.editing .topbar .pills { display: none; }
+  body.shell.editing .topbar .brandmini { padding: 2px 6px 12px; }
+  body.shell.editing .viewtab { font-size: 0; justify-content: center; padding: 10px 0; gap: 0; }
+}
+/* W23 · 27.09.2026: şablon formunda iki satıra sarılan bir etiket, yanındaki
+   alanın girişini 22–23 px aşağıda bırakıyordu (14 şablonun hepsinde, 820–1440
+   px arası ölçüldü). Her alan ızgaranın dört satırını paylaşır — etiket, giriş,
+   yardım, hata — böylece bir satırdaki bütün girişler aynı çizgide durur. */
+#tplfields .formgrid > .tfield:not(.span2) {
+  display: grid; grid-row: span 4; grid-template-rows: subgrid;
+  row-gap: 0; align-content: start; margin-bottom: 0;
+}
+#tplfields .formgrid > .tfield:not(.span2) > .lab { grid-row: 1; align-self: end; }
+#tplfields .formgrid > .tfield:not(.span2) > .tin { grid-row: 2; align-self: start; }
+#tplfields .formgrid > .tfield:not(.span2) > .fhelp { grid-row: 3; }
+#tplfields .formgrid > .tfield:not(.span2) > .fielderr { grid-row: 4; }
+@media print {
+  body.shell .masthead { position: static; width: auto; border: 0; }
+  body.shell .wrap { padding: 0; }
+}
 </style>
 </head>
-<body>
+<body class="shell">
 <div class="wrap">
   <header class="masthead">
     <div class="topbar">
@@ -2810,11 +2923,11 @@ details.tech .techline {
     <hr class="rule">
     <hr class="rule double">
     <nav class="views" aria-label="Görünümler" role="tablist">
-      <button type="button" class="viewtab" id="tab-dosyalarim" data-view="dosyalarim" role="tab" aria-selected="false" aria-controls="view-dosyalarim">Dosyalarım</button>
-      <button type="button" class="viewtab" id="tab-arastir" data-view="arastir" role="tab" aria-selected="false" aria-controls="view-arastir">Araştır</button>
-      <button type="button" class="viewtab" id="tab-belgeler" data-view="belgeler" role="tab" aria-selected="false" aria-controls="view-belgeler">Belgeler</button>
-      <button type="button" class="viewtab" id="tab-taslak" data-view="taslak" role="tab" aria-selected="false" aria-controls="view-taslak">Taslak</button>
-      <button type="button" class="viewtab" id="tab-ayarlar" data-view="ayarlar" role="tab" aria-selected="false" aria-controls="view-ayarlar">Ayarlar</button>
+      <button type="button" class="viewtab" id="tab-dosyalarim" data-view="dosyalarim" role="tab" aria-selected="false" aria-controls="view-dosyalarim"><svg class="tabico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h9A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>Dosyalarım</button>
+      <button type="button" class="viewtab" id="tab-arastir" data-view="arastir" role="tab" aria-selected="false" aria-controls="view-arastir"><svg class="tabico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>Araştır</button>
+      <button type="button" class="viewtab" id="tab-belgeler" data-view="belgeler" role="tab" aria-selected="false" aria-controls="view-belgeler"><svg class="tabico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3h7l4.5 4.5v12a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 19.5v-15A1.5 1.5 0 0 1 6.5 3z"/><path d="M13.5 3v4.5H18M8.5 12.5h7M8.5 16h7"/></svg>Belgeler</button>
+      <button type="button" class="viewtab" id="tab-taslak" data-view="taslak" role="tab" aria-selected="false" aria-controls="view-taslak"><svg class="tabico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14 8l3 3"/></svg>Taslak</button>
+      <button type="button" class="viewtab" id="tab-ayarlar" data-view="ayarlar" role="tab" aria-selected="false" aria-controls="view-ayarlar"><svg class="tabico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>Ayarlar</button>
     </nav>
   </header>
 
@@ -2831,7 +2944,7 @@ details.tech .techline {
        söylemek bilgi değil sitemdir. -->
   <div class="statusline-inline" id="nomatterstrip" hidden role="status">
     <span class="k">Dosyasız çalışma</span>
-    <span>Bir dava dosyası seçili değil — bu ekranda ürettiğiniz cevap, yüklediğiniz belge ve taslak hiçbir dava dosyasına kaydedilmez. Bağlamak için üst çubuktan bir dosya seçin.</span>
+    <span>Bir dava dosyası seçili değil — bu ekranda ürettiğiniz cevap, yüklediğiniz belge ve taslak hiçbir dava dosyasına kaydedilmez. Bağlamak için “Aktif dosya” seçicisinden bir dosya seçin.</span>
     <button type="button" class="ghost" id="nomatter-go">Dosyalarım</button>
   </div>
 
@@ -2942,7 +3055,7 @@ details.tech .techline {
             <div class="modeopt" id="modeopt-live">
               <label class="rchip"><input type="radio" name="mode" id="mode-live" value="live"><span>Resmî kaynaklarda</span></label>
               <span class="expl-def">Yargıtay, Danıştay ve Mevzuat Bilgi Sistemi gibi resmî kaynaklara bağlanılır. Bir araştırma en çok 2 dakika sürer ve en çok 10 belgenin tam metnini getirir. Arama sonuç listeleri dayanak sayılmaz; dayanak, getirilen belgenin tam metnidir.</span>
-              <span class="statusline offreason" id="livehint" role="status" hidden>Resmî kaynaklara bağlantı şu an kapalı. ColleX'i kapatıp masaüstündeki ColleX simgesine yeniden çift tıklayın; durumu üst çubuktaki “Canlı araştırma” rozetinden izleyebilirsiniz.</span>
+              <span class="statusline offreason" id="livehint" role="status" hidden>Resmî kaynaklara bağlantı şu an kapalı. ColleX'i kapatıp masaüstündeki ColleX simgesine yeniden çift tıklayın; durumu “Canlı araştırma” rozetinden izleyebilirsiniz.</span>
             </div>
           </div>
           <div class="livebanner" id="livebanner" hidden>
@@ -3070,7 +3183,7 @@ details.tech .techline {
     <p class="screenlead">Bu ekranda kendi belgelerinizi (sözleşme, karar, bilirkişi raporu) yükler, içlerinde arama yapar ve onlara soru sorarsınız.</p>
     <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Belge yükle">
       <div class="line">Belge bırakın ya da bilgisayarınızdan seçin — PDF · Word · düz metin · UYAP dosyası</div>
-      <div class="sub">Belgeleriniz bu bilgisayarda okunur ve burada kalır; yalnız siz bulut yapay zekâyı açarsanız dışarı gider. Belgenin yazısı çıkarılır, künyesi ve otomatik ön incelemesi aşağıda listelenir. Üst çubukta bir dava dosyası seçiliyse yüklediğiniz belge o dosyaya bağlanır.</div>
+      <div class="sub">Belgeleriniz bu bilgisayarda okunur ve burada kalır; yalnız siz bulut yapay zekâyı açarsanız dışarı gider. Belgenin yazısı çıkarılır, künyesi ve otomatik ön incelemesi aşağıda listelenir. Bir dava dosyası seçiliyse yüklediğiniz belge o dosyaya bağlanır.</div>
       <div class="sub" id="dropmatterhint"></div>
     </div>
     <input type="file" id="fileinput" multiple accept=".pdf,.docx,.txt,.udf" hidden>
@@ -4364,7 +4477,7 @@ details.tech .techline {
     var lost = activeMatter.title || activeMatter.id;
     setActiveMatter(null, true);
     toast("Aktif dosya artık yok: “" + cpTruncate(lost, 60) +
-      "” silinmiş olabilir. Dosyasız çalışmaya geçildi — üst çubuktan bir dosya seçin.", "warn");
+      "” silinmiş olabilir. Dosyasız çalışmaya geçildi — “Aktif dosya” seçicisinden bir dosya seçin.", "warn");
   }
 
   /* Tipik "henüz açık değil" kartı: bir işlem 404 döndüğünde dürüstçe söylenir.
@@ -5246,9 +5359,9 @@ details.tech .techline {
   var TERM_TR = {
     "aktif dosya": {
       ad: "Aktif dosya",
-      tanim: "Üst çubuktan seçtiğiniz dava dosyası.",
+      tanim: "Şu an üzerinde çalıştığınız, dosya seçiciden seçtiğiniz dava dosyası.",
       neden: "Seçiliyken ürettiğiniz cevap, yüklediğiniz belge ve yazdığınız taslak kendiliğinden o dosyaya bağlanır; seçili değilken hiçbiri bir dosyaya bağlanmaz.",
-      nerede: "Üst çubuğun solundaki dosya seçicide."
+      nerede: "“Aktif dosya” seçicisinde: geniş ekranda sol kenar çubuğunda, dar ekranda sayfanın üstünde."
     },
     "alıntı": {
       ad: "Alıntı",
@@ -7497,7 +7610,7 @@ details.tech .techline {
         ? (savedRunsCache.length
           ? "Aşağıdaki listeden, bu dosyada kayıtlı araştırmalardan birini seçin."
           : "Bu dosyada kayıtlı araştırma yok. Araştır ekranından bir soru sorun; cevap kendiliğinden bu dosyaya kaydedilir.")
-        : "Önce üst çubuktan bir dava dosyası seçin — kayıtlı araştırmalar seçtiğiniz dosyaya göre listelenir.";
+        : "Önce “Aktif dosya” seçicisinden bir dava dosyası seçin — kayıtlı araştırmalar seçtiğiniz dosyaya göre listelenir.";
     } else if (src === "files") {
       hint.textContent = attachedFiles.length
         ? "Seçili belge: " + attachedFiles.map(function (f) { return f.name; }).join(", ") +
@@ -14539,7 +14652,7 @@ details.tech .techline {
           openDeadlineModal({ startDate: d.date, matterId: activeMatter ? activeMatter.id : undefined, title: "" });
         }, "small"));
         row.appendChild(ghostBtn("Zaman çizelgesine ekle", function () {
-          if (!activeMatter) { toast("Önce üst çubuktan aktif dosya seçin.", "bad"); return; }
+          if (!activeMatter) { toast("Önce “Aktif dosya” seçicisinden bir dosya seçin.", "bad"); return; }
           postMatterItem(activeMatter.id, {
             kind: "event",
             payload: { date: d.date, title: cpTruncate(d.context, 300) || "Belgeden tarih", source: "belge:" + f.fileId, verified: false }
@@ -15710,7 +15823,7 @@ details.tech .techline {
     }
     acts.appendChild(saveB);
     if (!activeMatter) {
-      acts.appendChild(el("span", "offreason", "Şu an kullanılamıyor — önce üst çubuktan bir dava dosyası seçin."));
+      acts.appendChild(el("span", "offreason", "Şu an kullanılamıyor — önce “Aktif dosya” seçicisinden bir dava dosyası seçin."));
     }
     acts.appendChild(ghostBtn("Taslakta kullan", function () { kunyeToDraftNote(r); }, "small"));
     row.appendChild(acts);
@@ -15790,7 +15903,7 @@ details.tech .techline {
   }
 
   function saveKunyeToMatter(r) {
-    if (!activeMatter) { toast("Önce üst çubuktan bir dosya seçin — künye o dosyaya not olarak kaydedilir.", "warn"); return; }
+    if (!activeMatter) { toast("Önce “Aktif dosya” seçicisinden bir dosya seçin — künye o dosyaya not olarak kaydedilir.", "warn"); return; }
     var text = "KARAR KÜNYESİ — " + kunyeLine(r) +
       "\nKaynak: " + (r.sourceLabel || r.sourceId || "") +
       (r.title ? "\nBaşlık: " + r.title : "") +
@@ -17662,7 +17775,7 @@ details.tech .techline {
     ["Hazırladığı dilekçeyi olduğu gibi verebilir miyim?",
       "Hayır. Bu bir taslaktır; her paragrafını okumanız, KAYNAKSIZ işaretli paragrafları ya tamamlamanız ya da çıkarmanız gerekir."],
     ["Bir aksilik olursa ne yaparım?",
-      "Üst çubuktaki rozetlere bakın. Kırmızıysa ne yapmanız gerektiği orada tek cümleyle yazar."]
+      "Sistem durumu rozetlerine bakın (geniş ekranda sol altta, dar ekranda üstte). Kırmızıysa ne yapmanız gerektiği orada tek cümleyle yazar."]
   ];
 
   /* Bir başlık ve altında düz açıklama satırları olan bölüm. */
