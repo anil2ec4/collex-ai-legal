@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest";
 import {
   AnswerPipeline,
   IntakeValidationError,
+  NO_EVIDENCE_CORPUS_NOTICE,
+  UPLOAD_CORPUS_NOTICE,
   guardAnswerMarkdown,
 } from "../../src/pipeline/answerPipeline.js";
 import type { AnswerResult, ClaimView } from "../../src/pipeline/types.js";
@@ -765,7 +767,7 @@ describe("request contract", () => {
     expect(result.bundle.synthetic).toBe(false);
     expect(result.bundle.syntheticNotice).toBe(result.corpusNotice);
     expect(result.markdown).toContain("HUKUK KÜTÜPHANESİ UYARISI");
-    expect(result.corpusProvenance).toEqual({ real: 1, synthetic: 0, unknown: 0 });
+    expect(result.corpusProvenance).toEqual({ real: 1, synthetic: 0, unknown: 0, upload: 0 });
 
     // Unknown provenance keeps the warning: the store did not say, so the
     // reader is not told the texts are real.
@@ -774,6 +776,48 @@ describe("request contract", () => {
     expect(unknown.corpusNotice).toMatch(/DENEME BELGELER/i);
     expect(unknown.bundle.synthetic).toBe(true);
     expect(unknown.corpusProvenance?.real).toBe(0);
+  });
+
+  // 27.09.2026 — measured on a real server: an answer over the lawyer's own
+  // uploads said "Cevabın dayandığı metinler gerçek değildir; ColleX'in
+  // denemesi için üretilmiş örneklerdir", and an answer on an EMPTY library
+  // said the same about texts that did not exist.
+  it("names the lawyer's uploads as uploads, not as deneme belgeleri", async () => {
+    const uploads = STANDARD_FACTS.map((f) => ({ ...f, upload: true }));
+    const pipeline = new AnswerPipeline({
+      retrieval: new StubCorpus(() => ok([hitTck("v1")])),
+      texts: standardTexts(),
+      versionFacts: factsPort(uploads),
+      ...deterministicOptions(),
+    });
+    const { result } = await pipeline.answer({ question: Q_NORM_CONTENT, asOf: "2025-06-01" });
+    expect(result.evidence.length).toBeGreaterThan(0);
+    expect(result.corpusNotice).toBe(UPLOAD_CORPUS_NOTICE);
+    expect(result.corpusNotice).not.toMatch(/DENEME BELGELER|gerçek değildir/i);
+    expect(result.bundle.synthetic).toBe(false);
+    expect(result.corpusProvenance).toEqual({ real: 0, synthetic: 0, unknown: 0, upload: 1 });
+  });
+
+  it("says the answer rests on no document when nothing was admitted", async () => {
+    const pipeline = pipelineWith(new StubCorpus(() => ok([])));
+    const { result } = await pipeline.answer({ question: Q_NORM_CONTENT, asOf: "2025-06-01" });
+    expect(result.status).toBe("ABSTAIN");
+    expect(result.corpusNotice).toBe(NO_EVIDENCE_CORPUS_NOTICE);
+    expect(result.bundle.synthetic).toBe(false);
+    expect(result.markdown).not.toMatch(/DENEME BELGELER/i);
+  });
+
+  it("keeps a configured (non-default) notice when nothing was admitted", async () => {
+    const pipeline = new AnswerPipeline({
+      retrieval: new StubCorpus(() => ok([])),
+      texts: standardTexts(),
+      versionFacts: factsPort(STANDARD_FACTS),
+      ...deterministicOptions(),
+      corpusNotice: "CANLI ARAŞTIRMA — test",
+      syntheticCorpus: false,
+    });
+    const { result } = await pipeline.answer({ question: Q_NORM_CONTENT, asOf: "2025-06-01" });
+    expect(result.corpusNotice).toBe("CANLI ARAŞTIRMA — test");
   });
 
   it("forwards filters and limits to the corpus port unchanged", async () => {

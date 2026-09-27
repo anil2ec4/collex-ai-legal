@@ -103,6 +103,13 @@ export interface VersionFacts {
    * `fixture_meta.synthetic: false`). Absent when the store did not say.
    */
   synthetic?: boolean;
+  /**
+   * Additive (27.09.2026): the version belongs to one of the lawyer's own
+   * uploads (`scope='tenant'`, `source='UPLOAD'`). Such a text is neither the
+   * synthetic fixture corpus nor official authority, and the answer banner
+   * must say which it is.
+   */
+  upload?: boolean;
 }
 
 /** Must not throw; an unavailable store yields an empty map. */

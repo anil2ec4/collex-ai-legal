@@ -432,7 +432,7 @@ export interface AnswerResult {
    * report. The banner is chosen from this: only an answer whose EVERY
    * admitted document is real drops the "deneme belgeleri" warning.
    */
-  corpusProvenance?: { real: number; synthetic: number; unknown: number };
+  corpusProvenance?: { real: number; synthetic: number; unknown: number; upload?: number };
   generatedAt: string;
   /** Additive (W12): question-coverage gate result. Always set by the pipeline. */
   coverage?: QuestionCoverageView;

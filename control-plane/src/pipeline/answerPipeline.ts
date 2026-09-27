@@ -159,6 +159,33 @@ export const LIBRARY_CORPUS_NOTICE =
   "bilmez; her dayanağın güncelliğini kaynağından doğrulayın.";
 
 /**
+ * 27.09.2026: banner for an answer whose admitted documents are ALL the
+ * lawyer's own uploads. The default warning ("metinler gerçek değildir …
+ * deneme için üretilmiş örneklerdir") was printed over the lawyer's own
+ * tanık beyanı — false, and a warning that is false once is not read twice.
+ */
+export const UPLOAD_CORPUS_NOTICE =
+  "Bu cevabın dayandığı metinler sizin yüklediğiniz belgelerdir; resmî mevzuat ya da " +
+  "içtihat değildir. Her alıntıyı belgenizin aslıyla karşılaştırabilirsiniz.";
+
+/** Uploads and real library documents together, nothing synthetic or unknown. */
+export const UPLOAD_AND_LIBRARY_CORPUS_NOTICE =
+  "Bu cevabın dayandığı metinlerin bir kısmı sizin yüklediğiniz belgeler, bir kısmı resmî " +
+  "kaynaklardan alınıp bu bilgisayardaki hukuk kütüphanesine kaydedilmiş belgelerdir. " +
+  "Kütüphane belgenin alındığı günü bilir, yürürlük tarihini bilmez; her dayanağın " +
+  "güncelliğini kaynağından doğrulayın.";
+
+/**
+ * 27.09.2026: banner for an answer that admitted NO document. The default
+ * warning says "Cevabın dayandığı metinler gerçek değildir" — about texts
+ * that do not exist; on an empty library it also named "deneme belgeleri"
+ * the installation did not have.
+ */
+export const NO_EVIDENCE_CORPUS_NOTICE =
+  "Bu cevap hiçbir belgeye dayanmıyor: bu bilgisayardaki arşivde soruyu karşılayan bir " +
+  "metin bulunamadı.";
+
+/**
  * Warning texts of the model lane (W12/W20). W21: their ONE source is
  * llm/aiPolicy.ts, whose decision emits them; re-exported here unchanged so
  * every existing importer keeps working.
@@ -1375,17 +1402,35 @@ export class AnswerPipeline {
     // from a real source. Only when every admitted document is real does the
     // "deneme belgeleri" warning give way to the library notice; one unknown
     // or synthetic document keeps the warning.
-    const corpusProvenance = { real: 0, synthetic: 0, unknown: 0 };
+    const corpusProvenance = { real: 0, synthetic: 0, unknown: 0, upload: 0 };
     for (const id of new Set(admitted.items.map((item) => item.ref.documentVersionId))) {
-      const flag = facts.get(id)?.synthetic;
-      if (flag === false) corpusProvenance.real += 1;
-      else if (flag === true) corpusProvenance.synthetic += 1;
+      const fact = facts.get(id);
+      if (fact?.upload === true) corpusProvenance.upload += 1;
+      else if (fact?.synthetic === false) corpusProvenance.real += 1;
+      else if (fact?.synthetic === true) corpusProvenance.synthetic += 1;
       else corpusProvenance.unknown += 1;
     }
-    const allReal =
-      corpusProvenance.real > 0 && corpusProvenance.synthetic === 0 && corpusProvenance.unknown === 0;
-    const corpusNotice = allReal ? LIBRARY_CORPUS_NOTICE : this.corpusNotice;
-    const syntheticCorpus = allReal ? false : this.syntheticCorpus;
+    // A synthetic or unknown document keeps the configured warning; only a
+    // known, non-synthetic provenance may speak for itself.
+    const noDoubt = corpusProvenance.synthetic === 0 && corpusProvenance.unknown === 0;
+    const known = corpusProvenance.real + corpusProvenance.upload;
+    const notice: { text: string; synthetic: boolean } =
+      // Only the local-archive answer speaks about "this computer's
+      // archive"; a pipeline configured with its own notice (live research)
+      // keeps it when nothing was admitted.
+      known === 0 && noDoubt && this.corpusNotice === DEFAULT_CORPUS_NOTICE
+        ? { text: NO_EVIDENCE_CORPUS_NOTICE, synthetic: false }
+        : known === 0 && noDoubt
+          ? { text: this.corpusNotice, synthetic: this.syntheticCorpus }
+        : !noDoubt
+          ? { text: this.corpusNotice, synthetic: this.syntheticCorpus }
+          : corpusProvenance.upload === 0
+            ? { text: LIBRARY_CORPUS_NOTICE, synthetic: false }
+            : corpusProvenance.real === 0
+              ? { text: UPLOAD_CORPUS_NOTICE, synthetic: false }
+              : { text: UPLOAD_AND_LIBRARY_CORPUS_NOTICE, synthetic: false };
+    const corpusNotice = notice.text;
+    const syntheticCorpus = notice.synthetic;
 
     const rendered = await trace.run("render", (ctx) => {
       const body = [

@@ -132,12 +132,14 @@ function mapFactsRow(row: SqlRow): VersionFacts {
   const court = joinCourt(asTextOrNull(row, "court"), asTextOrNull(row, "chamber"));
   const syntheticText = asTextOrNull(row, "synthetic");
   const synthetic = syntheticText === "true" ? true : syntheticText === "false" ? false : undefined;
+  const upload = asTextOrNull(row, "upload") === "true";
   return {
     documentVersionId: asText(row, "document_version_id"),
     ...(court !== undefined ? { court } : {}),
     ...(from !== null ? { effectiveFrom: from } : {}),
     ...(to !== null ? { effectiveTo: to } : {}),
     ...(synthetic !== undefined ? { synthetic } : {}),
+    ...(upload ? { upload: true } : {}),
   };
 }
 
@@ -164,8 +166,10 @@ export function createStoreVersionFactsPort(sql: Sql): VersionFactsPort {
             v.chamber as chamber,
             lower(v.effective_period)::text as effective_from,
             upper(v.effective_period)::text as effective_to,
-            (v.metadata #>> '{fixture_meta,synthetic}') as synthetic
+            (v.metadata #>> '{fixture_meta,synthetic}') as synthetic,
+            (d.scope = 'tenant' and d.source = 'UPLOAD')::text as upload
           from legal.document_versions v
+          join legal.documents d on d.id = v.document_id
           where v.id = any(${ids}::uuid[])`;
         for (const row of rows) {
           const facts = mapFactsRow(row);
