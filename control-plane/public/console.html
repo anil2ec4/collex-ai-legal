@@ -2882,6 +2882,12 @@ button.seal { border-radius: var(--r-ctl); }
 .dimportout { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); color: var(--ink-soft); }
 .dimportout.bad { color: var(--bad); font-weight: 600; }
 .dimportwarn { color: var(--warn); font-weight: 600; font-size: var(--fs-sm); }
+/* ===== Tebligattan süreye: alıntılar, tarih adayları ===== */
+.ntentry { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 var(--sp-2); }
+.ntentry .note-p { margin: 0; }
+.ntq { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--line); font-size: var(--fs-sm); line-height: var(--lh-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ntcand { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.ntcand.chosen { border-color: var(--ok, var(--line)); }
 </style>
 </head>
 <body class="shell">
@@ -12598,6 +12604,7 @@ button.seal { border-radius: var(--r-ctl); }
     opts = opts || {};
     var panel = openModal("Süre hesabı", "formpanel");
     var closeBtn = modalHead(panel, "Süre hesapla");
+    panel.appendChild(noticeEntryRow({ matterId: opts.matterId }));
     var loading = el("p", "statusline", "kurallar alınıyor…");
     panel.appendChild(loading);
     ensureRules().then(function (rules) {
@@ -12753,6 +12760,360 @@ button.seal { border-radius: var(--r-ctl); }
     });
     panel.appendChild(form);
     ruleSel.focus();
+  }
+
+  /* ============ Tebligattan süreye (POST /v1/deadlines/from-notice) ============
+     Avukat tebligat belgesini (e-tebligat alındısı, tebligat mazbatası ya da
+     tebliğ edilen belgenin kendisi) seçer; sunucu tebliğ tarihini, belge
+     türünü ve kuralı KURALLA okur ve her birini belgedeki alıntıyla döndürür.
+     Bu ekran hiçbir tarih UYDURMAZ: okunamayan tarih boş kalır, iki farklı
+     tarih yan yana gösterilir ve avukat seçmeden süre hesaplanmaz. Sunucu
+     okurken HİÇBİR ŞEY yazmaz; kayıt yalnız "Onayla ve dosyaya ekle" ile,
+     mevcut toplu kayıt yolundan (items:batch) yapılır — ikinci onay aynı
+     süreyi ikinci kez eklemez (sunucu "zaten var" diye atlar). */
+  /* Hangi dosyaya kaydedilecek: dosya sayfasından açıldıysa O dosya, yoksa aktif dosya. */
+  var noticeTarget = { matterId: null };
+  function noticeMatter() {
+    var id = noticeTarget.matterId || (activeMatter ? activeMatter.id : null);
+    if (!id) { return null; }
+    var m = mattersCache.filter(function (x) { return x.id === id; })[0];
+    return { id: id, title: m ? String(m.title || "") : (activeMatter && activeMatter.id === id ? activeMatter.title : "seçili dosya") };
+  }
+
+  function noticeEntryRow(opts) {
+    var row = el("div", "ntentry");
+    row.appendChild(el("p", "note-p", "Elinizde tebligat mı var? Tarihi ve süreyi belgeden okutabilirsiniz."));
+    row.appendChild(ghostBtn("Tebligattan süre çıkar", function () { openNoticeModal(opts || {}); }, "small"));
+    return row;
+  }
+
+  function openNoticeModal(opts) {
+    opts = opts || {};
+    noticeTarget.matterId = opts.matterId || null;
+    var panel = openModal("Tebligattan süre çıkar", "formpanel");
+    var closeBtn = modalHead(panel, "Tebligattan süre çıkar");
+    panel.appendChild(el("p", "note-p",
+      "E-tebligat alındısını, tebligat mazbatasını ya da tebliğ edilen belgenin kendisini (gerekçeli karar, dava dilekçesi, ödeme emri, bilirkişi raporu…) seçin. " +
+      "ColleX tebliğ tarihini, belge türünü ve süre kuralını belgeden okur ve her birini belgedeki alıntıyla gösterir. Siz onaylamadan hiçbir şey kaydedilmez."));
+    var form = el("div", "inlineform");
+    var grid = el("div", "formgrid");
+    var fsel = selectInput([["", "— yüklenmiş belge seçin —"]], "");
+    labelInput(grid, "Yüklenmiş belge", fsel, "nt-file");
+    var up = document.createElement("input");
+    up.type = "file";
+    up.accept = ".pdf,.docx,.txt,.udf";
+    up.className = "tin";
+    labelInput(grid, "…ya da yeni belge yükleyin", up, "nt-upload");
+    form.appendChild(grid);
+    var ta = document.createElement("textarea");
+    ta.className = "tin";
+    ta.id = "nt-text";
+    ta.rows = 5;
+    ta.placeholder = "…ya da belgenin metnini buraya yapıştırın";
+    ta.setAttribute("aria-label", "Tebligat belgesinin metni");
+    form.appendChild(ta);
+    var acts = el("div", "actions");
+    var go = el("button", "seal", "Belgeyi oku");
+    go.type = "button";
+    acts.appendChild(go);
+    form.appendChild(acts);
+    var perr = el("p", "fielderr");
+    form.appendChild(perr);
+    panel.appendChild(form);
+    var result = el("div", "ntresult");
+    result.setAttribute("aria-live", "polite");
+    panel.appendChild(result);
+
+    ensureFilesIndex().then(function (index) {
+      var rows = Object.keys(index || {}).map(function (k) { return index[k]; });
+      rows.sort(function (a, b) { return String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")); });
+      rows.forEach(function (f) {
+        var o = document.createElement("option");
+        o.value = f.fileId;
+        o.textContent = cpTruncate(f.name || f.fileId, 70);
+        fsel.appendChild(o);
+      });
+      if (opts.fileId) { fsel.value = opts.fileId; }
+    });
+
+    up.addEventListener("change", function () {
+      if (!up.files || !up.files.length) { return; }
+      uploadFiles(up.files, {
+        errorHost: function () { return result; },
+        onDone: function (results) {
+          var first = results && results[0];
+          if (!first || !first.fileId) { return; }
+          var o = document.createElement("option");
+          o.value = first.fileId;
+          o.textContent = cpTruncate(first.name || up.files[0].name || first.fileId, 70);
+          fsel.appendChild(o);
+          fsel.value = first.fileId;
+          runNotice(result, { fileId: first.fileId });
+        }
+      });
+    });
+
+    go.addEventListener("click", function () {
+      perr.textContent = "";
+      var text = ta.value;
+      if (fsel.value && text.trim()) { perr.textContent = "Yüklenmiş bir belge seçin ya da metni yapıştırın — ikisini birlikte değil."; return; }
+      if (fsel.value) { runNotice(result, { fileId: fsel.value }); return; }
+      if (text.trim()) { runNotice(result, { text: text }); return; }
+      perr.textContent = "Önce bir belge seçin, yükleyin ya da metnini yapıştırın.";
+    });
+    if (opts.fileId) { runNotice(result, { fileId: opts.fileId }); }
+    closeBtn.focus();
+  }
+
+  /* state: { fileId | text, candidateId?, tebligDate?, ruleId? } — her seçim
+     aynı belgeyi yeniden okutur; hesap hep sunucunun süre motorundan gelir. */
+  function runNotice(host, state) {
+    var body = {};
+    ["fileId", "text", "candidateId", "tebligDate", "ruleId"].forEach(function (k) {
+      if (state[k] !== undefined && state[k] !== null && state[k] !== "") { body[k] = state[k]; }
+    });
+    host.textContent = "";
+    var busy = beginBusy({
+      host: host,
+      title: "Tebligat okunuyor",
+      phase: "Belgenin metni okunuyor; tebliğ tarihi ve belge türü aranıyor.",
+      onCancel: function (ms) {
+        busyCancelledCard(host, ms, { onRetry: function () { runNotice(host, state); } });
+      }
+    });
+    sendJson("/v1/deadlines/from-notice", "POST", body, busy.signal).then(function (res) {
+      if (busy.cancelled()) { return; }
+      busy.stop();
+      if (res.status !== 200 || !res.body) {
+        errCard(host, "Tebligat okunamadı", errMessage(res), errMessageTech(res));
+        return;
+      }
+      renderNoticeReading(host, res.body, state);
+    }).catch(function (error) {
+      if (busy.cancelled() || isAbortError(error)) { return; }
+      busy.stop();
+      errCard(host, "Tebligat okunamadı", humanError(error));
+    });
+  }
+
+  function noticeQuote(parent, span, label) {
+    if (!span || typeof span.quote !== "string") { return; }
+    if (label) { parent.appendChild(el("div", "quote-label", label)); }
+    parent.appendChild(el("blockquote", "ntq", span.quote));
+  }
+
+  function renderNoticeReading(host, r, state) {
+    host.textContent = "";
+    var src = r.text && r.text.source === "file"
+      ? "Okunan belge: " + (r.text.fileName || r.text.fileId || "")
+      : "Okunan metin: yapıştırılan metin";
+    host.appendChild(el("p", "note-p", src));
+
+    /* 1 · Tebliğ tarihi */
+    var dcard = el("section", "card");
+    dcard.appendChild(el("h3", "fname", "Tebliğ tarihi"));
+    var cands = r.dateCandidates || [];
+    if (r.dateStatus === "SECIM_GEREKLI") {
+      dcard.appendChild(chip("iki farklı tarih — siz seçin", "warn"));
+    } else if (r.dateStatus === "OKUNAMADI") {
+      dcard.appendChild(chip("belgeden okunamadı", "warn"));
+    } else if (r.dateStatus === "AVUKAT_GIRDI") {
+      dcard.appendChild(chip("tarihi siz girdiniz", "ok"));
+    } else if (r.dateStatus === "AVUKAT_SECTI") {
+      dcard.appendChild(chip("tarihi siz seçtiniz", "ok"));
+    }
+    cands.forEach(function (c) {
+      var box = el("div", "ntcand" + (r.tebligDate === c.tebligDate ? " chosen" : ""));
+      box.appendChild(el("div", "quote-label", c.kindLabel || ""));
+      box.appendChild(el("div", "duebig", c.tebligDateTr || fmtDateTR(c.tebligDate)));
+      if (c.kind === "ETEBLIGAT_ULASMA") {
+        box.appendChild(el("p", "note-p", "Elektronik adrese ulaşma " + (c.printedDateTr || "") + " — beşinci günün sonunda tebliğ edilmiş sayılır."));
+      }
+      (c.evidence || []).forEach(function (e) { noticeQuote(box, e, e.label ? "Belgede: " + e.label : "Belgede"); });
+      if ((c.steps || []).length) {
+        var ol = el("ol", "steps");
+        c.steps.forEach(function (s) { ol.appendChild(el("li", null, s)); });
+        box.appendChild(ol);
+      }
+      if ((c.warnings || []).length) {
+        var wl = el("ul", "warnlist");
+        c.warnings.forEach(function (w) { wl.appendChild(el("li", null, w)); });
+        box.appendChild(wl);
+      }
+      if (cands.length > 1) {
+        var pa = el("div", "actions");
+        pa.appendChild(ghostBtn("Bu tarihi seç", function () {
+          runNotice(host, { fileId: state.fileId, text: state.text, candidateId: c.id, ruleId: state.ruleId });
+        }, "small primary"));
+        box.appendChild(pa);
+      }
+      dcard.appendChild(box);
+    });
+    var manual = el("details", "mini");
+    if (r.dateStatus === "OKUNAMADI") { manual.open = true; }
+    manual.appendChild(el("summary", null, r.dateStatus === "OKUNAMADI"
+      ? "Tebliğ tarihini kendiniz girin"
+      : "Tarih yanlış mı? Kendiniz girin"));
+    var mgrid = el("div", "formgrid");
+    var md = dateInput(state.tebligDate || "");
+    labelInput(mgrid, "Tebliğ tarihi (e-tebligatta ulaşma tarihine beş gün ekleyin)", md, "nt-date");
+    manual.appendChild(mgrid);
+    var merr = el("p", "fielderr");
+    manual.appendChild(merr);
+    var mact = el("div", "actions");
+    mact.appendChild(ghostBtn("Bu tarihle hesapla", function () {
+      merr.textContent = "";
+      if (!md.value) { merr.textContent = "Bir tarih seçin."; return; }
+      runNotice(host, { fileId: state.fileId, text: state.text, tebligDate: md.value, ruleId: state.ruleId });
+    }, "small"));
+    manual.appendChild(mact);
+    dcard.appendChild(manual);
+    var ign = r.ignoredDates || [];
+    if (ign.length) {
+      var idet = el("details", "mini");
+      idet.appendChild(el("summary", null, "Tebliğ tarihi olarak ALINMAYAN tarihler (" + ign.length + ")"));
+      var iul = el("ul", "reasons");
+      ign.forEach(function (d) {
+        var li = el("li", null, (d.dateTr || "") + " — " + (d.reasonTr || ""));
+        li.appendChild(el("blockquote", "ntq", d.quote || ""));
+        iul.appendChild(li);
+      });
+      idet.appendChild(iul);
+      dcard.appendChild(idet);
+    }
+    host.appendChild(anim(dcard));
+
+    /* 2 · Belgeden okunanlar */
+    var f = r.facts || {};
+    var fcard = el("section", "card");
+    fcard.appendChild(el("h3", "fname", "Belgeden okunanlar"));
+    var types = f.documentTypes || [];
+    if (types.length) {
+      types.forEach(function (t) { (t.evidence || []).forEach(function (e) { noticeQuote(fcard, e, "Tebliğ edilen belge: " + t.label); }); });
+    } else {
+      fcard.appendChild(el("p", "note-p", "Tebliğ edilen belgenin türü okunamadı."));
+    }
+    (f.courts || []).filter(function (c) { return c.primary; }).forEach(function (c) { noticeQuote(fcard, c, "Mahkeme / merci: " + c.classLabel); });
+    if ((f.references || []).length) {
+      fcard.appendChild(el("p", "note-p", "Dosya numaraları: " + f.references.map(function (x) {
+        return ({ ESAS: "Esas", KARAR: "Karar", DOSYA: "Dosya", SORUSTURMA: "Soruşturma", TAKIP: "Takip" }[x.kind] || x.kind) + " " + x.value;
+      }).join(" · ")));
+    }
+    if ((f.notes || []).length) {
+      var nl = el("ul", "reasons");
+      f.notes.forEach(function (n) { nl.appendChild(el("li", null, n.text)); });
+      fcard.appendChild(nl);
+    }
+    host.appendChild(anim(fcard));
+
+    /* 3 · Önerilen süreler */
+    (r.messages || []).forEach(function (m) { host.appendChild(el("p", "note-p", m)); });
+    (r.proposals || []).forEach(function (p) { host.appendChild(anim(renderNoticeProposal(p, r))); });
+
+    /* Kuralı avukat da seçebilir (belge türü okunamadıysa ya da öneri uymuyorsa). */
+    var rdet = el("details", "mini");
+    if (r.documentStatus === "OKUNAMADI" || !(r.proposals || []).length) { rdet.open = true; }
+    rdet.appendChild(el("summary", null, "Başka bir süre kuralı seçin"));
+    var rgrid = el("div", "formgrid");
+    var rsel = selectInput([["", "— kural seçin —"]], "");
+    labelInput(rgrid, "Süre kuralı", rsel, "nt-rule");
+    rdet.appendChild(rgrid);
+    ensureRules().then(function (rules) {
+      (rules.rules || []).filter(function (x) { return x.computable !== false; }).forEach(function (x) {
+        var o = document.createElement("option");
+        o.value = x.id;
+        o.textContent = x.title + " — " + (x.periodLabel || "");
+        rsel.appendChild(o);
+      });
+      if (state.ruleId) { rsel.value = state.ruleId; }
+    }).catch(function () { /* kural listesi alınamazsa seçici boş kalır; öneriler yine görünür */ });
+    var ract = el("div", "actions");
+    ract.appendChild(ghostBtn("Bu kuralla hesapla", function () {
+      if (!rsel.value) { return; }
+      runNotice(host, { fileId: state.fileId, text: state.text, candidateId: state.candidateId, tebligDate: state.tebligDate, ruleId: rsel.value });
+    }, "small"));
+    rdet.appendChild(ract);
+    host.appendChild(rdet);
+
+    host.appendChild(el("p", "disclaimer", r.disclaimer || ""));
+  }
+
+  function renderNoticeProposal(p, r) {
+    var card = el("section", "card");
+    var rule = p.rule || {};
+    card.appendChild(el("h3", "fname", rule.title || p.ruleId));
+    var line = el("p", "note-p");
+    line.appendChild(document.createTextNode(p.reasonTr + " " + (rule.reference ? rule.reference.label : "") + " "));
+    if (rule.verified && rule.verified.status !== "dogrulandi") {
+      line.appendChild(defineTerm(chip("DOĞRULANMADI — madde metniyle kontrol edin", "bad"), "DOĞRULANMADI"));
+    } else if (rule.verified) {
+      line.appendChild(chip("doğrulandı " + fmtDateTR(rule.verified.date), "ok"));
+    }
+    card.appendChild(line);
+    (p.why || []).forEach(function (w) { noticeQuote(card, w, w.label || ""); });
+    if ((p.warnings || []).length) {
+      var wl = el("ul", "warnlist");
+      p.warnings.forEach(function (w) { wl.appendChild(el("li", null, w)); });
+      card.appendChild(wl);
+    }
+    var comp = p.computation;
+    if (!comp) {
+      card.appendChild(el("p", "note-p", r.dateStatus === "SECIM_GEREKLI"
+        ? "Son gün, tebliğ tarihini seçtiğinizde hesaplanır."
+        : "Son gün, tebliğ tarihini girdiğinizde hesaplanır."));
+      return card;
+    }
+    card.appendChild(el("div", "quote-label", "Son gün"));
+    card.appendChild(el("div", "duebig", comp.dueDateTr || fmtDateTR(comp.dueDate)));
+    card.appendChild(el("div", "dueday", comp.dueWeekday || ""));
+    card.appendChild(el("p", "note-p", "Tebliğ " + (comp.startDateTr || fmtDateTR(comp.startDate)) + " · süre " + (comp.periodLabel || "") +
+      (comp.adliTatil && comp.adliTatil.applied
+        ? " · adli tatil uzatması uygulandı (uzatmasız: " + fmtDateTR(comp.adliTatil.dueDateWithoutExtension) + ")"
+        : "")));
+    if ((comp.steps || []).length) {
+      var ol = el("ol", "steps");
+      comp.steps.forEach(function (s) { ol.appendChild(el("li", null, s)); });
+      card.appendChild(ol);
+    }
+    if ((comp.warnings || []).length) {
+      var cw = el("ul", "warnlist");
+      comp.warnings.forEach(function (w) { cw.appendChild(el("li", null, w)); });
+      card.appendChild(cw);
+    }
+    card.appendChild(el("p", "disclaimer", comp.disclaimer || ""));
+    var tgt0 = noticeMatter();
+    card.appendChild(el("p", "note-p", tgt0
+      ? "Onaylarsanız bu süre “" + tgt0.title + "” dosyasına eklenir."
+      : "Kaydetmek için bir dava dosyası seçili olmalı."));
+    var acts = el("div", "actions");
+    var status = el("p", "note-p");
+    status.setAttribute("role", "status");
+    acts.appendChild(ghostBtn("Onayla ve dosyaya ekle", function () {
+      status.textContent = "";
+      var target = noticeMatter();
+      if (!target) {
+        status.textContent = "Süreyi kaydetmek için önce üstteki listeden bir dava dosyası seçin; bu okuma ekranda kalır.";
+        return;
+      }
+      if (!p.matterItem) { return; }
+      var matterId = target.id;
+      sendJson("/v1/matters/" + enc(matterId) + "/items:batch", "POST", { items: [p.matterItem] }).then(function (res) {
+        if (res.status !== 201 && res.status !== 200) { toast(errMessage(res), "bad"); return; }
+        var b = res.body || {};
+        if (b.createdCount > 0) {
+          toast("Süre dosyaya kaydedildi: " + (comp.dueDateTr || comp.dueDate) + " — " + target.title, "ok");
+          status.textContent = "Kaydedildi: " + target.title + ". Takvim dosyasında da görünür.";
+        } else {
+          toast("Bu süre dosyada zaten var; yeniden eklenmedi.", "warn");
+          status.textContent = "Bu süre bu dosyada zaten kayıtlı; ikinci kez eklenmedi.";
+        }
+        if (matterPageState.id === matterId) { refreshMatterPage(); }
+        loadDeadlinePanel();
+      }).catch(function (error) { toast(humanError(error), "bad"); });
+    }, "primary"));
+    card.appendChild(acts);
+    card.appendChild(status);
+    return card;
   }
 
   function renderDeadlineResult(result, comp, rule, opts) {

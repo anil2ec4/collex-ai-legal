@@ -3319,10 +3319,11 @@ describe("W15 şerit F · kilitleme", () => {
     const cc = html.slice(at, html.indexOf("\n  }", at));
     expect((cc.match(/defineTerm\(/gu) ?? []).length).toBe(6);
     expect(cc).not.toMatch(/return chip\(/u);
-    // 4) DOĞRULANMADI — iki ayrı ekranda gösterilir, ikisi de "?" taşır
+    // 4) DOĞRULANMADI — üç ayrı yerde gösterilir (süre formu, süre sonucu,
+    //    W22 "Tebligattan süreye" önerisi), üçü de "?" taşır
     expect(
       (html.match(/defineTerm\(chip\("DOĞRULANMADI — madde metniyle kontrol edin", "bad"\), "DOĞRULANMADI"\)/gu) ?? []).length,
-    ).toBe(2);
+    ).toBe(3);
     expect(html).not.toContain('appendChild(chip("DOĞRULANMADI');
     // "?" düğmesi gerçekten TERM_TR'den çizilir.
     expect(html).toContain("function qmarkButton(key)");

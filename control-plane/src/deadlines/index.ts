@@ -71,3 +71,15 @@ export {
   type WeekdayNameTr,
 } from "./dates.js";
 export { createDeadlinesRouter, computeRequestSchema, type ComputeRequest, type DeadlinesRouterDeps } from "./routes.js";
+export {
+  readServiceNotice,
+  textFromChunks,
+  NOTICE_READER_VERSION,
+  E_TEBLIGAT_DEEMED_DAYS,
+  MAX_NOTICE_TEXT_CODE_POINTS,
+  type NoticeReading,
+  type DateCandidate,
+  type DeadlineProposal,
+  type NoticeMatterItem,
+} from "./serviceNotice.js";
+export { createNoticeDeadlineRouter, noticeRequestSchema, type NoticeRouterDeps, type NoticeFilePort } from "./noticeRoutes.js";

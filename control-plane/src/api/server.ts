@@ -143,6 +143,7 @@ import type { MatterStore } from "../matters/types.js";
 import { createSettingsRouter } from "../settings/routes.js";
 import { InMemorySettingsStore, type SettingsStore } from "../settings/store.js";
 import { createDeadlinesRouter, DEADLINE_RULES } from "../deadlines/index.js";
+import { createNoticeDeadlineRouter } from "../deadlines/noticeRoutes.js";
 import { createAiRouter, type ReviseFn } from "../ai/routes.js";
 // W14 mounts (see the block at the end of createApp): each lane owns its
 // router module; this file only wires it.
@@ -1793,6 +1794,9 @@ export function createApp(deps: ApiDependencies): Hono {
 
   // Deadlines (/v1/deadlines*): pure, no dependencies.
   app.route("/", createDeadlinesRouter());
+  // "Tebligattan süreye" (POST /v1/deadlines/from-notice): read-only; reads an
+  // upload through the same files store, or pasted text without one.
+  app.route("/", createNoticeDeadlineRouter(filesStore !== undefined ? { files: filesStore } : {}));
 
   // Backup (/v1/backup): mounted only when serve.mjs configured a runner.
   if (deps.backup !== undefined) {

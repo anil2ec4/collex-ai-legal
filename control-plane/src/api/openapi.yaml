@@ -2330,6 +2330,77 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
+  /v1/deadlines/from-notice:
+    post:
+      operationId: deadlineFromNotice
+      summary: Tebligattan süreye — read a served document and propose deadlines (read-only)
+      description: >
+        Additive (W22, "Tebligattan süreye"). Exactly one of `fileId` (an
+        upload, read through the files store) / `text` (pasted text). A
+        deterministic, rule-based reader (`src/deadlines/serviceNotice.ts`,
+        producer version `tebligat-okuyucu-v1`) returns every fact with its
+        exact quote at Unicode code-point offsets over the NFC text: the
+        delivery date(s) (`dateCandidates`) — a physical tebliğ date, or an
+        e-tebligat ulaşma date to which the fifth-day rule of 7201 sayılı
+        Tebligat Kanunu m.7/a is applied (five CALENDAR days, never rolled
+        over a weekend or holiday; the rule itself is marked
+        `basisStatus: dogrulanmadi`) —, every other date with the reason it is
+        NOT a tebliğ date (`ignoredDates`: karar tarihi, kesinleşme şerhi,
+        okunma tarihi, a tebliğ narrated inside the served document …), the
+        court/office, esas/karar numbers, what was served, and the proposed
+        rule(s) with the matched quotes. It never guesses: no readable date
+        is `dateStatus: OKUNAMADI`; two different dates are `SECIM_GEREKLI`
+        and nothing is computed until the caller sends `candidateId` or a
+        typed `tebligDate` (never both). A computation is `computeDeadline`
+        verbatim (adli tatil, holidays, `adliTatileTabi`, verification status
+        and the disclaimer exactly as `/v1/deadlines/compute` returns them).
+        NOTHING is written: each computed proposal carries `matterItem`, a
+        ready body for `POST /v1/matters/{id}/items:batch`, whose (kind,
+        dueDate, title) duplicate key makes a second confirm a `DUPLICATE`
+        skip.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoticeDeadlineRequest"
+      responses:
+        "200":
+          description: The reading (statuses, candidates, ignored dates, facts, proposals, disclaimer)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoticeReading"
+        "400":
+          description: >
+            INVALID_REQUEST (both/neither input, unknown field, bad date,
+            candidateId + tebligDate, a candidateId the reading does not have,
+            an unknown rule; every issue names its field) or
+            RULE_NOT_COMPUTABLE (a note-only rule)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: FILE_NOT_FOUND (malformed id — refused before the store — or no such upload)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          description: NOTICE_TEXT_EMPTY — the upload exists but has no readable text (e.g. a scan that was not turned into text); the lawyer enters the date by hand
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: STORE_UNAVAILABLE — no files store on this server, or it did not answer (driver text withheld)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   # ------------------------------------------------------------ cloud AI (W12-E)
   /v1/ai/status:
     get:
@@ -8146,6 +8217,195 @@ components:
           format: date
         applyAdliTatil:
           type: boolean
+    NoticeDeadlineRequest:
+      type: object
+      additionalProperties: false
+      description: Exactly one of fileId / text; candidateId and tebligDate are mutually exclusive.
+      properties:
+        fileId:
+          type: string
+          description: Upload id (16 hex characters).
+        text:
+          type: string
+          description: Pasted document text (at most 400 000 code points).
+        candidateId:
+          type: string
+          description: The lawyer's pick among the reading's dateCandidates (t1, t2 …).
+        tebligDate:
+          type: string
+          format: date
+          description: A tebliğ date the lawyer typed.
+        ruleId:
+          type: string
+          description: A computable rule the lawyer chose instead of the proposals.
+    NoticeQuotedSpan:
+      type: object
+      required: [start, end, quote]
+      properties:
+        start:
+          type: integer
+          description: Code-point offset (inclusive) over the analysed NFC text.
+        end:
+          type: integer
+        quote:
+          type: string
+          description: Exactly text[start, end) in code points.
+    NoticeReading:
+      type: object
+      required:
+        [reader, text, dateStatus, documentStatus, tebligDate, tebligDateTr, readyToConfirm,
+         dateCandidates, ignoredDates, facts, proposals, messages, disclaimer]
+      properties:
+        reader:
+          type: string
+          description: Producer version (tebligat-okuyucu-v1).
+        text:
+          type: object
+          required: [source, fileId, fileName, codePoints, sha256, gapCodePoints]
+          properties:
+            source:
+              type: string
+              enum: [text, file]
+            fileId:
+              type: string
+              nullable: true
+            fileName:
+              type: string
+              nullable: true
+            codePoints:
+              type: integer
+            sha256:
+              type: string
+            gapCodePoints:
+              type: integer
+              description: File source — code points between chunks filled with line breaks so offsets stay the document's.
+        dateStatus:
+          type: string
+          enum: [OKUNDU, SECIM_GEREKLI, OKUNAMADI, AVUKAT_SECTI, AVUKAT_GIRDI]
+        documentStatus:
+          type: string
+          enum: [OKUNDU, OKUNAMADI, AVUKAT_SECTI]
+        tebligDate:
+          type: string
+          format: date
+          nullable: true
+        tebligDateTr:
+          type: string
+          nullable: true
+        readyToConfirm:
+          type: boolean
+        dateCandidates:
+          type: array
+          items:
+            type: object
+            required: [id, kind, kindLabel, tebligDate, tebligDateTr, printedDate, printedDateTr, basis, basisStatus, steps, warnings, evidence]
+            properties:
+              id:
+                type: string
+              kind:
+                type: string
+                enum: [FIZIKI_TEBLIG, ETEBLIGAT_ULASMA, ETEBLIGAT_TEBLIG]
+              kindLabel:
+                type: string
+              tebligDate:
+                type: string
+                format: date
+              tebligDateTr:
+                type: string
+              printedDate:
+                type: string
+                format: date
+              printedDateTr:
+                type: string
+              basis:
+                type: string
+              basisStatus:
+                type: string
+                nullable: true
+                enum: [dogrulanmadi]
+              steps:
+                type: array
+                items:
+                  type: string
+              warnings:
+                type: array
+                items:
+                  type: string
+              evidence:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/NoticeQuotedSpan"
+                    - type: object
+                      properties:
+                        label:
+                          type: string
+                        date:
+                          type: string
+                          format: date
+                        kind:
+                          type: string
+        ignoredDates:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/NoticeQuotedSpan"
+              - type: object
+                required: [date, dateTr, reason, reasonTr]
+                properties:
+                  date:
+                    type: string
+                    format: date
+                  dateTr:
+                    type: string
+                  reason:
+                    type: string
+                    description: KARAR_TARIHI, YAZIM_TARIHI, KESINLESME, DAVA_TARIHI, RAPOR_TARIHI, OKUNMA_TARIHI, GONDERIM_TARIHI, DUZENLEME_TARIHI, DURUSMA_TARIHI, TEFHIM_TARIHI, SENET_TARIHI, DOGUM_TARIHI, KARAR_KUNYESI, BELGE_TARIHI, TESLIM_BELIRSIZ, ULASMA_E_IBARESI_YOK, ANLATILAN_TEBLIG, ETIKETSIZ
+                  reasonTr:
+                    type: string
+        facts:
+          type: object
+          description: eTebligat, tebligatDocument, courts[], references[], documentTypes[], statedPeriods[], notes[] — every entry with its quoted span.
+          additionalProperties: true
+        proposals:
+          type: array
+          items:
+            type: object
+            required: [ruleId, rule, reasonTr, origin, why, warnings, computation, matterItem]
+            properties:
+              ruleId:
+                type: string
+              rule:
+                $ref: "#/components/schemas/DeadlineRule"
+              reasonTr:
+                type: string
+              origin:
+                type: string
+                enum: [BELGE, AVUKAT]
+              why:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NoticeQuotedSpan"
+              warnings:
+                type: array
+                items:
+                  type: string
+              computation:
+                nullable: true
+                allOf:
+                  - $ref: "#/components/schemas/DeadlineComputation"
+              matterItem:
+                type: object
+                nullable: true
+                description: Ready body item for POST /v1/matters/{id}/items:batch (kind deadline; payload title, dueDate, ruleId, startDate, computed, status, source "hesap", teblig provenance).
+                additionalProperties: true
+        messages:
+          type: array
+          items:
+            type: string
+        disclaimer:
+          type: string
+          description: Verbatim mandatory deadline disclaimer.
     DeadlineComputation:
       type: object
       required:

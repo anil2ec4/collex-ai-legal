@@ -837,6 +837,70 @@ curl -s -X POST http://127.0.0.1:8787/v1/deadlines/compute -H 'content-type: app
 # dueDate 2026-09-07 (07.09.2026 Pazartesi), adliTatil.applied=true, dueDateWithoutExtension 2026-07-29, verified.status=dogrulanmadi
 ```
 
+### 17.1 "Tebligattan süreye" — `POST /v1/deadlines/from-notice`
+
+The UETS-integration chain competitors sell, done locally and without
+credentials: the lawyer gives ColleX the served document and gets the
+deadline PROPOSAL, with every fact quoted from the document.
+
+- **Input** (zod-strict, `fieldIssues`): exactly one of `fileId` (an upload,
+  read through the same files store as `/v1/files`; a malformed id is 404
+  before the store) or `text` (pasted, at most
+  `MAX_NOTICE_TEXT_CODE_POINTS` = 400 000 code points; the app's 1 MiB JSON
+  limit applies first). Optional choices: `candidateId` (pick among the
+  reading's `dateCandidates`) **or** `tebligDate` (typed, `YYYY-MM-DD`) —
+  never both — and `ruleId` (a computable rule).
+- **Reader** (`src/deadlines/serviceNotice.ts`, producer version
+  `NOTICE_READER_VERSION = "tebligat-okuyucu-v1"`): deterministic, rule-based,
+  no model. Offsets are code points over the NFC text; for an upload the
+  chunks are placed at their own offsets and gaps are filled with line breaks
+  (`text.gapCodePoints`). A scanned tebligat reaches it only as text that
+  `intake/ocr.py` produced (fail-closed); an upload with no text is
+  `422 NOTICE_TEXT_EMPTY`.
+- **Dates**: a physical tebliğ date (`FIZIKI_TEBLIG`, from a "Tebliğ
+  Tarihi:" field or a mazbata's "… tarihinde … imzasına tebliğ edildi"
+  sentence), or an e-tebligat ulaşma date (`ETEBLIGAT_ULASMA`) to which the
+  7201 s.K. m.7/a fifth-day rule is applied — **five calendar days, never
+  rolled over a weekend or holiday** (rolling would move the start later,
+  the unsafe direction; a warning says so, and the rule itself is marked
+  `basisStatus: "dogrulanmadi"` because its article text was not compared in
+  ColleX). A printed deemed date that agrees with ulaşma + 5 merges into the
+  same candidate; one that disagrees is a second candidate and the answer is
+  `SECIM_GEREKLI` — nothing is computed until the lawyer chooses. No readable
+  date is `OKUNAMADI`: ColleX never guesses one. Every other date is listed in
+  `ignoredDates` with its reason (karar / yazım / dava tarihi, kesinleşme
+  şerhi, okunma / gönderim tarihi, a court decision's künye date, a tebliğ
+  NARRATED inside the served document, …).
+- **Rules**: from what was served (the receipt's "Evrak Türü" field first,
+  else the document's own heading) and the court class (gerekçeli karar of a
+  hukuk ilk derece → `hmk-istinaf`, BAM hukuk → `hmk-temyiz`, ceza →
+  `cmk-istinaf`, icra hukuk → `iik-icra-mahkemesi-istinaf`, idare/vergi →
+  `iyuk-istinaf`; dava dilekçesi → `hmk-cevap` / `iyuk-cevap`; ödeme emri
+  Örnek 7 / 10 / 13 / 6183 → `iik-odeme-emri-itiraz` / `iik-kambiyo-itiraz` /
+  `iik-kira-odeme-emri-itiraz` / `amme-odeme-emri-dava`, an unreadable form
+  offers both itiraz rules; bilirkişi raporu → `hmk-bilirkisi-rapor-itiraz`;
+  …). `NOTICE_RULE_IDS` is validated against `DEADLINE_RULES` at module load.
+  Each computation is `computeDeadline` verbatim — adli tatil, holidays,
+  `adliTatileTabi`, `verified` and `DEADLINE_DISCLAIMER` exactly as
+  `/v1/deadlines/compute` returns them.
+- **Nothing is written.** Each computed proposal carries `matterItem`, a
+  ready item for `POST /v1/matters/{id}/items:batch`; the batch route's
+  (kind, dueDate, title) duplicate key turns a second confirm into a
+  `DUPLICATE` skip, and the filed deadline flows into the matter calendar and
+  its `.ics` like any other.
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/v1/deadlines/from-notice -H 'content-type: application/json' \
+  -d '{"text":"ELEKTRONİK TEBLİGAT\nGönderici Birim: İstanbul 12. Asliye Hukuk Mahkemesi\nEvrak Türü: Gerekçeli Karar\nMuhataba Ulaştırıldığı Tarih: 27.10.2026"}'
+# dateStatus OKUNDU, dateCandidates[0] ETEBLIGAT_ULASMA 2026-10-27 -> tebligDate 2026-11-01,
+# proposals[0].ruleId hmk-istinaf, computation.dueDate 2026-11-16, matterItem ready (not filed)
+```
+
+Console: "Süre hesapla" → "Tebligattan süre çıkar" (select an upload, upload a
+new one, or paste the text; quotes, proposal, disclaimer, "Onayla ve dosyaya
+ekle"). Tests: `control-plane/tests/deadlines/serviceNotice.test.ts`,
+`noticeRoutes.test.ts` (samples in `noticeSamples.ts`).
+
 ## 14. Moving to a real Postgres / Supabase target
 
 Step-by-step: `docs/implementation/SUPABASE-SETUP.md`. Summary of what changes:
