@@ -63,6 +63,15 @@ import {
 } from "../retrieval/corpusErrors.js";
 import { renderAnswerMarkdown, renderEvidenceBundle, escapeInline } from "../answer/renderer.js";
 import {
+  ANSWER_SHAPE_NOT_CHECKED_TR,
+  ANSWER_SHAPE_NOT_FOUND,
+  ANSWER_SHAPE_VERSION,
+  answerShapeFoundTr,
+  answerShapeNotFoundTr,
+  assessPassageShape,
+  type WantedAnswerShape,
+} from "../answer/answerShape.js";
+import {
   markEntailmentNotChecked,
   verifyAnswer,
   type AnswerDocument,
@@ -112,6 +121,8 @@ import {
   type AiUsedView,
   type AmendingInstrumentView,
   type AnswerResult,
+  type AnswerShapeView,
+  type ClaimAnswerShapeView,
   type ClaimView,
   type ContraryCoverage,
   type ContraryLaneRun,
@@ -1386,6 +1397,24 @@ export class AnswerPipeline {
 
     const fileScope = fileScopeOf(request.filters);
 
+    // ---- the answer's shape (W22 follow-up) ---------------------------------
+    // Was the LEAD claim's passage checked to carry the kind of value the
+    // question asks for (a date for "ne zaman", an amount for "ne kadar")?
+    // A lexical/pattern check on the evidence, whoever drafted the claim; it
+    // never changes the status. A miss is said out loud, because without a
+    // model nothing else checks that the leading quote answers the question.
+    const shapeWanted: WantedAnswerShape = intent.answerShape.wanted;
+    const claimShapes = new Map<string, ClaimAnswerShapeView>();
+    if (shapeWanted !== "NONE") {
+      for (const claim of finalDocument.claims) {
+        claimShapes.set(claim.claim.claimId, claimAnswerShape(request.question, claim, admitted, shapeWanted));
+      }
+    }
+    const answerShape = answerShapeView(shapeWanted, finalDocument.claims[0], claimShapes);
+    if (answerShape.checked && answerShape.found === false) {
+      warnings.push(`${ANSWER_SHAPE_NOT_FOUND}:${shapeWanted}`);
+    }
+
     // ---- stage: render -----------------------------------------------------
     const contraryCoverage = buildContraryCoverage(
       retrieval.laneRuns,
@@ -1436,6 +1465,9 @@ export class AnswerPipeline {
       const body = [
         renderCorpusBanner(corpusNotice),
         ...(fileScope !== undefined ? [renderScopeBanner(fileScope)] : []),
+        ...(answerShape.checked && answerShape.found === false && answerShape.messageTr !== undefined
+          ? [renderAnswerShapeBanner(answerShape.messageTr)]
+          : []),
         renderAnswerMarkdown(finalDocument),
         renderContrarySection(contraryCoverage),
       ].join("\n\n");
@@ -1462,7 +1494,7 @@ export class AnswerPipeline {
       finalizable: finalDocument.finalizable,
       reasons: [...finalDocument.reasons],
       warnings,
-      claims: finalDocument.claims.map(toClaimView),
+      claims: finalDocument.claims.map((claim) => toClaimView(claim, claimShapes.get(claim.claim.claimId))),
       evidence: admitted.items.map((item) =>
         toEvidenceView(item, retrieval.merged, candidates),
       ),
@@ -1485,6 +1517,7 @@ export class AnswerPipeline {
       aiUsed,
       ...(temporalComparison.applicable ? { temporal: temporalComparison } : {}),
       ...(fileScope !== undefined ? { fileScope } : {}),
+      answerShape,
     };
 
     return { result, document: finalDocument, pack: admitted };
@@ -1685,7 +1718,7 @@ function toCoverageView(
   };
 }
 
-function toClaimView(claim: AnswerDocument["claims"][number]): ClaimView {
+function toClaimView(claim: AnswerDocument["claims"][number], answerShape?: ClaimAnswerShapeView): ClaimView {
   return {
     claimId: claim.claim.claimId,
     text: claim.claim.text,
@@ -1711,6 +1744,77 @@ function toClaimView(claim: AnswerDocument["claims"][number]): ClaimView {
     currentnessApplicable: claim.currentnessApplicable,
     entailmentAggregation: claim.entailmentAggregation,
     entailmentMeasured: claim.entailmentMeasured,
+    ...(answerShape !== undefined ? { answerShape } : {}),
+  };
+}
+
+/**
+ * The shape check of one claim (W22 follow-up): its passages in citation
+ * order — validated ones only, falling back to what the drafter cited when
+ * none validated — and the first that carries the wanted value. Offsets are
+ * rebased onto the canonical text (code points, the locator's basis).
+ */
+function claimAnswerShape(
+  question: string,
+  claim: AnswerDocument["claims"][number],
+  pack: EvidencePack,
+  wanted: Exclude<WantedAnswerShape, "NONE">,
+): ClaimAnswerShapeView {
+  const validated = claim.citationChecks.filter((check) => check.ok).map((check) => check.evidenceId);
+  const ids = validated.length > 0 ? validated : [...claim.claim.evidenceIds];
+  const items = ids
+    .map((id) => pack.items.find((item) => item.ref.evidenceId === id))
+    .filter((item): item is EvidencePack["items"][number] => item !== undefined);
+  let headingLike = items.length > 0;
+  for (const item of items) {
+    const shape = assessPassageShape(question, item.ref.quote, wanted);
+    if (!shape.headingLike) headingLike = false;
+    if (shape.found && shape.sentence !== undefined) {
+      return {
+        wanted,
+        found: true,
+        headingLike: shape.headingLike,
+        evidenceId: item.ref.evidenceId,
+        startChar: item.ref.locator.startChar + shape.sentence.start,
+        endChar: item.ref.locator.startChar + shape.sentence.end,
+        ...(shape.matched !== undefined ? { matched: shape.matched } : {}),
+      };
+    }
+  }
+  return { wanted, found: false, headingLike };
+}
+
+/** The answer-level verdict: the first claim is the one the reader reads first. */
+function answerShapeView(
+  wanted: WantedAnswerShape,
+  lead: AnswerDocument["claims"][number] | undefined,
+  claimShapes: ReadonlyMap<string, ClaimAnswerShapeView>,
+): AnswerShapeView {
+  if (lead === undefined) return { method: ANSWER_SHAPE_VERSION, wanted, checked: false, found: null };
+  const leadClaimId = lead.claim.claimId;
+  if (wanted === "NONE") {
+    return {
+      method: ANSWER_SHAPE_VERSION,
+      wanted,
+      checked: false,
+      found: null,
+      leadClaimId,
+      messageTr: ANSWER_SHAPE_NOT_CHECKED_TR,
+    };
+  }
+  const shape = claimShapes.get(leadClaimId) ?? { wanted, found: false, headingLike: false };
+  const { wanted: _kind, ...rest } = shape;
+  return {
+    method: ANSWER_SHAPE_VERSION,
+    ...rest,
+    wanted,
+    checked: true,
+    found: shape.found,
+    leadClaimId,
+    messageTr:
+      shape.found && shape.matched !== undefined
+        ? answerShapeFoundTr(wanted, shape.matched)
+        : answerShapeNotFoundTr(wanted),
   };
 }
 
@@ -2007,6 +2111,18 @@ function renderCorpusBanner(notice: string): string {
     ...escapeInline(notice)
       .split(/\r?\n/)
       .map((line) => `> ${line}`),
+  ].join("\n");
+}
+
+/**
+ * W22 follow-up: the lead passage does not carry the kind of value the
+ * question asks for. Said BEFORE the tespitler, Turkish first, the machine
+ * code in parentheses (shared dictionary rule).
+ */
+function renderAnswerShapeBanner(messageTr: string): string {
+  return [
+    "> **CEVAP BİÇİMİ BULUNAMADI**",
+    `> ${escapeInline(messageTr)} (${ANSWER_SHAPE_NOT_FOUND})`,
   ].join("\n");
 }
 

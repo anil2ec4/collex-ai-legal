@@ -52,6 +52,24 @@
  *     itself cited that provision or instrument (rule 1 already puts it first
  *     in that case, and rule 1 wins).
  *
+ *  4. THE ANSWER'S SHAPE BEFORE THE RETRIEVAL SCORE (added 2026-09-27, W22
+ *     follow-up). Within one responsiveness tier, retrieval is lexical: a
+ *     passage that merely CONTAINS the question's words scored as well as
+ *     the one that answers it, and on a real iş davası file "Davacı işe ne
+ *     zaman başladı?" led with the heading "TANIK BEYAN TUTANAĞI — Davacı …
+ *     işe giriş" instead of the sentence carrying the date. Now the
+ *     question's wanted shape (answer/answerShape.ts: a DATE for "ne zaman",
+ *     an AMOUNT for "ücreti ne kadar", a PERSON for "kim", a COURT for "hangi
+ *     mahkeme" …) is looked for in each passage, in a sentence that also
+ *     carries the question's core words. Such a passage sorts first in its
+ *     tier; a heading, a label-only line or a list of names sorts last in
+ *     its tier, whatever its score; everything else keeps the old order.
+ *     Rules 1 and 3 still win: a cited provision leads and an enrichment
+ *     passage never does. The check is lexical and pattern-based — it says a
+ *     passage carries a date next to the question's words, never that it
+ *     answers the question — and the pipeline reports its outcome on the
+ *     lead claim (`answerShape`, ANSWER_SHAPE_NOT_FOUND).
+ *
  * A consolidated claim cites several passages, which changes what its
  * `coverage` axis measures: if one of those citations later fails validation
  * the claim is not destroyed, it is reported at partial coverage
@@ -64,6 +82,7 @@
  */
 
 import type { ClaimDraft } from "../evidence/types.js";
+import { assessPassageShape, classifyWantedShape, type WantedAnswerShape } from "../answer/answerShape.js";
 import { citeLabel, type EvidenceItem } from "../answer/evidencePack.js";
 import { normalizeTurkishSearch } from "../retrieval/normalize.js";
 import { parseReferences } from "../retrieval/referenceParser.js";
@@ -98,16 +117,30 @@ const RESPONSIVENESS = {
   ENRICHMENT: 4,
 } as const;
 
+/**
+ * How well a passage's FORM fits the question (rule 4). Lower is better.
+ */
+const ANSWER_FIT = {
+  /** A value of the wanted shape stands next to the question's core words. */
+  SHAPE_FOUND: 0,
+  /** Ordinary prose, or no shape wanted. */
+  NEUTRAL: 1,
+  /** A heading, a label-only line or a list of names, without that value. */
+  HEADING: 2,
+} as const;
+
 interface Draftable {
   item: EvidenceItem;
   /** Position in the pack — i.e. the retrieval rank the pipeline produced. */
   packIndex: number;
   responsiveness: number;
+  answerFit: number;
 }
 
 export class RuleBasedDrafter implements DrafterPort {
   async draftClaims({ question, pack }: DrafterInput): Promise<ClaimDraft[]> {
     const asked = parseAsked(question);
+    const wanted = classifyWantedShape(question).wanted;
 
     const draftable: Draftable[] = [];
     pack.items.forEach((item, packIndex) => {
@@ -116,6 +149,7 @@ export class RuleBasedDrafter implements DrafterPort {
         item,
         packIndex,
         responsiveness: responsivenessOf(item, asked),
+        answerFit: answerFitOf(question, item, wanted),
       });
     });
 
@@ -187,11 +221,19 @@ function responsivenessOf(item: EvidenceItem, asked: AskedReferences): number {
   return RESPONSIVENESS.RETRIEVED;
 }
 
+function answerFitOf(question: string, item: EvidenceItem, wanted: WantedAnswerShape): number {
+  const shape = assessPassageShape(question, item.ref.quote, wanted);
+  if (shape.found) return ANSWER_FIT.SHAPE_FOUND;
+  return shape.headingLike ? ANSWER_FIT.HEADING : ANSWER_FIT.NEUTRAL;
+}
+
 interface ProvisionGroup {
   /** Passages of one provision, in retrieval order. */
   members: Draftable[];
   /** The best (lowest) responsiveness among the members. */
   responsiveness: number;
+  /** The best (lowest) answer fit among the members (rule 4). */
+  answerFit: number;
   /** The strongest retrieval score among the members. */
   retrievalScore: number;
   /** The most authoritative (lowest) tier among the members. */
@@ -235,6 +277,7 @@ function groupByProvision(draftable: readonly Draftable[]): ProvisionGroup[] {
     return {
       members,
       responsiveness: Math.min(...members.map((m) => m.responsiveness)),
+      answerFit: Math.min(...members.map((m) => m.answerFit)),
       retrievalScore: Math.max(...members.map((m) => m.item.retrievalScore)),
       authorityTier: Math.min(...members.map((m) => m.item.authority.tier)),
       packIndex: Math.min(...members.map((m) => m.packIndex)),
@@ -243,12 +286,14 @@ function groupByProvision(draftable: readonly Draftable[]): ProvisionGroup[] {
 }
 
 /**
- * Responsiveness, then the retrieval signal, then authority tier, then the
- * retrieval rank. The last key is unique per group, so the order is total —
- * and no key is derived from an identifier's bytes.
+ * Responsiveness, then the answer fit (rule 4), then the retrieval signal,
+ * then authority tier, then the retrieval rank. The last key is unique per
+ * group, so the order is total — and no key is derived from an identifier's
+ * bytes (the pack order itself ends on the corpus key, W14 N-7).
  */
 function compareGroups(a: ProvisionGroup, b: ProvisionGroup): number {
   if (a.responsiveness !== b.responsiveness) return a.responsiveness - b.responsiveness;
+  if (a.answerFit !== b.answerFit) return a.answerFit - b.answerFit;
   if (a.retrievalScore !== b.retrievalScore) return b.retrievalScore - a.retrievalScore;
   if (a.authorityTier !== b.authorityTier) return a.authorityTier - b.authorityTier;
   return a.packIndex - b.packIndex;

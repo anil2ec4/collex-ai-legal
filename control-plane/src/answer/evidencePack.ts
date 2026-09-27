@@ -25,6 +25,7 @@ import {
   sha256HexUtf8,
   validateEvidence,
 } from "../verification/validator.js";
+import { answerShapeAnchors } from "./answerShape.js";
 import { contentLexemes, lexemesMatch, stemTurkish } from "./coverage.js";
 
 /**
@@ -222,7 +223,9 @@ function isSpace(point: string | undefined): boolean {
 
 /**
  * The window of at most `max` code points of `quote` that carries the most
- * of `focus`'s content words (ties: the earliest), snapped to word
+ * of `focus`'s content words (ties: the earliest) — a window holding a
+ * value of the shape the question asks for first (answer/answerShape.ts,
+ * W22 follow-up) — snapped to word
  * boundaries and trimmed of surrounding whitespace. Offsets are code points
  * relative to `quote`. Deterministic; no focus (or no match) = the head.
  * Exported for tests.
@@ -258,13 +261,28 @@ export function bestQuoteWindow(
 
   let start = 0;
   if (matches.length > 0) {
+    // W22 follow-up: a window that holds an ANCHOR — a value of the shape the
+    // question asks for (a date for "ne zaman", an amount for "ne kadar")
+    // standing in a sentence with the question's core words
+    // (answer/answerShape.ts) — beats every window without one; among equals
+    // the densest window wins, then the earliest, exactly as before. Each
+    // anchor is also tried as a window position. Without a lexeme match the
+    // head window stays, and a question that asks for no shape (no anchors)
+    // chooses exactly the window it chose before.
+    const anchors = focus === undefined ? [] : answerShapeAnchors(focus, quote);
+    let bestAnchored = false;
     let best = -1;
     const lead = Math.floor(max / 3);
-    for (const position of matches) {
+    for (const position of [...matches, ...anchors]) {
       const candidate = Math.max(0, Math.min(position - lead, total - max));
       let count = 0;
       for (const m of matches) if (m >= candidate && m < candidate + max) count += 1;
-      if (count > best || (count === best && candidate < start)) {
+      const anchored = anchors.some((a) => a >= candidate && a < candidate + max);
+      const better =
+        (anchored && !bestAnchored) ||
+        (anchored === bestAnchored && (count > best || (count === best && candidate < start)));
+      if (better) {
+        bestAnchored = anchored;
         best = count;
         start = candidate;
       }

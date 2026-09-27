@@ -1080,6 +1080,49 @@ export function extractPropositions(unitText: string, options: ExtractOptions = 
   return out;
 }
 
+/**
+ * A value the deterministic patterns read, as a bare span (UTF-16 index and
+ * length within `text`). Added for the answer-shape check
+ * (answer/answerShape.ts): it asks "does this passage carry a date / an
+ * amount / a ratio?" with the SAME patterns the matter analysis reads, so a
+ * value the census would not recognise is not recognised there either.
+ * Reading only — the extractor's own output is unchanged (EXTRACTOR_VERSION
+ * stays), and every amount is returned whatever its currency.
+ */
+export interface RecognisedValueSpan {
+  readonly kind: PropositionKind;
+  readonly at: number;
+  readonly length: number;
+  /** A date is the date of a cited decision (see dateContext). */
+  readonly decisionDate?: boolean;
+}
+
+/** Every date, amount and ratio the extractor's patterns read in `text`, in text order. */
+export function recognisedValueSpans(text: string): RecognisedValueSpan[] {
+  const out: RecognisedValueSpan[] = [];
+  const dates = dateMatches(text);
+  for (const date of dates) {
+    out.push({ kind: "date", at: date.at, length: date.length, decisionDate: dateContext(text, date, dates).decision });
+  }
+  for (const amount of amountMatches(text)) out.push({ kind: "amount", at: amount.at, length: amount.length });
+  for (const match of text.matchAll(RATIO)) {
+    out.push({ kind: "ratio", at: match.index ?? 0, length: match[0].length });
+  }
+  return out.sort((left, right) => left.at - right.at || left.length - right.length);
+}
+
+/**
+ * [start, end) (UTF-16) of the sentence holding the span at `at`, by the
+ * extractor's own sentence rules (isSentenceEnd: wrapped PDF lines stay one
+ * sentence, a label line "İşe Giriş Tarihi : …" is its own, "9. Hukuk
+ * Dairesi" and "Av. Zeynep" do not end one), never more than 400 characters
+ * each way.
+ */
+export function sentenceSpanAround(text: string, at: number, length: number): { start: number; end: number } {
+  const span = spanAround(text, at, length, isSentenceEnd, 400);
+  return { start: span.start, end: span.endMark };
+}
+
 /** How far around a value-like word a digit is looked for (UTF-16 units). */
 const MENTION_WINDOW: Readonly<Record<"date" | "amount", { before: number; after: number }>> = {
   date: { before: 12, after: 12 },

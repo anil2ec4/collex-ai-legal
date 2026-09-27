@@ -5471,6 +5471,107 @@ components:
             belge — yürürlük değerlendirilemez", not as a percentage.
             Absent or true: the strict yürürlük rule applied (an upload can
             never mask a stale statute cited by the same claim).
+        answerShape:
+          $ref: "#/components/schemas/ClaimAnswerShape"
+    ClaimAnswerShape:
+      type: object
+      description: >
+        Additive (W22 follow-up, `shape-v1`). Present on a ClaimView only
+        when the question asks for a recognised shape of value. Whether one
+        of the claim's validated passages carries a value of that shape (a
+        date for "ne zaman", an amount for "ücreti ne kadar", a duration for
+        "kaç gün", a person's name for "kim", a court for "hangi mahkeme")
+        in a SENTENCE that also carries at least one of the question's core
+        words (party roles such as "davacı" and words naming the shape such
+        as "tarihi" are not core words). Dates, amounts and ratios are read
+        with the matter analysis' own patterns; a date beside a cited
+        decision counts only when the question asks about a decision. A
+        lexical and pattern check, never a reading of the answer: `found:
+        true` means "biçim bulundu", never "soruyu cevaplıyor".
+      required: [wanted, found, headingLike]
+      properties:
+        wanted:
+          type: string
+          enum: [DATE, AMOUNT, DURATION, QUANTITY, PERSON, COURT]
+        found:
+          type: boolean
+        headingLike:
+          type: boolean
+          description: >
+            Every passage of the claim is a heading, a label-only line
+            ("CELSE TARİHİ : 14.05.2024") or a list of names. The rule-based
+            drafter sorts such a claim last within its responsiveness tier.
+        evidenceId:
+          type: string
+          description: The passage the value was found in (only when found).
+        startChar:
+          type: integer
+          description: >
+            Only when found: code-point offset, in the canonical document
+            text (the basis of `EvidenceView.startChar`), of the SENTENCE
+            carrying the value.
+        endChar:
+          type: integer
+          description: Only when found; exclusive, code points.
+        matched:
+          type: string
+          description: The value as written, e.g. "01.03.2018" (only when found).
+    AnswerShape:
+      type: object
+      description: >
+        Additive (W22 follow-up). Always set by the AnswerPipeline: was the
+        LEAD claim (the first claim) checked for the shape of value the
+        question asks for, and was it found? Without a model the passage
+        order is lexical; the rule-based drafter now leads with a passage
+        carrying that shape and sorts headings and label-only lines last,
+        and this object says whether the lead passage was so checked.
+        `checked: true, found: false` comes with the warning
+        `ANSWER_SHAPE_NOT_FOUND:<wanted>` and a "CEVAP BİÇİMİ BULUNAMADI"
+        block in `markdown`; it never changes `status`, `finalizable` or
+        `reasons`. The console shows `messageTr`.
+      required: [method, wanted, checked, found]
+      properties:
+        method:
+          type: string
+          description: Producer version of the check (`shape-v1`).
+        wanted:
+          type: string
+          enum: [DATE, AMOUNT, DURATION, QUANTITY, PERSON, COURT, NONE]
+          description: NONE when the question asks for no recognised shape.
+        checked:
+          type: boolean
+          description: True when a shape was wanted AND the answer has a claim.
+        found:
+          type: boolean
+          nullable: true
+          description: Null when not checked.
+        leadClaimId:
+          type: string
+          description: The checked claim; absent when the answer has no claim.
+        headingLike:
+          type: boolean
+        evidenceId:
+          type: string
+        startChar:
+          type: integer
+        endChar:
+          type: integer
+        matched:
+          type: string
+        messageTr:
+          type: string
+          description: >
+            The Turkish sentence to show; absent when the answer has no
+            claim. Found: "Öne çıkan alıntıda sorunun beklediği biçimde bir
+            <biçim> var: “<değer>”. Bu yalnız bir biçim denetimidir;
+            alıntının soruyu cevapladığını kendiniz okuyarak doğrulayın."
+            Not found: "Soru bir <biçim> soruyor; öne çıkan alıntıda bu
+            biçimde bir değer bulunamadı — alıntının soruyu karşıladığı
+            denetlenmedi, alıntıyı kendiniz okuyun." Not checked (NONE):
+            "Soru belirli bir cevap biçimi (tarih, tutar, süre, kişi,
+            mahkeme) sormuyor; öne çıkan alıntının soruyu karşıladığı ayrıca
+            denetlenmedi." <biçim>: tarih · para tutarı · süre · sayı ya da
+            miktar · kişi ya da taraf adı · mahkeme ya da daire adı.
     StageTrace:
       type: object
       required: [name, ms, counts, notes]
@@ -5733,11 +5834,17 @@ components:
             `DISABLED`); it is NOT on any HTTP response yet and no screen
             draws it. `LIBRARY_WRITE_FAILED:<n>` — a fetched
             document could not be queued to the local library; the answer and
-            its quotes are untouched.
+            its quotes are untouched. W22 follow-up:
+            `ANSWER_SHAPE_NOT_FOUND:<DATE|AMOUNT|DURATION|QUANTITY|PERSON|COURT>`
+            — the lead claim's passage carries no value of the shape the
+            question asks for; see `answerShape`. A warning only: status,
+            finalizable and reasons are unchanged.
           items:
             type: string
         coverage:
           $ref: "#/components/schemas/QuestionCoverage"
+        answerShape:
+          $ref: "#/components/schemas/AnswerShape"
         temporal:
           $ref: "#/components/schemas/TemporalView"
         aiUsed:

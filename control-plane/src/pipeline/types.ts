@@ -24,6 +24,7 @@ import type {
   EvidenceStance,
 } from "../answer/evidencePack.js";
 import type { CoverageGate } from "../answer/coverage.js";
+import type { AnswerShapeKind, WantedAnswerShape } from "../answer/answerShape.js";
 import type { CoverageMeasuredOn } from "./questionIntent.js";
 import type {
   CitationProvenance,
@@ -304,6 +305,11 @@ export interface ClaimView {
    * cloud drafter wrote the sentence, i.e. when the score means something.
    */
   entailmentMeasured?: boolean;
+  /**
+   * Additive (W22 follow-up): the answer-shape check of this claim's
+   * passages; present only when the question asks for a shape.
+   */
+  answerShape?: ClaimAnswerShapeView;
 }
 
 /** One executed contrary-authority search lane. */
@@ -446,4 +452,56 @@ export interface AnswerResult {
   temporal?: TemporalComparisonView;
   /** Additive (W12): present only when the request restricted retrieval to uploads. */
   fileScope?: FileScopeView;
+  /**
+   * Additive (W22 follow-up): was the LEAD claim's passage checked to carry
+   * the kind of value the question asks for (a date for "ne zaman", an amount
+   * for "ne kadar", …), and was it found? Always set by the AnswerPipeline.
+   * A lexical and pattern check (`method: "shape-v1"`), never a reading of
+   * the answer: `found: true` means "biçim bulundu", not "soruyu cevaplıyor".
+   * `checked: true, found: false` comes with the warning
+   * `ANSWER_SHAPE_NOT_FOUND:<wanted>`.
+   */
+  answerShape?: AnswerShapeView;
+}
+
+/**
+ * Additive (W22 follow-up): the answer-shape check of one claim — present on
+ * a ClaimView only when the question asks for a shape.
+ */
+export interface ClaimAnswerShapeView {
+  wanted: AnswerShapeKind;
+  /** A value of that shape stands in a sentence with the question's core words. */
+  found: boolean;
+  /** Every passage of the claim is a heading, a label-only line or a list of names. */
+  headingLike: boolean;
+  /** The passage the value was found in (only when found). */
+  evidenceId?: string;
+  /**
+   * Code-point span, in the canonical document text (the same basis as
+   * EvidenceRef.locator), of the SENTENCE carrying the value (only when found).
+   */
+  startChar?: number;
+  endChar?: number;
+  /** The value as written, e.g. "01.03.2018" (only when found). */
+  matched?: string;
+}
+
+/** Additive (W22 follow-up): the answer-level verdict of the shape check. */
+export interface AnswerShapeView extends Partial<Omit<ClaimAnswerShapeView, "wanted" | "found">> {
+  /** Producer version of the check (ANSWER_SHAPE_VERSION). */
+  method: string;
+  wanted: WantedAnswerShape;
+  /** True when a shape was wanted AND there was a lead claim to check. */
+  checked: boolean;
+  /** Null when not checked. */
+  found: boolean | null;
+  /** The claim that was checked (the first claim). */
+  leadClaimId?: string;
+  /**
+   * The Turkish sentence to show (absent when the answer has no claim).
+   * checked+found: answerShapeFoundTr; checked+not found:
+   * answerShapeNotFoundTr (+ warning ANSWER_SHAPE_NOT_FOUND); not checked:
+   * ANSWER_SHAPE_NOT_CHECKED_TR.
+   */
+  messageTr?: string;
 }

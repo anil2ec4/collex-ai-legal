@@ -28,6 +28,7 @@
  * passage, because over-surfacing authority is the safe failure.
  */
 
+import { classifyWantedShape, type WantedShapeAssessment } from "../answer/answerShape.js";
 import { normalizeTurkishSearch } from "../retrieval/normalize.js";
 import { parseReferences, type ParsedReference } from "../retrieval/referenceParser.js";
 import { explicitResearchFocus } from "../retrieval/researchFocus.js";
@@ -148,6 +149,14 @@ export interface QuestionIntentAssessment {
    * temporal ("m.157'nin 2024'te yürürlükte olan metni nedir?").
    */
   temporal: TemporalAssessment;
+  /**
+   * Additive (W22 follow-up). A THIRD, separate axis: the KIND of value an
+   * answer must carry — a DATE for "ne zaman", an AMOUNT for "ücreti ne
+   * kadar", a PERSON for "kim", a COURT for "hangi mahkeme" (answer/
+   * answerShape.ts). It narrows nothing: the rule-based drafter orders its
+   * claims with it and the pipeline checks the lead passage against it.
+   */
+  answerShape: WantedShapeAssessment;
 }
 
 /**
@@ -208,6 +217,7 @@ export function classifyQuestionIntent(
 ): QuestionIntentAssessment {
   const normalized = normalizeTurkishSearch(question);
   const temporal = classifyTemporalQuestion(question, options);
+  const answerShape = classifyWantedShape(question);
   const applicationMarkers = APPLICATION_MARKERS.filter((m) => normalized.includes(m));
   if (applicationMarkers.length > 0) {
     return {
@@ -217,6 +227,7 @@ export function classifyQuestionIntent(
         "Soru bir normun somut olaya uygulanmasını sorguluyor " +
         `(${applicationMarkers.join(", ")}); tüm otorite türleri kanıt olarak değerlendirildi.`,
       temporal,
+      answerShape,
     };
   }
 
@@ -234,6 +245,7 @@ export function classifyQuestionIntent(
         "metninden verildi. Bir hükmün somut olaya uygulanmadığına dair karar, o hükmün " +
         "metnine karşı otorite değildir.",
       temporal,
+      answerShape,
     };
   }
 
@@ -244,6 +256,7 @@ export function classifyQuestionIntent(
       "Soru norm içeriği kalıbına girmedi; kanıt kümesi daraltılmadan " +
       "tüm otorite türleri değerlendirildi.",
     temporal,
+    answerShape,
   };
 }
 

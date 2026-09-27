@@ -50,8 +50,8 @@ Reproduce: `.venv/Scripts/python.exe scripts/run_evals.py`
 | Quote/hash integrity | 100.0% | GATE: must be 100%; over 36 evidence records |
 | Fabricated ids | 0 | GATE: must be 0; ids absent from the corpus inventory |
 | Cross-tenant leak indicators | 0 | GATE: must be 0; non-public documents in a public search |
-| Retrieval latency p50 / p95 (ms) | 12.3 / 25.7 | searchLegalCorpus wall clock per query; n=34 |
-| Evidence-pack latency p50 / p95 (ms) | 0.3 / 1.0 | buildEvidencePack wall clock per query; n=34 |
+| Retrieval latency p50 / p95 (ms) | 13.5 / 31.3 | searchLegalCorpus wall clock per query; n=34 |
+| Evidence-pack latency p50 / p95 (ms) | 0.4 / 1.3 | buildEvidencePack wall clock per query; n=34 |
 | Queries returning zero hits | 12 | of 34 gold queries; 13 of them SHOULD return nothing |
 | Hits by lane | exact=36, lexical=67, trigram=5, dense=0, relation=19, citation=10 | ranked hits in whose lane provenance each lane appears (a lane at 0 contributed no recall on this corpus) |
 
@@ -92,14 +92,14 @@ Overall: **PASS**
 
 | Stage | ms |
 |---|---|
-| driver_bundle | 49.4 |
-| answer_driver_bundle | 48.7 |
-| database_recreate | 63.8 |
-| ingestion | 329.7 |
-| answer_measurement | 1707.3 |
-| retrieval_measurement | 675.2 |
-| scoring | 0.5 |
-| citation_check | 0.6 |
+| driver_bundle | 48.4 |
+| answer_driver_bundle | 37.4 |
+| database_recreate | 64.5 |
+| ingestion | 378.4 |
+| answer_measurement | 1923.5 |
+| retrieval_measurement | 829.6 |
+| scoring | 0.8 |
+| citation_check | 0.5 |
 
 ## Lane contribution
 
@@ -210,18 +210,18 @@ repeats is named in the union lists above.
 | fx-exact-007 | exact_reference | COMPLETE | True | 2 | 4 | bypassed-by-reference | True | False | - |
 | fx-exact-008 | exact_reference | COMPLETE | True | 1 | 3 | bypassed-by-reference | True | False | - |
 | fx-exact-009 | exact_reference | COMPLETE | True | 8 | 8 | bypassed-by-reference | True | False | - |
-| fx-fact-001 | fact_pattern | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-0edf9d001708604c:ev-0ce91c4927783641 |
+| fx-fact-001 | fact_pattern | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-728d96718a8c0a06:ev-76ef414ba0d6b188, CONFLICTING_AUTHORITIES:claim-ev-72697b9a8ef2c493:ev-76ef414ba0d6b188, CONFLICTING_AUTHORITIES:claim-ev-c46b9c4e047dfbe1:ev-76ef414ba0d6b188 |
 | fx-fact-002 | fact_pattern | COMPLETE | True | 3 | 4 | passed | True | False | - |
-| fx-fact-003 | fact_pattern | QUALIFIED | True | 7 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-f266a67bdca24e7c:ev-0547aba8c757e7bd |
+| fx-fact-003 | fact_pattern | QUALIFIED | True | 7 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-d2ef4c6dcaafd305:ev-7439124ddd13b5c1 |
 | fx-fact-004 | fact_pattern | COMPLETE | True | 6 | 7 | passed | True | False | - |
 | fx-temporal-001 | temporal | PARTIAL | False | 1 | 1 | bypassed-by-reference | True | False | NOT_FINALIZABLE, QUESTION_PARTIALLY_COVERED, TEMPORAL_COMPARISON_MISSING |
 | fx-temporal-002 | temporal | PARTIAL | False | 1 | 1 | bypassed-by-reference | True | False | NOT_FINALIZABLE, QUESTION_PARTIALLY_COVERED, TEMPORAL_COMPARISON_MISSING |
 | fx-temporal-003 | temporal | QUALIFIED | True | 1 | 1 | bypassed-by-reference | True | False | TEMPORAL_COMPARISON_MISSING |
 | fx-amend-001 | temporal_amendment | COMPLETE | True | 1 | 1 | bypassed-by-reference | True | False | - |
 | fx-amend-002 | temporal_amendment | ABSTAIN | False | 0 | 0 | failed | False | False | QUESTION_NOT_COVERED, ABSTENTION_NOT_FINALIZABLE |
-| fx-amend-003 | temporal_amendment | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-270dbd2e210cefab:ev-0ce91c4927783641 |
-| fx-contrary-001 | contrary_authority | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641 |
-| fx-contrary-002 | contrary_authority | QUALIFIED | True | 5 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-b81dd90c00c7fe77+ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-b81dd90c00c7fe77+ev-0ce91c4927783641, CONFLICTING_AUTHORITIES:claim-ev-f266a67bdca24e7c:ev-b81dd90c00c7fe77+ev-0ce91c4927783641+ev-0547aba8c757e7bd, CONFLICTING_AUTHORITIES:claim-ev-0edf9d001708604c:ev-b81dd90c00c7fe77+ev-0ce91c4927783641 |
+| fx-amend-003 | temporal_amendment | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-72697b9a8ef2c493:ev-76ef414ba0d6b188, CONFLICTING_AUTHORITIES:claim-ev-728d96718a8c0a06:ev-76ef414ba0d6b188, CONFLICTING_AUTHORITIES:claim-ev-8b670e1a5a55c5d9:ev-76ef414ba0d6b188 |
+| fx-contrary-001 | contrary_authority | QUALIFIED | True | 6 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-72697b9a8ef2c493:ev-76ef414ba0d6b188, CONFLICTING_AUTHORITIES:claim-ev-728d96718a8c0a06:ev-76ef414ba0d6b188 |
+| fx-contrary-002 | contrary_authority | QUALIFIED | True | 5 | 8 | passed | True | False | CONFLICTING_AUTHORITIES:claim-ev-72697b9a8ef2c493:ev-7af168ddd09326c0+ev-76ef414ba0d6b188, CONFLICTING_AUTHORITIES:claim-ev-728d96718a8c0a06:ev-7af168ddd09326c0+ev-76ef414ba0d6b188, CONFLICTING_AUTHORITIES:claim-ev-d2ef4c6dcaafd305:ev-7af168ddd09326c0+ev-76ef414ba0d6b188+ev-7439124ddd13b5c1, CONFLICTING_AUTHORITIES:claim-ev-c46b9c4e047dfbe1:ev-7af168ddd09326c0+ev-76ef414ba0d6b188 |
 | fx-noanswer-001 | no_answer | ABSTAIN | False | 0 | 0 | failed | None | True | NO_EVIDENCE, ABSTENTION_NOT_FINALIZABLE |
 | fx-noanswer-002 | no_answer | ABSTAIN | False | 0 | 0 | failed | None | True | NO_EVIDENCE, ABSTENTION_NOT_FINALIZABLE |
 | fx-noanswer-003 | no_answer | ABSTAIN | False | 0 | 0 | failed | None | True | NO_EVIDENCE, ABSTENTION_NOT_FINALIZABLE |

@@ -834,9 +834,9 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641",
-          "CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641",
-          "CONFLICTING_AUTHORITIES:claim-ev-0edf9d001708604c:ev-0ce91c4927783641"
+          "CONFLICTING_AUTHORITIES:claim-ev-728d96718a8c0a06:ev-76ef414ba0d6b188",
+          "CONFLICTING_AUTHORITIES:claim-ev-72697b9a8ef2c493:ev-76ef414ba0d6b188",
+          "CONFLICTING_AUTHORITIES:claim-ev-c46b9c4e047dfbe1:ev-76ef414ba0d6b188"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -864,7 +864,7 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-f266a67bdca24e7c:ev-0547aba8c757e7bd"
+          "CONFLICTING_AUTHORITIES:claim-ev-d2ef4c6dcaafd305:ev-7439124ddd13b5c1"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -970,9 +970,9 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641",
-          "CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641",
-          "CONFLICTING_AUTHORITIES:claim-ev-270dbd2e210cefab:ev-0ce91c4927783641"
+          "CONFLICTING_AUTHORITIES:claim-ev-72697b9a8ef2c493:ev-76ef414ba0d6b188",
+          "CONFLICTING_AUTHORITIES:claim-ev-728d96718a8c0a06:ev-76ef414ba0d6b188",
+          "CONFLICTING_AUTHORITIES:claim-ev-8b670e1a5a55c5d9:ev-76ef414ba0d6b188"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -987,8 +987,8 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-0ce91c4927783641",
-          "CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-0ce91c4927783641"
+          "CONFLICTING_AUTHORITIES:claim-ev-72697b9a8ef2c493:ev-76ef414ba0d6b188",
+          "CONFLICTING_AUTHORITIES:claim-ev-728d96718a8c0a06:ev-76ef414ba0d6b188"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -1003,10 +1003,10 @@
         "evidence": 8,
         "coverage_gate": "passed",
         "reasons": [
-          "CONFLICTING_AUTHORITIES:claim-ev-b7a4b09932415e96:ev-b81dd90c00c7fe77+ev-0ce91c4927783641",
-          "CONFLICTING_AUTHORITIES:claim-ev-7ba90d4a8877e753:ev-b81dd90c00c7fe77+ev-0ce91c4927783641",
-          "CONFLICTING_AUTHORITIES:claim-ev-f266a67bdca24e7c:ev-b81dd90c00c7fe77+ev-0ce91c4927783641+ev-0547aba8c757e7bd",
-          "CONFLICTING_AUTHORITIES:claim-ev-0edf9d001708604c:ev-b81dd90c00c7fe77+ev-0ce91c4927783641"
+          "CONFLICTING_AUTHORITIES:claim-ev-72697b9a8ef2c493:ev-7af168ddd09326c0+ev-76ef414ba0d6b188",
+          "CONFLICTING_AUTHORITIES:claim-ev-728d96718a8c0a06:ev-7af168ddd09326c0+ev-76ef414ba0d6b188",
+          "CONFLICTING_AUTHORITIES:claim-ev-d2ef4c6dcaafd305:ev-7af168ddd09326c0+ev-76ef414ba0d6b188+ev-7439124ddd13b5c1",
+          "CONFLICTING_AUTHORITIES:claim-ev-c46b9c4e047dfbe1:ev-7af168ddd09326c0+ev-76ef414ba0d6b188"
         ],
         "expected_in_evidence": true,
         "error": null
@@ -1451,32 +1451,32 @@
   "latency": {
     "benchmark_latency_ms": {
       "count": 34,
-      "p50_ms": 12.338481000000002,
-      "p95_ms": 25.743968750000008
+      "p50_ms": 13.451347999999996,
+      "p95_ms": 31.294978249999975
     },
     "stages": {
       "retrieval_per_query": {
         "n": 34,
-        "p50_ms": 12.338481000000002,
-        "p95_ms": 25.743968750000008
+        "p50_ms": 13.451347999999996,
+        "p95_ms": 31.294978249999975
       },
       "evidence_pack_per_query": {
         "n": 34,
-        "p50_ms": 0.2801175000000171,
-        "p95_ms": 0.9563977999999621
+        "p50_ms": 0.4169844999999839,
+        "p95_ms": 1.2681871499999906
       },
-      "corpus_inventory_ms": 19.557500000000005,
-      "canonical_text_load_ms": 6.667402999999993
+      "corpus_inventory_ms": 20.618623,
+      "canonical_text_load_ms": 10.131192000000013
     },
     "wall_clock_stage_ms": {
-      "driver_bundle": 49.421388000155275,
-      "answer_driver_bundle": 48.69353100002627,
-      "database_recreate": 63.761942999917665,
-      "ingestion": 329.7035700006745,
-      "answer_measurement": 1707.270722999965,
-      "retrieval_measurement": 675.217259999954,
-      "scoring": 0.5286830000841292,
-      "citation_check": 0.6418399998437962
+      "driver_bundle": 48.361570999986725,
+      "answer_driver_bundle": 37.397581999812246,
+      "database_recreate": 64.47565600001326,
+      "ingestion": 378.4198970001853,
+      "answer_measurement": 1923.4599480000725,
+      "retrieval_measurement": 829.5503039998948,
+      "scoring": 0.7613090001541423,
+      "citation_check": 0.5348059999050747
     }
   },
   "gates": [
