@@ -23,6 +23,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { composeDraft } from "../../src/drafting/composer.js";
+import { PLACEHOLDER_UNFILLED } from "../../src/drafting/placeholders.js";
 import { createDraftingRouter } from "../../src/drafting/routes.js";
 import { InMemoryDraftStore } from "../../src/drafting/store.js";
 import type { Draft } from "../../src/drafting/types.js";
@@ -292,17 +293,13 @@ describe("real Word round trip (venv Python)", () => {
         const v2 = store.get(draft.draftId) as Draft;
         expect(v2.sections.some((s) => s.paragraphs.some((p) => p.text.includes(token)))).toBe(true);
 
-        // On a tree that carries the W22 NİHAİ placeholder gate, the clean
-        // copy of the imported version is refused exactly as before.
-        const gatePath = "../../src/drafting/placeholders.js";
-        const gate = (await import(/* @vite-ignore */ gatePath).catch(() => undefined)) as
-          | { PLACEHOLDER_UNFILLED?: string }
-          | undefined;
-        if (gate?.PLACEHOLDER_UNFILLED !== undefined) {
-          const nihai = await app.request(`/v1/drafts/${draft.draftId}/export?format=docx&annex=none&marks=none`);
-          expect(nihai.status).toBe(409);
-          expect(((await nihai.json()) as { error: { code?: string } }).error.code).toBe(gate.PLACEHOLDER_UNFILLED);
-        }
+        // The clean filing copy of the imported version is refused exactly as
+        // before the round trip: the placeholder is still unfilled.
+        const nihai = await app.request(`/v1/drafts/${draft.draftId}/export?format=docx&annex=none&marks=none`);
+        expect(nihai.status).toBe(409);
+        expect(((await nihai.json()) as { error: { code?: string } }).error.code).toBe(PLACEHOLDER_UNFILLED);
+        // …while the TASLAK copy still exports (it prints the placeholder visibly).
+        expect((await app.request(`/v1/drafts/${draft.draftId}/export?format=docx`)).status).toBe(200);
       } finally {
         await rm(workDir, { recursive: true, force: true });
       }

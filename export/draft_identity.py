@@ -438,45 +438,18 @@ def read_identity(document: Any) -> tuple[DraftIdentity | None, str]:
     return found[0]
 
 
-# Accepted-text reading. The rule is the one intake/extract.py applies to an
-# uploaded DOCX (W22): the text reads as if every tracked change had been
-# ACCEPTED — insertions in, deletions and the source side of a move out.
-_SKIP_SUBTREES = frozenset({_W + "del", _W + "moveFrom", _W + "txbxContent"})
+# Accepted-text reading is NOT reimplemented here: it is the one reader
+# intake/extract.py applies to every uploaded DOCX (W22) — the text reads as if
+# every tracked change had been ACCEPTED (insertions in, deletions and the
+# source side of a move out). One rule, one source. Imported lazily so an
+# EXPORT never loads the intake stack (pypdf, OCR probing) it does not use.
+def accepted_paragraph_text(p_el: Any) -> str:
+    from intake.extract import _docx_paragraph_text
+
+    return _docx_paragraph_text(p_el)
+
 _REVISION_TAGS = (_W + "ins", _W + "del", _W + "moveFrom", _W + "moveTo")
 _FORMAT_REVISION_TAGS = (_W + "rPrChange", _W + "pPrChange")
-
-
-def _local_accepted_text(p_el: Any) -> str:
-    out: list[str] = []
-
-    def walk(el: Any) -> None:
-        for child in el:
-            tag = child.tag
-            if not isinstance(tag, str) or tag in _SKIP_SUBTREES:
-                continue
-            if tag == _W + "pPr":
-                continue  # paragraph properties carry no text
-            if tag == _W + "t":
-                out.append(child.text or "")
-            elif tag == _W + "tab":
-                out.append("\t")
-            elif tag in (_W + "br", _W + "cr"):
-                out.append("\n")
-            elif tag == _W + "noBreakHyphen":
-                out.append("-")
-            elif tag == _W + "p":
-                continue
-            else:
-                walk(child)
-
-    walk(p_el)
-    return "".join(out)
-
-
-try:  # Reuse the intake reader when this tree carries it (same rule, one source).
-    from intake.extract import _docx_paragraph_text as _accepted_text  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover - depends on the intake version in the tree
-    _accepted_text = _local_accepted_text
 
 
 def _paragraph_mark_deleted(p_el: Any) -> bool:
@@ -593,7 +566,7 @@ def read_body_blocks(document: Any) -> tuple[list[_Block], dict[str, int]]:
         style = styles.get(style_id or "", style_id or "Normal") if style_id else "Normal"
         kind = "heading" if style.startswith("Heading") or style == "Title" else "paragraph"
         pending = count_revisions(element)
-        block = _Block(kind, style, _accepted_text(element), sorted(set(marks)), pending)
+        block = _Block(kind, style, accepted_paragraph_text(element), sorted(set(marks)), pending)
         if carry is not None:
             # The previous paragraph's mark was deleted (tracked): accepted,
             # the two read as ONE paragraph, in the earlier one's style.

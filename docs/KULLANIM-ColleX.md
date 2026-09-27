@@ -712,7 +712,7 @@ karar (örneğin "TCK m. 157") her zaman kullanılır.
 - **Üstte**: başlık, tür, **KAYNAKSIZ: n** sayacı, sürüm ve kayıt notu
   ("v2 · kaydedildi 14:02" / "kaydedilmemiş değişiklik"), düğmeler:
   **Kaydet (Ctrl+S)**, **DOCX**, **Markdown**, **UDF** (yanında "deneysel"),
-  **Sürümler**, **Yeniden oluştur**.
+  **Sürümler**, **Word'den geri yükle**, **Yeniden oluştur**.
 - **Solda**: bölümler; yanındaki nokta yeşilse bölümde kaynaksız paragraf
   yok, kırmızıysa var, sarıysa aleyhe kaynak bölümüdür.
 - **Ortada**: paragraflar. Her paragrafın rolü Türkçe yazar (olay, talep,
@@ -801,6 +801,50 @@ bilgisayarınızın yerel saatidir.
   UYAP'ta açın, düzgün görünüyorsa kullanın; sorun varsa DOCX kullanın.
   (UYAP yalnız `.udf`, `.pdf`, `.jpg`, `.png`, `.tiff` kabul eder; Word
   dosyası doğrudan yüklenemez.)
+
+### Word'de düzelttim, geri yükle
+
+ColleX'in verdiği her Word dosyası, hangi taslağın hangi sürümünden
+alındığını ve her paragrafın hangi kaynağa bağlı olduğunu **görünmeyen bir
+kimlik** olarak taşır. Bu kimlik yazdırılan sayfada ve metinde görünmez;
+Word'de kaydetmek onu silmez. Dosyayı Word'de düzelttikten sonra editördeki
+**Word'den geri yükle** düğmesiyle geri verirsiniz:
+
+1. ColleX önce dosyanın **bu taslağın son sürümünden** alındığını denetler.
+   Başka bir taslağın dosyası, ColleX'ten gelmeyen bir Word dosyası, kimliği
+   bozulmuş bir dosya ya da taslağın eski bir sürümünden alınmış bir dosya
+   **yüklenmez** ve nedeni tek cümleyle yazar. (Eski sürüm için: güncel
+   sürümü Word'e aktarıp düzeltmelerinizi oraya taşıyın.)
+2. Sonra bir **önizleme** açılır ve **henüz hiçbir şey kaydedilmez.** Her
+   paragraf için "değişti / eklendi / silindi" yazar, eski ve yeni metni
+   gösterir ve kaydederseniz ne olacağını söyler: kaynak bağı korunuyor mu,
+   paragraf **KAYNAKSIZ** mı kaydedilecek.
+3. **Onayla ve yeni sürüm olarak kaydet** derseniz düzeltmeler yeni bir sürüm
+   olur. **Kaydet**'in uyguladığı bütün denetimler burada da aynen çalışır:
+   - Word'de bir alıntının **tek bir harfini** bile değiştirdiyseniz o kaynak
+     bağı kopar ve paragraf KAYNAKSIZ kaydedilir ("Alıntıyı değiştirdiniz"
+     uyarısıyla aynı kural).
+   - Word'de eklediğiniz yeni paragraf, hemen önündeki paragrafın türünü
+     alır. Bir hukukî değerlendirmenin ya da HUKUKÎ SEBEPLER'in ardından
+     eklenen ve bir kaynağa bağlı olmayan paragraf **KAYNAKSIZ** kaydedilir;
+     dayanağını siz eklemelisiniz.
+   - **Aleyhe kaynaklar** (karşı içtihat) bölümü ve **EK — DOĞRULAMA
+     BİLGİLERİ** bu yoldan değiştirilemez. Word'de oralarda yaptığınız
+     değişiklik önizlemede gösterilir ama **uygulanmaz**. "Dayanak [K-1]"
+     satırları, uyarılar ve DAYANAK KAYNAKLARI eki de ColleX tarafından
+     yeniden yazılır; Word'de değiştirilen böyle bir satır "Uygulanmayan
+     satırlar" altında listelenir.
+   - "[… — doldurun]" gibi doldurulmamış bir yer tutucu geri yüklemeden sonra
+     da yerinde durur; **NİHAİ kopya** onu doldurana kadar yine verilmez.
+
+**İzlenen değişiklikler**: Word'de "Değişiklikleri İzle" açıkken yaptığınız
+ve henüz kabul ya da reddetmediğiniz değişiklikler varsa ColleX metni **bütün
+değişiklikler kabul edilmiş hâliyle** okur ve bunu önizlemenin başında
+söyler; ilgili paragraflarda "izlenen değişiklik bekliyor" yazar.
+İstemediğiniz bir değişiklik varsa Word'de reddedip dosyayı yeniden yükleyin.
+
+Kaydedilmemiş bir düzenleme varken bu düğme çalışmaz: önce **Kaydet**'e
+basın. Dosya sınırı belge yüklemeyle aynıdır (25 MB).
 
 ### Bulut yapay zekâ ile paragraf yazdırmak
 

@@ -40,14 +40,14 @@ from docx import Document  # noqa: E402
 from docx.oxml import OxmlElement  # noqa: E402
 from docx.oxml.ns import qn  # noqa: E402
 
-from export.draft_identity import _local_accepted_text  # noqa: E402
+from export.draft_identity import accepted_paragraph_text  # noqa: E402
 
 _REV_ATTRS = {"w:id": "901", "w:author": "Av. Deneme", "w:date": "2026-09-27T10:00:00Z"}
 
 
 def _find(document: Any, contains: str) -> Any:
     for paragraph in document.paragraphs:
-        if contains in _local_accepted_text(paragraph._p):
+        if contains in accepted_paragraph_text(paragraph._p):
             return paragraph
     raise LookupError(f"paragraf bulunamadı: {contains!r}")
 
