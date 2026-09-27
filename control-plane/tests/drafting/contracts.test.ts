@@ -30,6 +30,7 @@ import {
   runChecklist,
   splitClauses,
   stripRiskWords,
+  verifyReviewEvidence,
   type Checklist,
 } from "../../src/contracts/clauseReview.js";
 import { auditDraftCitations } from "../../src/contracts/draftAudit.js";
@@ -316,18 +317,44 @@ describe("B-24: the word 'risk' is reserved for hash-bound lines", () => {
     },
   ];
 
-  it("keeps a sourced risk line and strips the word from an unsourced one", () => {
+  // 2026-09-27: a quote hashed against the digest the request supplied is
+  // not a source (a fabricated "TBK m. 999" passed that check). The source
+  // must be HELD by the answer store under the run the entry names.
+  const answers = {
+    get: (runId: string) =>
+      runId === "run-tbk344"
+        ? {
+            result: {
+              runId,
+              claims: [],
+              evidence: [
+                {
+                  evidenceId: "ev-tbk344",
+                  source: "MEVZUAT",
+                  title: "6098 sayılı TBK m. 344 (SENTETİK)",
+                  quote,
+                  quoteSha256: sha256HexUtf8(quote),
+                  contentSha256: "0".repeat(64),
+                },
+              ],
+            },
+          }
+        : undefined,
+  };
+
+  it("keeps a sourced risk line and strips the word from an unsourced one", async () => {
+    const held = [{ ...evidence[0]!, runId: "run-tbk344" }];
     const report = reviewContract(
       {
         text: KIRA,
         checklist: KIRA_CHECKLIST,
-        evidence,
+        evidence: held,
         observations: [
           { clauseIndex: 5, text: "Artış oranı bakımından risk vardır.", evidenceId: "ev-tbk344" },
           { clauseIndex: 8, text: "Tadilat maddesi riskli görünüyor; riskleri değerlendirin." },
         ],
       },
-      { now: NOW },
+      { now: NOW, verifiedEvidence: await verifyReviewEvidence(held, answers) },
     );
 
     const sourced = report.clauses.flatMap((c) => c.observations).filter((o) => o.sourced);
@@ -359,8 +386,10 @@ describe("B-24: the word 'risk' is reserved for hash-bound lines", () => {
   });
 
   it("strips every Turkish inflection of the word", () => {
+    // 2026-09-27: the STEM is replaced and the suffix kept, in the stem's
+    // case ("RİSKLİ" used to become "gözlemİ"); no form of the word survives.
     expect(stripRiskWords("Risk, riski, riskli, risklerin")).toBe(
-      "gözlem, gözlem, gözlem, gözlem",
+      "Gözlem, gözlemi, gözlemli, gözlemlerin",
     );
   });
 });

@@ -2590,10 +2590,26 @@ paths:
         Two rules cannot be switched off. (1) `YOK` means "this heading was
         not found in the text" — the report says verbatim that it does NOT
         mean the clause is legally required or that the contract is defective.
-        (2) The word "risk" belongs to a HASH-BOUND quote only: an observation
-        whose `evidenceId` does not resolve to an entry where
-        `sha256(quote) == quoteSha256` is prefixed `⚠ KAYNAKSIZ — ` and every
-        Turkish inflection of "risk" is replaced with "gözlem".
+        (2) The word "risk" belongs to a quote the SERVER holds: an
+        observation is sourced only when its `evidenceId` names an `evidence`
+        entry whose `runId` is an answer run in this server's answer store,
+        that run carries the same `evidenceId`, and the stored quote's digest
+        equals `quoteSha256` (and the request's quote hashes to it). A digest
+        the request computed over its own quote proves nothing and sources
+        nothing. Every other observation is prefixed `⚠ KAYNAKSIZ — ` and the
+        stem of every Turkish inflection of "risk" is replaced with "gözlem",
+        keeping the suffix ("riskli" → "gözlemli").
+
+
+        2026-09-27 (additive): matching folds İ/I/ı/i and â/î/û on both sides,
+        requires every term word to START a word, rejects a privative
+        -siz/-sız/-suz/-süz, accepts a closed set of inflection variants, and
+        turns a match inside a negative sentence ("alınmamıştır") into
+        BELİRSİZ with `reasonCode: NEGATED`. Every VAR/BELİRSİZ finding
+        carries the contract's own sentence (`excerpt`, `matches[]`, at most
+        300 code points) and section-aware clause labels (`clauseLabels`,
+        "Özel Şartlar 1"). An observation whose `clauseIndex` names no clause
+        is returned in `unattachedObservations`, never dropped.
       requestBody:
         required: true
         content:
@@ -8247,7 +8263,10 @@ components:
     ReviewEvidence:
       type: object
       required: [evidenceId, label, quote, quoteSha256]
-      description: A hash-bound source. Only these may carry the word "risk".
+      description: >
+        A hash-bound source. Only these may carry the word "risk", and only
+        when the answer store holds the quote under `runId`; the printed label
+        is then built from the STORED record, never from `label`.
       properties:
         evidenceId:
           type: string
@@ -8257,6 +8276,11 @@ components:
           type: string
         quoteSha256:
           type: string
+        runId:
+          type: string
+          description: >
+            Additive (2026-09-27). The answer run that holds this quote.
+            Without it the entry cannot be verified and sources nothing.
     ContractReviewRequest:
       type: object
       required: [text]
@@ -8307,6 +8331,58 @@ components:
           description: WHY it matched — shown to the lawyer, not hidden.
         note:
           type: string
+        clauseIndexes:
+          type: array
+          items:
+            type: integer
+          description: Additive. The clause indexes behind `clauseNumbers`, same order.
+        clauseLabels:
+          type: array
+          items:
+            type: string
+          description: >
+            Additive. Display labels behind `clauseNumbers` — "Özel Şartlar 1"
+            when the numbering restarts under a section heading, "Giriş" for
+            the unnumbered opening block, else "Madde 5".
+        reasonCode:
+          type: string
+          enum: ["", NEGATED, WEAK_ONLY]
+          description: Additive. Why a BELIRSIZ row is BELIRSIZ; "" otherwise.
+        reason:
+          type: string
+          description: Additive. The Turkish sentence for `reasonCode`; "" otherwise.
+        excerpt:
+          type: string
+          description: >
+            Additive. The contract's own sentence the state rests on
+            (whitespace collapsed, at most 300 code points, cut at word
+            boundaries with "…"); "" for YOK.
+        excerptClauseIndex:
+          type: integer
+          nullable: true
+          description: Additive. The clause index of `excerpt`; null for YOK.
+        matches:
+          type: array
+          description: Additive. Every matched sentence the state rests on (at most 5, primary first).
+          items:
+            type: object
+            required: [clauseIndex, clauseNumber, clauseLabel, term, strength, negated, excerpt]
+            properties:
+              clauseIndex:
+                type: integer
+              clauseNumber:
+                type: string
+              clauseLabel:
+                type: string
+              term:
+                type: string
+              strength:
+                type: string
+                enum: [strong, weak]
+              negated:
+                type: boolean
+              excerpt:
+                type: string
     ClauseObservation:
       type: object
       required: [text, sourced, evidenceId, evidenceLabel]
@@ -8331,6 +8407,9 @@ components:
           type: string
         index:
           type: integer
+        label:
+          type: string
+          description: Additive. Display label ("Özel Şartlar 1", "Madde 5", "Giriş").
         itemIds:
           type: array
           items:
@@ -8592,6 +8671,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ClauseLine"
+        unattachedObservations:
+          type: array
+          description: >
+            Additive. Observations whose `clauseIndex` names no clause of this
+            text — returned with a Turkish `note`, never dropped.
+          items:
+            allOf:
+              - $ref: "#/components/schemas/ClauseObservation"
+              - type: object
+                required: [clauseIndex, note]
+                properties:
+                  clauseIndex:
+                    type: integer
+                  note:
+                    type: string
         totals:
           type: object
           properties:

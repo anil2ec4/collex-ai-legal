@@ -42,9 +42,11 @@ import {
 import {
   ContractReviewError,
   reviewContract,
+  verifyReviewEvidence,
   type Checklist,
   type ContractReviewReport,
 } from "./clauseReview.js";
+import type { DraftAnswerLookup } from "../drafting/types.js";
 import {
   asciiSafe,
   contentDisposition,
@@ -122,6 +124,12 @@ const reviewSchema = z
             label: z.string(REQ).min(1).max(600),
             quote: z.string(REQ).min(1).max(20_000),
             quoteSha256: z.string(REQ).regex(/^[0-9a-f]{64}$/u, "SHA-256 64 onaltılık karakter olmalı."),
+            /**
+             * The answer run that holds this quote. Additive (2026-09-27): a
+             * quote is a source only when the answer store holds it under
+             * this run — a digest the request computed itself proves nothing.
+             */
+            runId: z.string(REQ).min(1, "Araştırma no boş olamaz.").max(200).optional(),
           })
           .strict("Tanınmayan alan."),
       )
@@ -210,6 +218,13 @@ export interface ContractsDependencies {
   resolveCitation?: CitationResolver;
   checklists?: ChecklistStore;
   now?: () => Date;
+  /**
+   * The answer store, used ONLY to verify review evidence
+   * (`verifyReviewEvidence`): an observation may call something a risk only
+   * when its quote is held under the named answer run. Absent = every
+   * observation is KAYNAKSIZ, whatever the request carries.
+   */
+  answers?: DraftAnswerLookup;
   /**
    * W16 · D. Runs one contrary-authority lane. ABSENT BY DEFAULT: the lanes
    * are then still built and shown with the state ÇALIŞTIRILMADI, which is
@@ -439,7 +454,10 @@ export function createContractsRouter(deps: ContractsDependencies = {}): Hono {
     }
     let report: ContractReviewReport;
     try {
-      report = reviewContract({ ...body, checklist }, { now });
+      report = reviewContract(
+        { ...body, checklist },
+        { now, verifiedEvidence: await verifyReviewEvidence(body.evidence ?? [], deps.answers) },
+      );
     } catch (error) {
       if (error instanceof ContractReviewError) {
         return c.json({ error: { kind: "INVALID_REQUEST", message: error.message } }, 400);
@@ -492,7 +510,10 @@ export function createContractsRouter(deps: ContractsDependencies = {}): Hono {
 
     let report: ContractReviewReport;
     try {
-      report = reviewContract({ ...body, checklist }, { now });
+      report = reviewContract(
+        { ...body, checklist },
+        { now, verifiedEvidence: await verifyReviewEvidence(body.evidence ?? [], deps.answers) },
+      );
     } catch (error) {
       if (error instanceof ContractReviewError) {
         return c.json({ error: { kind: "INVALID_REQUEST", message: error.message } }, 400);

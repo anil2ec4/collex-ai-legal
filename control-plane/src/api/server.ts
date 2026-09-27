@@ -1883,6 +1883,10 @@ export function createApp(deps: ApiDependencies): Hono {
     "/",
     createContractsRouter({
       now,
+      // 2026-09-27: a contract-review observation is "sourced" only when its
+      // quote is held under a named run in THIS answer store; a quote hashed
+      // against the digest the request supplied proves nothing.
+      answers: answerStore,
       ...(deps.draftingExec !== undefined ? { exportExec: deps.draftingExec } : {}),
       ...(deps.python?.path !== undefined ? { pythonPath: deps.python.path } : {}),
       ...(deps.python?.repoRoot !== undefined ? { repoRoot: deps.python.repoRoot } : {}),

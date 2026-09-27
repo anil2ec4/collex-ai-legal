@@ -248,3 +248,145 @@ def test_refused_export_leaves_no_temporary_file(tmp_path: Path) -> None:
         export_review_docx(parse_review(payload), out)
     assert list(tmp_path.iterdir()) == [], "a refused export left files behind"
     assert EXIT_REFUSED == 2
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-27 — defects measured on real contract shapes
+# ---------------------------------------------------------------------------
+
+#: The three notices the producer always sends (clauseReview.ts REVIEW_NOTICES):
+#: the first IS the banner, the third IS the KAYNAKSIZ rule.
+PRODUCER_NOTICES = [
+    REVIEW_BANNER,
+    '"yok" satırı, aranan başlığın metinde bulunamadığını söyler; maddenin gerekli'
+    " olup olmadığına avukat karar verir.",
+    UNSOURCED_NOTE,
+]
+
+
+def _real_shape_report() -> dict:
+    payload = make_report()
+    payload["notices"] = list(PRODUCER_NOTICES)
+    payload["findings"][0].update(
+        {
+            "clauseNumbers": ["1"],
+            "clauseLabels": ["Özel Şartlar 1"],
+            "matches": [
+                {
+                    "clauseIndex": 21,
+                    "clauseNumber": "1",
+                    "clauseLabel": "Özel Şartlar 1",
+                    "term": "güvence bedeli",
+                    "strength": "strong",
+                    "negated": False,
+                    "excerpt": "Kiracı 50.000,00 TL tutarında güvence bedelini bankaya yatırmıştır.",
+                }
+            ],
+        }
+    )
+    payload["findings"][2].update(
+        {
+            "clauseNumbers": ["#1"],
+            "clauseLabels": ["Giriş"],
+            "reason": "Madde bulundu ama olumsuz ifade içeriyor — okuyup karar verin.",
+            "matches": [
+                {
+                    "clauseIndex": 0,
+                    "clauseNumber": "#1",
+                    "clauseLabel": "Giriş",
+                    "term": "tahliye",
+                    "strength": "strong",
+                    "negated": True,
+                    "excerpt": "Tahliye taahhüdü alınmamıştır.",
+                }
+            ],
+        }
+    )
+    payload["clauses"].insert(
+        0,
+        {
+            "clauseNumber": "#1",
+            "index": 0,
+            "itemIds": [],
+            "observations": [
+                {
+                    "text": f"{KAYNAKSIZ_PREFIX} — Giriş bölümünde taraf adresi eksik.",
+                    "sourced": False,
+                    "evidenceId": "",
+                    "evidenceLabel": "",
+                }
+            ],
+        },
+    )
+    payload["unattachedObservations"] = [
+        {
+            "clauseIndex": 999,
+            "text": f"{KAYNAKSIZ_PREFIX} — Bu gözlem kaybolacak mı?",
+            "sourced": False,
+            "evidenceId": "",
+            "evidenceLabel": "",
+            "note": "Bu gözlem, metinde bulunmayan bir madde sırasına (999) bağlanmıştı —"
+            " metinde 4 madde var; gözlem hiçbir maddeye eklenmedi.",
+        }
+    ]
+    return payload
+
+
+def test_the_banner_is_printed_top_and_bottom_only_and_the_rule_once(tmp_path: Path) -> None:
+    out = tmp_path / "tekrar.docx"
+    export_review_docx(parse_review(_real_shape_report()), out)
+    produced = read_review_report(out)
+    # The producer's notices repeat both sentences; they used to print three
+    # and two times. A repeated warning is an unread warning.
+    assert produced.paragraph_texts.count(REVIEW_BANNER) == 2
+    assert produced.paragraph_texts[0] == REVIEW_BANNER
+    assert produced.paragraph_texts[-1] == REVIEW_BANNER
+    assert produced.paragraph_texts.count(UNSOURCED_NOTE) == 1
+    # the notice that is NOT a duplicate still reaches the page
+    assert PRODUCER_NOTICES[1] in produced.paragraph_texts
+
+
+def test_the_unnumbered_opening_block_is_called_giris_not_madde_hash_1(tmp_path: Path) -> None:
+    out = tmp_path / "giris.docx"
+    export_review_docx(parse_review(_real_shape_report()), out)
+    produced = read_review_report(out)
+    assert "Madde #1" not in produced.full_text
+    assert (
+        f"Giriş: {KAYNAKSIZ_PREFIX} — Giriş bölümünde taraf adresi eksik."
+        in produced.paragraph_texts
+    )
+    # a report written before `label` existed still reads "Giriş"
+    legacy = make_report()
+    legacy["clauses"][0]["clauseNumber"] = "#1"
+    legacy_out = tmp_path / "giris-eski.docx"
+    export_review_docx(parse_review(legacy), legacy_out)
+    assert any(
+        line.startswith("Giriş: ") for line in read_review_report(legacy_out).paragraph_texts
+    )
+
+
+def test_every_finding_prints_its_excerpt_and_the_section_label(tmp_path: Path) -> None:
+    out = tmp_path / "alinti.docx"
+    export_review_docx(parse_review(_real_shape_report()), out)
+    produced = read_review_report(out)
+    # the table names the clause by its section, never by a bare "1"
+    assert produced.table_rows[1][2] == "Özel Şartlar 1"
+    assert "Metinden alıntılar" in produced.paragraph_texts
+    assert (
+        "Depozito — Özel Şartlar 1: “Kiracı 50.000,00 TL tutarında güvence bedelini"
+        " bankaya yatırmıştır.”" in produced.paragraph_texts
+    )
+    assert (
+        "Tahliye taahhüdü — Giriş: “Tahliye taahhüdü alınmamıştır.” (olumsuz ifade)"
+        in produced.paragraph_texts
+    )
+    assert any("olumsuz ifade içeriyor" in line for line in produced.paragraph_texts)
+
+
+def test_an_unattached_observation_is_printed_with_its_reason(tmp_path: Path) -> None:
+    out = tmp_path / "bagsiz.docx"
+    export_review_docx(parse_review(_real_shape_report()), out)
+    produced = read_review_report(out)
+    assert "Maddeye bağlanamayan gözlemler" in produced.paragraph_texts
+    assert f"{KAYNAKSIZ_PREFIX} — Bu gözlem kaybolacak mı?" in produced.paragraph_texts
+    assert any("hiçbir maddeye eklenmedi" in line for line in produced.paragraph_texts)

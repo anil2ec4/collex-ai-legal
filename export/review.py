@@ -26,6 +26,22 @@ THE THREE RULES THIS WRITER ENFORCES, and the self-check proves on the file:
    danger with a document like this is not that it is wrong — it is that it
    looks like counsel's opinion.
 
+2026-09-27 (contract-review defects on real contract shapes):
+
+- every ``var`` / ``belirsiz`` row now carries the contract's OWN sentence
+  (``findings[].matches[].excerpt``), printed under "Metinden alıntılar" and
+  self-checked like the observations — without it the lawyer could not catch
+  a wrong match;
+- a clause is named by its display label (``clauses[].label``: "Özel
+  Şartlar 1", "Madde 5", "Giriş") — "Madde #1" for the unnumbered opening
+  block, and a bare "1" for a restarted numbering, are gone;
+- the banner is printed at the top and the bottom and nowhere else, and the
+  KAYNAKSIZ rule once: the report's ``notices`` repeat both sentences, so a
+  notice already printed is not printed again (it used to appear three and
+  two times);
+- an observation the producer could not attach to a clause
+  (``unattachedObservations``) is printed with its reason, never dropped.
+
 Requires ``python-docx`` (the ``export`` extra), like the other DOCX writers.
 """
 
@@ -105,12 +121,27 @@ class ReviewFormatError(ExportError):
 
 
 @dataclass(frozen=True)
+class ReviewExcerpt:
+    """One contract sentence a finding rests on (``findings[].matches[]``)."""
+
+    clause_label: str
+    excerpt: str
+    negated: bool
+    weak: bool
+
+
+@dataclass(frozen=True)
 class ReviewFinding:
     label: str
     state_label: str
     clause_numbers: tuple[str, ...]
     matched_term: str
     note: str
+    #: Display labels ("Özel Şartlar 1"); empty in reports written before them.
+    clause_labels: tuple[str, ...] = ()
+    #: Why a ``belirsiz`` row is ``belirsiz`` (Turkish sentence); "" otherwise.
+    reason: str = ""
+    matches: tuple[ReviewExcerpt, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -119,6 +150,10 @@ class ReviewObservation:
     text: str
     sourced: bool
     evidence_label: str
+    #: Where the line is printed ("Madde 4", "Giriş", "Özel Şartlar 1").
+    where: str = ""
+    #: For an observation no clause could hold: why (printed with it).
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -131,6 +166,22 @@ class ReviewReport:
     observations: tuple[ReviewObservation, ...]
     totals: dict[str, int]
     notices: tuple[str, ...]
+    #: Observations whose ``clauseIndex`` named no clause (never dropped).
+    unattached: tuple[ReviewObservation, ...] = ()
+
+
+def clause_display_label(clause_number: str) -> str:
+    """The printed name of a clause for a report that carries no ``label``.
+
+    "#1" is the unnumbered opening block the producer keeps so nothing is
+    dropped — "Madde #1" read like a clause the contract numbered.
+    """
+    if clause_number == "":
+        return "Madde"
+    if clause_number.startswith("#"):
+        position = clause_number[1:]
+        return "Giriş" if position == "1" else f"Numarasız bölüm {position}"
+    return f"Madde {clause_number}"
 
 
 def _require(payload: Any, key: str, *, where: str) -> Any:
@@ -166,6 +217,32 @@ def parse_review(payload: Any) -> ReviewReport:
         numbers_raw = entry.get("clauseNumbers") or []
         if not isinstance(numbers_raw, list):
             raise ReviewFormatError(f"{where}: 'clauseNumbers' liste değil")
+        labels_raw = entry.get("clauseLabels") or []
+        if not isinstance(labels_raw, list):
+            raise ReviewFormatError(f"{where}: 'clauseLabels' liste değil")
+        matches_raw = entry.get("matches") or []
+        if not isinstance(matches_raw, list):
+            raise ReviewFormatError(f"{where}: 'matches' liste değil")
+        matches: list[ReviewExcerpt] = []
+        for match in matches_raw:
+            if not isinstance(match, dict):
+                raise ReviewFormatError(f"{where}: 'matches' öğesi nesne değil")
+            excerpt = _text(match.get("excerpt"), where=where, key="excerpt")
+            if excerpt == "":
+                continue
+            clause_label = _text(match.get("clauseLabel"), where=where, key="clauseLabel")
+            if clause_label == "":
+                clause_label = clause_display_label(
+                    _text(match.get("clauseNumber"), where=where, key="clauseNumber")
+                )
+            matches.append(
+                ReviewExcerpt(
+                    clause_label=clause_label,
+                    excerpt=excerpt,
+                    negated=match.get("negated") is True,
+                    weak=match.get("strength") == "weak",
+                )
+            )
         findings.append(
             ReviewFinding(
                 label=_text(_require(entry, "label", where=where), where=where, key="label"),
@@ -175,6 +252,11 @@ def parse_review(payload: Any) -> ReviewReport:
                 ),
                 matched_term=_text(entry.get("matchedTerm"), where=where, key="matchedTerm"),
                 note=_text(entry.get("note"), where=where, key="note"),
+                clause_labels=tuple(
+                    _text(n, where=where, key="clauseLabels") for n in labels_raw
+                ),
+                reason=_text(entry.get("reason"), where=where, key="reason"),
+                matches=tuple(matches),
             )
         )
 
@@ -187,6 +269,7 @@ def parse_review(payload: Any) -> ReviewReport:
             raise ReviewFormatError(f"clauses[{index}] bir nesne değil")
         where = f"clauses[{index}]"
         number = _text(clause.get("clauseNumber"), where=where, key="clauseNumber")
+        label = _text(clause.get("label"), where=where, key="label") or clause_display_label(number)
         entries = clause.get("observations") or []
         if not isinstance(entries, list):
             raise ReviewFormatError(f"{where}: 'observations' liste değil")
@@ -201,8 +284,28 @@ def parse_review(payload: Any) -> ReviewReport:
                     evidence_label=_text(
                         entry.get("evidenceLabel"), where=where, key="evidenceLabel"
                     ),
+                    where=label,
                 )
             )
+
+    unattached_raw = payload.get("unattachedObservations") or []
+    if not isinstance(unattached_raw, list):
+        raise ReviewFormatError("rapor: 'unattachedObservations' liste değil")
+    unattached: list[ReviewObservation] = []
+    for index, entry in enumerate(unattached_raw):
+        where = f"unattachedObservations[{index}]"
+        if not isinstance(entry, dict):
+            raise ReviewFormatError(f"{where} bir nesne değil")
+        unattached.append(
+            ReviewObservation(
+                clause_number="",
+                text=_text(_require(entry, "text", where=where), where=where, key="text"),
+                sourced=entry.get("sourced") is True,
+                evidence_label=_text(entry.get("evidenceLabel"), where=where, key="evidenceLabel"),
+                where="Maddeye bağlanamayan gözlem",
+                note=_text(entry.get("note"), where=where, key="note"),
+            )
+        )
 
     totals_raw = payload.get("totals") or {}
     if not isinstance(totals_raw, dict):
@@ -226,6 +329,7 @@ def parse_review(payload: Any) -> ReviewReport:
         observations=tuple(observations),
         totals=totals,
         notices=tuple(notices_raw),
+        unattached=tuple(unattached),
     )
 
 
@@ -332,16 +436,43 @@ def build_review_document(report: ReviewReport, *, system_version: str) -> Any:
         cells = table.add_row().cells
         cells[0].text = finding.label
         cells[1].text = finding.state_label
-        cells[2].text = ", ".join(finding.clause_numbers)
+        # The display label names Özel Şart 1 as "Özel Şartlar 1", never as a
+        # bare "1" it shares with Genel Şart 1; older reports carry numbers.
+        cells[2].text = ", ".join(
+            finding.clause_labels
+            if len(finding.clause_labels) == len(finding.clause_numbers)
+            else finding.clause_numbers
+        )
         cells[3].text = finding.matched_term
         cells[4].text = finding.note
+
+    # ---- excerpts: the contract's own sentence behind every row -----------
+    quoted = [finding for finding in report.findings if finding.matches or finding.reason]
+    if quoted:
+        _para(document, "")
+        _para(document, "Metinden alıntılar", STYLE_FIELD, bold=True)
+        for finding in quoted:
+            if finding.reason:
+                _para(document, f"{finding.label} ({finding.state_label}): {finding.reason}", STYLE_FIELD)
+            for match in finding.matches:
+                marks = []
+                if match.negated:
+                    marks.append("olumsuz ifade")
+                if match.weak:
+                    marks.append("şüpheli ifade")
+                suffix = f" ({', '.join(marks)})" if marks else ""
+                _para(
+                    document,
+                    f"{finding.label} — {match.clause_label}: “{match.excerpt}”{suffix}",
+                    STYLE_LEGEND,
+                )
 
     # ---- observations ------------------------------------------------------
     if report.observations:
         _para(document, "")
         _para(document, "Madde gözlemleri", STYLE_FIELD, bold=True)
         for observation in report.observations:
-            where = f"Madde {observation.clause_number}" if observation.clause_number else "Madde"
+            where = observation.where or clause_display_label(observation.clause_number)
             if observation.sourced:
                 suffix = f" [Kaynak: {observation.evidence_label}]" if observation.evidence_label else ""
                 _para(document, f"{where}: {observation.text}{suffix}", STYLE_FIELD)
@@ -350,15 +481,39 @@ def build_review_document(report: ReviewReport, *, system_version: str) -> Any:
                 # style makes it visible as well as labelled.
                 _para(document, f"{where}: {observation.text}", STYLE_WARNING)
 
+    if report.unattached:
+        _para(document, "")
+        _para(document, "Maddeye bağlanamayan gözlemler", STYLE_FIELD, bold=True)
+        for observation in report.unattached:
+            if observation.note:
+                _para(document, observation.note, STYLE_LEGEND)
+            suffix = (
+                f" [Kaynak: {observation.evidence_label}]"
+                if observation.sourced and observation.evidence_label
+                else ""
+            )
+            _para(
+                document,
+                f"{observation.text}{suffix}",
+                STYLE_FIELD if observation.sourced else STYLE_WARNING,
+            )
+
     # ---- legend + notices --------------------------------------------------
     _para(document, "")
     _para(document, "Durum sözlüğü", STYLE_FIELD, bold=True)
     for label, meaning in STATE_LEGEND:
         _para(document, f"{label}: {meaning}", STYLE_LEGEND)
     _para(document, UNSOURCED_NOTE, STYLE_LEGEND)
+    # The report's notices repeat the banner and the KAYNAKSIZ rule verbatim;
+    # a sentence already on the page is not printed a second time.
+    printed = {REVIEW_BANNER, UNSOURCED_NOTE}
     for notice in report.notices:
+        if notice in printed:
+            continue
+        printed.add(notice)
         _para(document, notice, STYLE_LEGEND)
     _para(document, f"Üretim: {system_version}", STYLE_LEGEND)
+    # Rule 3: the page that closes the report says it is rule-based, too.
     _para(document, REVIEW_BANNER, STYLE_WARNING)
     return document
 
@@ -433,10 +588,23 @@ def _self_check(path: Path, report: ReviewReport) -> None:
 
     # Every observation the report carries must actually be in the document:
     # a line silently dropped is a review that under-reports itself.
-    for observation in report.observations:
+    for observation in (*report.observations, *report.unattached):
         if observation.text not in produced.full_text:
             failures.append("GOZLEM: bir madde gözlemi belgede yok")
             break
+
+    # The excerpt is what lets the lawyer catch a wrong match: one that did
+    # not reach the page is a finding the reader cannot check.
+    for finding in report.findings:
+        if any(match.excerpt not in produced.full_text for match in finding.matches):
+            failures.append("ALINTI: bir bulgunun sözleşme alıntısı belgede yok")
+            break
+
+    # Each sentence of boilerplate once: a repeated warning is an unread one.
+    if produced.paragraph_texts.count(UNSOURCED_NOTE) != 1:
+        failures.append("TEKRAR: KAYNAKSIZ kuralı belgede birden çok kez yazılı")
+    if produced.paragraph_texts.count(REVIEW_BANNER) != 2:
+        failures.append("TEKRAR: kural tabanlı bandı yalnız başta ve sonda olmalı")
 
     if failures:
         raise ExportRefused("İnceleme raporu kendisiyle doğrulanamadı", failures)
