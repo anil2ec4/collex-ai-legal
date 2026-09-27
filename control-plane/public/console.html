@@ -2674,7 +2674,7 @@ details.tech .techline {
 /* Görünüm bölümleri: içerik kabuğun altından nefes alarak başlar. */
 #view-dosyalarim, #view-arastir, #view-belgeler, #view-taslak, #view-ayarlar,
 #view-dosya, #view-belge, #view-izgara, #view-karar-ara, #view-denetim, #view-dilekce,
-#view-takvim, #view-nasil, #view-sozluk, #view-kapsam, #view-harc, #view-sozlesme { padding-top: 22px; }
+#view-takvim, #view-nasil, #view-sozluk, #view-kapsam, #view-harc, #view-faiz, #view-sozlesme { padding-top: 22px; }
 
 /* ===== W17 · hızlı arama, kısayol listesi, son açılanlar, kişiler, dosya paketi ===== */
 .palette {
@@ -2853,6 +2853,9 @@ button.seal { border-radius: var(--r-ctl); }
 #tplfields .formgrid > .tfield:not(.span2) > .tin { grid-row: 2; align-self: start; }
 #tplfields .formgrid > .tfield:not(.span2) > .fhelp { grid-row: 3; }
 #tplfields .formgrid > .tfield:not(.span2) > .fielderr { grid-row: 4; }
+/* W23 · faiz ekranı: dönem satırı = başlangıç · bitiş · oran · kaynak · sil. */
+.faizrow { display: grid; grid-template-columns: 160px 160px 110px minmax(0, 1fr) auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+@media (max-width: 820px) { .faizrow { grid-template-columns: 1fr 1fr; } .faizrow > input[type="text"] { grid-column: 1 / -1; } }
 @media print {
   body.shell .masthead { position: static; width: auto; border: 0; }
   body.shell .wrap { padding: 0; }
@@ -3620,6 +3623,27 @@ button.seal { border-radius: var(--r-ctl); }
       </div>
     </section>
     <div id="harc-out" aria-live="polite"></div>
+  </section>
+
+  <!-- W23 · Faiz hesabı -->
+  <section id="view-faiz" hidden aria-label="Faiz hesabı görünümü">
+    <div class="actions backlink">
+      <button type="button" class="ghost small" id="faiz-back">← Araştır</button>
+    </div>
+    <section class="card">
+      <div class="screenhead">
+        <h2 id="faiz-title" tabindex="-1">Faiz hesabı</h2>
+        <span class="sub">Basit faiz, gün gün; oran değişince hesap da bölünür. ColleX bilmediği bir oranı tahmin etmez, sizden ister.</span>
+      </div>
+      <p class="screenlead">Bu ekranda bir alacağın kanunî faizini, avans faizini ya da sözleşmedeki faizini dönem dönem hesaplarsınız; her satırda oranın nereden geldiği yazar.</p>
+      <div class="formgrid" id="faiz-form"></div>
+      <div id="faiz-periods"></div>
+      <div class="controls">
+        <button type="button" class="seal" id="faiz-go">Hesapla</button>
+        <span class="timing" id="faiz-timing" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+    <div id="faiz-out" aria-live="polite"></div>
   </section>
 
   <!-- W14 B-24 · Sözleşme kontrol listesi -->
@@ -6353,12 +6377,12 @@ button.seal { border-radius: var(--r-ctl); }
   var HIDDEN_VIEWS = {
     dosya: "dosyalarim", belge: "belgeler", izgara: "arastir",
     "karar-ara": "arastir", denetim: "arastir", dilekce: "arastir",
-    harc: "arastir",
+    harc: "arastir", faiz: "arastir",
     sozlesme: "arastir", takvim: "dosyalarim", kapsam: "ayarlar",
     nasil: "ayarlar", sozluk: "ayarlar", kisiler: "ayarlar"
   };
   var ARGLESS_HIDDEN = {
-    izgara: true, "karar-ara": true, denetim: true, dilekce: true, harc: true,
+    izgara: true, "karar-ara": true, denetim: true, dilekce: true, harc: true, faiz: true,
     sozlesme: true, takvim: true, kapsam: true,
     nasil: true, sozluk: true, kisiler: true
   };
@@ -6463,6 +6487,7 @@ button.seal { border-radius: var(--r-ctl); }
     if (name === "takvim") { openTakvim(); }
     if (name === "kapsam") { openKapsam(); }
     if (name === "harc") { openHarc(); }
+    if (name === "faiz") { openFaiz(); }
     if (name === "sozlesme") { openSozlesme(); }
     if (name === "nasil") { openNasil(); }
     if (name === "sozluk") { openSozluk(); }
@@ -13708,6 +13733,11 @@ button.seal { border-radius: var(--r-ctl); }
       run: function () { gotoView("harc"); }
     },
     {
+      id: "faiz", fam: "hesap", title: "Faiz hesapla",
+      line: "Kanunî, avans ya da sözleşme faizi; oran değişince dönem dönem bölünür. Bilinmeyen oran uydurulmaz, sizden istenir.",
+      run: function () { gotoView("faiz"); }
+    },
+    {
       id: "atif", fam: "hesap", title: "Dilekçemdeki atıfları denetle",
       line: "Dilekçedeki her atfı arar; yürürlüğü DİLEKÇENİN TARİHİNE göre okur, çözemediği künyeyi boş bırakır.",
       run: function () { gotoDenetim({}); }
@@ -18017,6 +18047,170 @@ button.seal { border-radius: var(--r-ctl); }
     document.getElementById("harc-yol").disabled = true;
   }
 
+  /* ====== W23 · Faiz hesabı ======
+     Harç ekranıyla aynı kural: sunucu bilmediği bir oranı null döner
+     (ORAN_GEREKLI) ve toplam boş kalır; ekran bunu "oranı siz gireceksiniz"
+     diye yazar, sıfır ya da tahmin yazmaz. Avukatın girdiği oran, kaynağıyla
+     birlikte satırında görünür. */
+  var faizRates = null;
+  function faizDay(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+    return m ? m[3] + "." + m[2] + "." + m[1] : (iso || "");
+  }
+  function openFaiz() {
+    var t = document.getElementById("faiz-title");
+    if (t && t.focus) { t.focus(); }
+    if (faizRates) { return; }
+    var form = document.getElementById("faiz-form");
+    form.textContent = "";
+    emptyLine(form, "Faiz türleri alınıyor…");
+    getJson("/v1/interest/rates").then(function (res) {
+      form.textContent = "";
+      if (res.status === 404) { showNotYet(form, "GET /v1/interest/rates", "Faiz hesabı"); return; }
+      if (res.status !== 200 || !res.body) { errCard(form, "Faiz türleri alınamadı", errMessage(res), errMessageTech(res)); return; }
+      faizRates = res.body;
+      renderFaizForm();
+    }).catch(function (error) {
+      form.textContent = "";
+      errCard(form, "Faiz türleri alınamadı", humanError(error));
+    });
+  }
+  function renderFaizForm() {
+    var form = document.getElementById("faiz-form");
+    form.textContent = "";
+    labelledInput(form, "faiz-kind", "Faiz türü", selectInput((faizRates.kinds || []).map(function (k) { return [k.id, k.label]; }), "yasal"));
+    labelledInput(form, "faiz-anapara", "Anapara (TL)", numberInput("100000"));
+    labelledInput(form, "faiz-from", "Faiz başlangıç tarihi", dateInput(""));
+    labelledInput(form, "faiz-to", "Hesap tarihi", dateInput(""));
+    labelledInput(form, "faiz-basis", "Yıl esası", selectInput([["365", "365 gün"], ["360", "360 gün (sözleşme öyle diyorsa)"]], "365"));
+    var host = document.getElementById("faiz-periods");
+    host.textContent = "";
+    host.appendChild(el("p", "note-p",
+      "Kendi oranınızı girmek için dönem ekleyin (avans faizi ve sözleşme faizi için gereklidir). Girdiğiniz oran, kapsadığı günlerde ColleX'in oranının yerine geçer; kaynağını yazmanız istenir."));
+    var list = el("div", "rowlist");
+    list.id = "faiz-rows";
+    host.appendChild(list);
+    var add = el("div", "presets");
+    var b = el("button", "pre");
+    b.type = "button";
+    b.appendChild(el("span", "glyph", "+"));
+    b.appendChild(document.createTextNode("Dönem ekle"));
+    b.addEventListener("click", function () { addFaizRow({}); });
+    add.appendChild(b);
+    host.appendChild(add);
+  }
+  function addFaizRow(v) {
+    var list = document.getElementById("faiz-rows");
+    if (!list) { return; }
+    var row = el("div", "faizrow");
+    var from = dateInput(v.from || "");
+    from.setAttribute("aria-label", "Dönem başlangıcı");
+    var to = dateInput(v.to || "");
+    to.setAttribute("aria-label", "Dönem bitişi");
+    var rate = numberInput("yıllık %", v.annualPercent);
+    rate.setAttribute("aria-label", "Yıllık oran (%)");
+    rate.step = "0.01";
+    var src = document.createElement("input");
+    src.type = "text";
+    src.className = "tin";
+    src.placeholder = "Kaynak — ör. Resmî Gazete tarihi/sayısı, TCMB duyurusu, sözleşme m. 7";
+    src.setAttribute("aria-label", "Oranın kaynağı");
+    if (v.source) { src.value = v.source; }
+    var del = el("button", "rowdel", "×");
+    del.type = "button";
+    del.setAttribute("aria-label", "Bu dönemi sil");
+    del.addEventListener("click", function () { row.remove(); });
+    [from, to, rate, src, del].forEach(function (n) { row.appendChild(n); });
+    list.appendChild(row);
+    return row;
+  }
+  function runFaiz() {
+    if (!faizRates) { return; }
+    var body = {
+      kind: document.getElementById("faiz-kind").value,
+      principal: Number(document.getElementById("faiz-anapara").value),
+      from: document.getElementById("faiz-from").value,
+      to: document.getElementById("faiz-to").value
+    };
+    if (document.getElementById("faiz-basis").value === "360") { body.dayBasis = 360; }
+    var periods = [];
+    Array.prototype.forEach.call(document.querySelectorAll("#faiz-rows .faizrow"), function (row) {
+      var inputs = row.querySelectorAll("input");
+      if (!inputs[0].value && !inputs[1].value && inputs[2].value === "") { return; }
+      periods.push({ from: inputs[0].value, to: inputs[1].value, annualPercent: Number(inputs[2].value), source: inputs[3].value });
+    });
+    if (periods.length) { body.periods = periods; }
+    var out = document.getElementById("faiz-out");
+    var t0 = Date.now();
+    sendJson("/v1/interest/compute", "POST", body).then(function (res) {
+      document.getElementById("faiz-timing").textContent = "hesap süresi: " + busySeconds(Date.now() - t0);
+      out.textContent = "";
+      if (res.status === 404) { showNotYet(out, "POST /v1/interest/compute", "Faiz hesabı"); return; }
+      if (res.status !== 200 || !res.body) { errCard(out, "Hesap yapılamadı", errMessage(res), errMessageTech(res)); return; }
+      renderFaizResult(out, res.body);
+    }).catch(function (error) {
+      out.textContent = "";
+      errCard(out, "Hesap yapılamadı", humanError(error));
+    });
+  }
+  function renderFaizResult(out, body) {
+    animIndex = 0;
+    var card = el("section", "card");
+    var head = el("div", "filehead");
+    head.appendChild(el("h3", "fname", body.kindLabel + " — " + faizDay(body.from) + " → " + faizDay(body.to) + " (" + body.totalDays + " gün)"));
+    head.appendChild(chip(body.totalInterest === null ? "oranı eksik dönem var" : "toplam hazır", body.totalInterest === null ? "warn" : "ok"));
+    card.appendChild(head);
+    var t = el("table", "feetable");
+    var thead = el("thead");
+    var hr = el("tr");
+    ["Dönem", "Gün", "Yıllık oran", "Faiz", "Oranın dayanağı"].forEach(function (h) { hr.appendChild(el("th", null, h)); });
+    thead.appendChild(hr);
+    t.appendChild(thead);
+    var tb = el("tbody");
+    (body.rows || []).forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(el("td", null, faizDay(r.from) + " – " + faizDay(r.to)));
+      tr.appendChild(el("td", "amt", String(r.days)));
+      tr.appendChild(el("td", "amt" + (r.annualPercent === null ? " missing" : ""), r.annualPercent === null ? "oranı siz gireceksiniz" : "%" + String(r.annualPercent).replace(".", ",")));
+      tr.appendChild(el("td", "amt" + (r.interest === null ? " missing" : ""), r.interest === null ? "oran girilince hesaplanır" : fmtTL(r.interest)));
+      var c = el("td");
+      if (r.source) { c.appendChild(el("span", "feedetail", r.source)); }
+      if (r.status === "dogrulanmadi") { c.appendChild(chip("Resmî Gazete metniyle karşılaştırılmadı", "warn")); }
+      else if (r.status === "avukat-girdi") { c.appendChild(chip("sizin girdiğiniz oran", "mute")); }
+      tr.appendChild(c);
+      tb.appendChild(tr);
+    });
+    var tot = el("tr", "total");
+    tot.appendChild(el("td", null, "TOPLAM FAİZ"));
+    tot.appendChild(el("td", "amt", String(body.totalDays)));
+    tot.appendChild(el("td", null, ""));
+    tot.appendChild(el("td", "amt" + (body.totalInterest === null ? " missing" : ""), body.totalInterest === null ? "eksik oranlar girilince hesaplanır" : fmtTL(body.totalInterest)));
+    tot.appendChild(el("td", null, body.totalWithPrincipal === null ? "" : "anapara ile: " + fmtTL(body.totalWithPrincipal)));
+    tb.appendChild(tot);
+    t.appendChild(tb);
+    card.appendChild(scrollWrap(t));
+    (body.notes || []).forEach(function (n) { card.appendChild(el("p", "note-p", n)); });
+    card.appendChild(el("p", "fhelp", body.disclaimer || ""));
+    out.appendChild(anim(card));
+    if ((body.missing || []).length) {
+      var mc = el("section", "card");
+      mc.appendChild(el("h3", "fname", "Oranı eksik dönemler (" + body.missing.length + ")"));
+      mc.appendChild(el("p", "note-p", "Her dönemin oranını ve kaynağını girin; hesap girdiğiniz oranla yeniden yapılır."));
+      var acts = el("div", "actions");
+      body.missing.forEach(function (m) {
+        var b = el("button", "ghost small", faizDay(m.from) + " – " + faizDay(m.to) + " için oran gir");
+        b.type = "button";
+        b.addEventListener("click", function () {
+          var row = addFaizRow({ from: m.from, to: m.to });
+          if (row) { var inputs = row.querySelectorAll("input"); if (inputs[2] && inputs[2].focus) { inputs[2].focus(); } }
+        });
+        acts.appendChild(b);
+      });
+      mc.appendChild(acts);
+      out.appendChild(anim(mc));
+    }
+  }
+
   function runHarc() {
     if (!feeTariffs) { return; }
     var kind = document.getElementById("harc-kind").value;
@@ -18783,6 +18977,8 @@ button.seal { border-radius: var(--r-ctl); }
     wireHelpMenu();
     on("harc-back", "click", function () { gotoView("arastir"); });
     on("harc-go", "click", runHarc);
+    on("faiz-back", "click", function () { gotoView("arastir"); });
+    on("faiz-go", "click", runFaiz);
     on("sozlesme-back", "click", function () { gotoView("arastir"); });
     on("sozlesme-go", "click", runSozlesme);
     on("sozlesme-list", "change", renderChecklistEditor);

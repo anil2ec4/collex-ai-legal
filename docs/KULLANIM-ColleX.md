@@ -1038,7 +1038,7 @@ vardır:
   sınırları. Bunlar her Ocak Resmî Gazete'de yenilenir ve **ColleX bunları
   bilmez.**
 
-Bu yüzden 20 tarife kaleminin **17'si tutarsız** gelir. Ekranda "Tutar
+Bu yüzden 20 tarife kaleminin **10'u tutarsız** gelir. Ekranda "Tutar
 girilmedi" yazar ve yanında bir kutu vardır: bu yılın rakamını yılda bir kez
 girersiniz, hesap o tutarla yapılır ve girdiğiniz değer o yıl için saklanır.
 Bir kalem eksikse **toplam hesaplanmaz** — tahmini bir toplam yazmak yerine
@@ -1050,6 +1050,22 @@ harcı → asgari → peşin harç → gider avansı → açılışta ödenecek)
 çıktıda tarife uyarısı aynen durur. Kesinlik sınırı hesabında bu yılın
 rakamını girmediyseniz sonuç "Belirlenemedi — bu yılın sınırını girin" olur.
 
+
+#### Faiz hesabı
+
+**Faiz hesapla** kartı bir alacağın faizini dönem dönem hesaplar: kanunî
+(yasal) faiz, ticarî işlerde avans faizi ya da sözleşmede kararlaştırılan
+faiz. Hesap **basit faizdir** ve gün gün yapılır; oran bir tarihte
+değiştiyse hesap o tarihte bölünür ve her dönem ayrı satırda görünür.
+
+Harçtaki kural burada da geçerlidir: **ColleX bilmediği bir oranı tahmin
+etmez.** Kanunî faizin 2006'dan bu yana iki oranı ColleX'te vardır; ikisi
+de henüz Resmî Gazete metniyle karşılaştırılmadığı için satırında
+"karşılaştırılmadı" yazar ve nasıl doğrulanacağı yanında durur. Avans
+faizinin oranlarını ColleX bilmez: her dönem için oranı ve **kaynağını**
+(Resmî Gazete, Merkez Bankası duyurusu, sözleşmenin maddesi) siz girersiniz.
+Oranı eksik bir dönem varsa toplam hesaplanmaz; ekranda o dönem için
+"oran gir" düğmesi çıkar.
 #### Dilekçemdeki atıfları denetle
 
 Karşı tarafın dilekçesini verirsiniz; ColleX içindeki bütün atıfları çıkarır

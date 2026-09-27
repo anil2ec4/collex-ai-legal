@@ -160,6 +160,7 @@ import { createContractsRouter } from "../contracts/routes.js";
 import { createCorpusCitationResolver } from "../contracts/corpusResolver.js";
 import { PgChecklistStore } from "../contracts/checklistStore.js";
 import { createFeesRouter } from "../fees/routes.js";
+import { createInterestRouter } from "../interest/routes.js";
 import { InMemoryContactStore, PgContactStore } from "../matters/contacts.js";
 import type { ContactStore } from "../matters/contactsRoutes.js";
 import { AI_LIVE_TESTED, type AiConfig } from "../ai/config.js";
@@ -1994,6 +1995,8 @@ export function createApp(deps: ApiDependencies): Hono {
     }),
   );
   app.route("/", createFeesRouter({}));
+  // W23: faiz hesabı (pure; no DB, no clock).
+  app.route("/", createInterestRouter());
 
   return app;
 }

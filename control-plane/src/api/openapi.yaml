@@ -2887,6 +2887,51 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  # ----------------------------------------------------------- interest (W23)
+  /v1/interest/rates:
+    get:
+      operationId: getInterestRates
+      summary: Interest kinds and the kanunî faiz periods ColleX knows
+      description: >
+        W23. Pure data. Every built-in period is `dogrulanmadi` until its
+        Resmî Gazete text has been compared and says how to check it; the
+        ticarî avans faizi carries no built-in value at all. The disclaimer is
+        carried verbatim.
+      responses:
+        "200":
+          description: Kinds, periods and the disclaimer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterestRates"
+  /v1/interest/compute:
+    post:
+      operationId: computeInterest
+      summary: Simple interest, day by day, never a guessed rate
+      description: >
+        W23. A day whose rate is unknown answers `durum: ORAN_GEREKLI` and the
+        total becomes `null`; a rate the lawyer enters wins on the days it
+        covers and keeps the lawyer's source beside it. Bileşik faiz is not
+        computed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InterestComputeRequest"
+      responses:
+        "200":
+          description: The computation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterestComputation"
+        "400":
+          description: INVALID_REQUEST (Turkish issues naming each field)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   # ----------------------------------------------------------- sources (B-14/16/20)
   /v1/sources/catalog:
     get:
@@ -8893,6 +8938,93 @@ components:
         verified:
           type: string
           enum: [dogrulandi, dogrulanmadi]
+    InterestRatePeriod:
+      type: object
+      required: [kind, from, to, annualPercent, status, source, nasilDogrulanir]
+      properties:
+        kind: { type: string, enum: [yasal, ticari-avans, sozlesmesel] }
+        from: { type: string, format: date }
+        to: { type: string, format: date, nullable: true }
+        annualPercent: { type: number, nullable: true }
+        status: { type: string, enum: [dogrulandi, dogrulanmadi, avukat-girdi] }
+        source: { type: string }
+        nasilDogrulanir: { type: string }
+    InterestRates:
+      type: object
+      required: [kinds, periods, disclaimer]
+      properties:
+        kinds:
+          type: array
+          items:
+            type: object
+            required: [id, label]
+            properties:
+              id: { type: string }
+              label: { type: string }
+        periods:
+          type: array
+          items: { $ref: "#/components/schemas/InterestRatePeriod" }
+        disclaimer: { type: string }
+    InterestComputeRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, principal, from, to]
+      properties:
+        kind: { type: string, enum: [yasal, ticari-avans, sozlesmesel] }
+        principal: { type: number, exclusiveMinimum: 0 }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        dayBasis: { type: integer, enum: [365, 360] }
+        periods:
+          type: array
+          maxItems: 60
+          items:
+            type: object
+            additionalProperties: false
+            required: [from, to, annualPercent, source]
+            properties:
+              from: { type: string, format: date }
+              to: { type: string, format: date }
+              annualPercent: { type: number, minimum: 0, maximum: 1000 }
+              source: { type: string, minLength: 1, maxLength: 300 }
+    InterestComputation:
+      type: object
+      required: [kind, kindLabel, principal, from, to, dayBasis, totalDays, rows, totalInterest, totalWithPrincipal, missing, usesUnverifiedRate, notes, disclaimer]
+      properties:
+        kind: { type: string }
+        kindLabel: { type: string }
+        principal: { type: number }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        dayBasis: { type: integer }
+        totalDays: { type: integer }
+        rows:
+          type: array
+          items:
+            type: object
+            required: [from, to, days, annualPercent, status, source, interest, durum]
+            properties:
+              from: { type: string, format: date }
+              to: { type: string, format: date }
+              days: { type: integer }
+              annualPercent: { type: number, nullable: true }
+              status: { type: string, nullable: true, enum: [dogrulandi, dogrulanmadi, avukat-girdi, null] }
+              source: { type: string, nullable: true }
+              interest: { type: number, nullable: true }
+              durum: { type: string, enum: [HESAPLANDI, ORAN_GEREKLI] }
+        totalInterest: { type: number, nullable: true }
+        totalWithPrincipal: { type: number, nullable: true }
+        missing:
+          type: array
+          items:
+            type: object
+            required: [from, to]
+            properties:
+              from: { type: string, format: date }
+              to: { type: string, format: date }
+        usesUnverifiedRate: { type: boolean }
+        notes: { type: array, items: { type: string } }
+        disclaimer: { type: string }
     FeeComputation:
       type: object
       required: [year, kind, davaDegeri, steps, toplam, eksikKalemler, dogrulanmamisKalemler, warnings, disclaimer]

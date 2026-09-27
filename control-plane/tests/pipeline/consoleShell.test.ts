@@ -57,3 +57,25 @@ describe("W23 application shell", () => {
     }
   });
 });
+
+describe("W23 faiz hesabı screen", () => {
+  it("is a hidden, argument-less view with a work card, reached from Araştır", () => {
+    expect(html).toContain('<section id="view-faiz" hidden aria-label="Faiz hesabı görünümü">');
+    expect(html).toContain('harc: "arastir", faiz: "arastir",');
+    expect(html).toContain('dilekce: true, harc: true, faiz: true,');
+    expect(html).toContain('if (name === "faiz") { openFaiz(); }');
+    expect(html).toContain('id: "faiz", fam: "hesap", title: "Faiz hesapla",');
+  });
+
+  it("draws an unknown rate as the lawyer's to enter, never as 0, and prints the disclaimer once", () => {
+    const start = html.indexOf("  function renderFaizResult(out, body) {");
+    const fn = html.slice(start, html.indexOf("\n  }\n", start));
+    expect(fn).toContain('r.annualPercent === null ? "oranı siz gireceksiniz"');
+    expect(fn).toContain('r.interest === null ? "oran girilince hesaplanır"');
+    expect(fn).toContain('body.totalInterest === null ? "eksik oranlar girilince hesaplanır"');
+    expect(fn).toContain('chip("Resmî Gazete metniyle karşılaştırılmadı", "warn")');
+    // The disclaimer is drawn by the result only (B-27: no sentence twice).
+    expect(html).not.toContain('host.appendChild(el("p", "fhelp", faizRates.disclaimer');
+    expect((fn.match(/body\.disclaimer/gu) ?? []).length).toBe(1);
+  });
+});
