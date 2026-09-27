@@ -190,6 +190,21 @@ describe.skipIf(!available)("W14 stores against real SQL (collex_matter_test)", 
 
     const byQuery = await store.list({ q: "yılmaz", today: "2026-09-02" });
     expect(byQuery.map((m) => m.id)).toContain(matter.id);
+
+    // 27.09.2026: ILIKE folds case with the DATABASE locale, which has no
+    // dotless ı — "YILMAZ" and "TANIK" found nothing, and "yilmaz" typed on
+    // a keyboard without Turkish letters never met "Yılmaz".
+    for (const q of ["YILMAZ", "yilmaz", "Yılmaz", "AYŞE YILMAZ", "ayse"]) {
+      const rows = await store.list({ q, today: "2026-09-02" });
+      expect(rows.map((m) => m.id), q).toContain(matter.id);
+    }
+    await store.addItems(matter.id, [
+      { kind: "note", payload: { text: "Tanık Şükrü Çağlar'ın beyanı alındı.", source: "manual" } },
+    ]);
+    for (const q of ["TANIK", "tanik", "ŞÜKRÜ ÇAĞLAR", "sukru caglar"]) {
+      const found = await store.searchItems({ q, limit: 10 });
+      expect(found.map((h) => h.kind), q).toEqual(["note"]);
+    }
   });
 
   it("B-17: a hearing is stored, listed and calendar-ordered — or refused with a typed error", async () => {

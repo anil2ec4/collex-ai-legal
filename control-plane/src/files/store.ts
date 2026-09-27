@@ -27,6 +27,12 @@
 import { createDb, type Sql, type SqlRow } from "../store/db.js";
 import type { DraftFileChunk, DraftingFilePort } from "../drafting/types.js";
 import { LOCAL_TENANT_ID } from "../drafting/types.js";
+import {
+  TR_FILTER_SQL_FROM,
+  TR_FILTER_SQL_TO,
+  foldTurkishForFilter,
+  normalizeTurkishSearch,
+} from "../retrieval/normalize.js";
 
 /** GET /v1/files row (contract #1; matches intake/ingest.py list_files). */
 export interface FileListEntry {
@@ -479,7 +485,12 @@ export class PostgresFilesStore implements FilesReadStore {
     if (needle === "") return [];
     const tenantId = opts.tenantId ?? LOCAL_TENANT_ID;
     const limit = Math.min(50, Math.max(1, Math.floor(opts.limit ?? 20)));
-    const pattern = "%" + needle.replace(/[\\%_]/g, "\\$&") + "%";
+    // `search_text` is the ingest-time Turkish-lowercased text, so the tsquery
+    // gets the same lowercasing (the database locale would read "KIDEM" as
+    // "kidem") and the substring lane compares the SAME fold on both sides.
+    const tsNeedle = normalizeTurkishSearch(needle);
+    const folded = foldTurkishForFilter(needle);
+    const pattern = "%" + folded.replace(/[\\%_]/g, "\\$&") + "%";
     const rows = await this.sql`
       select d.external_id, d.title, v.metadata,
              c.id as chunk_id, c.ordinal, c.original_text, c.start_char, c.end_char
@@ -489,8 +500,8 @@ export class PostgresFilesStore implements FilesReadStore {
       join legal.chunks c on c.document_version_id = v.id
       where d.scope = 'tenant' and d.source = 'UPLOAD'
         and d.tenant_id = ${tenantId}
-        and (c.search_tsv_tr @@ plainto_tsquery('turkish', ${needle})
-             or c.original_text ilike ${pattern})
+        and (c.search_tsv_tr @@ plainto_tsquery('turkish', ${tsNeedle})
+             or lower(translate(c.search_text, ${TR_FILTER_SQL_FROM}, ${TR_FILTER_SQL_TO})) like ${pattern})
       order by d.external_id, c.ordinal
       limit ${limit}`;
     return rows.map((row: SqlRow) => {

@@ -18,6 +18,11 @@ import { randomUUID } from "node:crypto";
 import type { Sql, SqlRow } from "../store/db.js";
 import { LOCAL_TENANT_ID, assertUuid } from "../store/answerStore.js";
 import {
+  TR_FILTER_SQL_FROM,
+  TR_FILTER_SQL_TO,
+  foldTurkishForFilter,
+} from "../retrieval/normalize.js";
+import {
   ISO_DATE_RE,
   deriveMatterSummary,
   isOpenDeadline,
@@ -88,9 +93,19 @@ function rowToItem(row: SqlRow): MatterItem {
   };
 }
 
-/** ILIKE pattern with the user's wildcard characters neutralised. */
+/**
+ * LIKE pattern over the Turkish filter fold, with the user's wildcard
+ * characters neutralised. Compared against {@link foldedSql} of a column —
+ * `ILIKE` folded case with the database locale, which reads "YILMAZ" as
+ * "yilmaz" and so never met "Yılmaz" (27.09.2026).
+ */
 function likePattern(q: string): string {
-  return "%" + q.replace(/[\\%_]/g, "\\$&") + "%";
+  return "%" + foldTurkishForFilter(q).replace(/[\\%_]/g, "\\$&") + "%";
+}
+
+/** SQL twin of foldTurkishForFilter for a raw text expression. */
+function foldedSql(sql: Sql, expr: ReturnType<Sql>) {
+  return sql`lower(translate(${expr}, ${TR_FILTER_SQL_FROM}, ${TR_FILTER_SQL_TO}))`;
 }
 
 /**
@@ -142,8 +157,11 @@ export class PgMatterStore implements MatterStore {
     const pattern = q !== undefined && q !== "" ? likePattern(q) : undefined;
     const searchClause =
       pattern !== undefined
-        ? sql`and (title ilike ${pattern} or client ilike ${pattern} or opposing ilike ${pattern}
-                   or court ilike ${pattern} or docket_no ilike ${pattern})`
+        ? sql`and (${foldedSql(sql, sql`title`)} like ${pattern}
+                   or ${foldedSql(sql, sql`client`)} like ${pattern}
+                   or ${foldedSql(sql, sql`opposing`)} like ${pattern}
+                   or ${foldedSql(sql, sql`court`)} like ${pattern}
+                   or ${foldedSql(sql, sql`docket_no`)} like ${pattern})`
         : sql``;
     const rows = await sql`
       select id, title, client, opposing, court, docket_no, kind, status, notes,
@@ -396,10 +414,10 @@ export class PgMatterStore implements MatterStore {
       join app_private.matters m on m.id = i.matter_id
       where i.tenant_id = ${this.tenantId}
         and i.kind = any(${kinds}::text[])
-        and (coalesce(i.payload ->> 'text', '') ilike ${pattern}
-             or coalesce(i.payload ->> 'title', '') ilike ${pattern}
-             or coalesce(i.payload ->> 'court', '') ilike ${pattern}
-             or coalesce(i.payload ->> 'note', '') ilike ${pattern})
+        and (${foldedSql(sql, sql`coalesce(i.payload ->> 'text', '')`)} like ${pattern}
+             or ${foldedSql(sql, sql`coalesce(i.payload ->> 'title', '')`)} like ${pattern}
+             or ${foldedSql(sql, sql`coalesce(i.payload ->> 'court', '')`)} like ${pattern}
+             or ${foldedSql(sql, sql`coalesce(i.payload ->> 'note', '')`)} like ${pattern})
       order by i.updated_at desc, i.item_id
       limit ${limit}`;
     return rows.map((row) => ({ ...rowToItem(row), matterTitle: str(row, "matter_title") }));
@@ -634,17 +652,18 @@ export class InMemoryMatterStore implements MatterStore {
     kinds?: readonly MatterItemKind[];
     limit?: number;
   }): Promise<DeadlineRow[]> {
-    const q = opts.q.trim().toLocaleLowerCase("tr-TR");
+    const q = foldTurkishForFilter(opts.q.trim());
     if (q === "") return [];
     const kinds = new Set<MatterItemKind>(opts.kinds ?? ["note", "event", "deadline", "hearing"]);
     const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 20)), 200);
     const rows: DeadlineRow[] = [];
     for (const item of this.items.values()) {
       if (!kinds.has(item.kind)) continue;
-      const haystack = ["text", "title", "court", "note"]
-        .map((k) => (typeof item.payload[k] === "string" ? String(item.payload[k]) : ""))
-        .join(" ")
-        .toLocaleLowerCase("tr-TR");
+      const haystack = foldTurkishForFilter(
+        ["text", "title", "court", "note"]
+          .map((k) => (typeof item.payload[k] === "string" ? String(item.payload[k]) : ""))
+          .join(" "),
+      );
       if (!haystack.includes(q)) continue;
       const matter = this.matters.get(item.matterId);
       if (matter === undefined) continue;

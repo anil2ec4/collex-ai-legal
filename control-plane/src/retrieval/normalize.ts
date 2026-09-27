@@ -23,6 +23,42 @@ export function normalizeTurkishSearch(input: string): string {
 }
 
 /**
+ * The letters {@link foldTurkishForFilter} folds AFTER Turkish lowercasing,
+ * and what they become. The SQL side of every filter uses the SAME pair in
+ * `translate(…)`, so the database and the in-memory stores agree.
+ */
+export const TR_FILTER_FOLD_FROM = "ıçğöşüâîû";
+export const TR_FILTER_FOLD_TO = "icgosuaiu";
+
+/**
+ * The SQL fold maps BOTH cases of every Turkish letter before `lower()`:
+ * under a C / C.UTF-8 database locale `lower()` folds ASCII only, and
+ * "ŞÜKRÜ" stayed upper case (measured on PostgreSQL 16, C.UTF-8). What is
+ * left for `lower()` is then plain ASCII, which every locale folds alike.
+ */
+export const TR_FILTER_SQL_FROM = "İIıŞşĞğÜüÖöÇçÂâÎîÛû";
+export const TR_FILTER_SQL_TO = "iiissgguuooccaaiiuu";
+
+/**
+ * Case- and diacritic-insensitive key for the "contains" filters a lawyer
+ * types into a search box (files, matters, matter items).
+ *
+ * 27.09.2026: `ILIKE` and `plainto_tsquery` fold case with the DATABASE
+ * locale, which knows no Turkish dotless ı — "KIDEM", "TANIK" and "YILMAZ"
+ * found nothing, and "bilirkisi" typed on a keyboard without Turkish letters
+ * never met "bilirkişi". For FILTERS only — never for citation text, quote
+ * integrity or reference parsing.
+ */
+export function foldTurkishForFilter(input: string): string {
+  let out = "";
+  for (const ch of normalizeTurkishSearch(input)) {
+    const at = TR_FILTER_FOLD_FROM.indexOf(ch);
+    out += at >= 0 ? TR_FILTER_FOLD_TO[at] : ch;
+  }
+  return out;
+}
+
+/**
  * LENGTH-PRESERVING lowercase + punctuation unification for MATCHING only.
  *
  * Unlike {@link normalizeTurkishSearch} this never strips soft hyphens and

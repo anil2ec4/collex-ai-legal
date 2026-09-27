@@ -53,7 +53,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { normalizeTurkishSearch } from "../retrieval/normalize.js";
+import { foldTurkishForFilter } from "../retrieval/normalize.js";
 import { invalidateLexicalStats } from "../store/chunkStore.js";
 import {
   DEFAULT_CHUNK_WINDOW,
@@ -381,9 +381,9 @@ export function uploadCapBytes(): number {
 
 /** Turkish-insensitive substring test for the `q` name filter. */
 export function nameMatches(name: string, q: string): boolean {
-  const needle = normalizeTurkishSearch(q).trim();
+  const needle = foldTurkishForFilter(q).trim();
   if (needle === "") return true;
-  return normalizeTurkishSearch(name).includes(needle);
+  return foldTurkishForFilter(name).includes(needle);
 }
 
 /**

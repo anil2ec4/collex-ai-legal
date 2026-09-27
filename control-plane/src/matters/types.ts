@@ -35,6 +35,8 @@
  * store answers a typed Turkish error instead of a driver stack trace.
  */
 
+import { foldTurkishForFilter } from "../retrieval/normalize.js";
+
 export const MATTER_KINDS = ["dava", "danismanlik", "sozlesme", "icra", "diger"] as const;
 export type MatterKind = (typeof MATTER_KINDS)[number];
 
@@ -502,8 +504,8 @@ export function trimToWordBoundary(text: string, maxCodePoints: number): string 
 
 /** Case-insensitive "contains" over the searchable columns (both stores). */
 export function matterMatchesQuery(matter: Matter, q: string): boolean {
-  const needle = q.toLocaleLowerCase("tr-TR");
+  const needle = foldTurkishForFilter(q);
   return [matter.title, matter.client, matter.opposing, matter.court, matter.docketNo].some((v) =>
-    v.toLocaleLowerCase("tr-TR").includes(needle),
+    foldTurkishForFilter(v).includes(needle),
   );
 }
