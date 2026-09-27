@@ -119,9 +119,13 @@ export function backupDumpFileName(database: string): string {
   return `${safe === "" ? "veritabani" : safe}.dump`;
 }
 
-/** Shown next to every backup, in the console and in the .cmd output. */
+/**
+ * Shown next to every backup, in the console and in the .cmd / .sh output.
+ * 27.09.2026: it named only BitLocker, a Windows feature, and the
+ * production host is a Mac mini (FileVault).
+ */
 export const BACKUP_CLIENT_DATA_WARNING_TR =
-  "Bu klasör müvekkil verisi içerir — şifreli bir diske veya BitLocker'lı bir klasöre koyun.";
+  "Bu klasör müvekkil verisi içerir — şifreli bir diske koyun (Windows'ta BitLocker, Mac'te FileVault ile şifrelenmiş bir disk).";
 
 /** A backup older than this reads as stale in the console (B-03). */
 export const BACKUP_STALE_AFTER_DAYS = 7;

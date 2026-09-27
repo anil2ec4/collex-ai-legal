@@ -1155,7 +1155,7 @@ Faz M kapandı. Sırada, bu belgelerin dışında:
 
 1. **Brave + Tavily anahtar rotasyonu** (SEC-2026-08-26-001 hâlâ AÇIK).
 2. **İlk yedeği alın**: `ColleX-Yedekle.cmd`. Yedek klasörü müvekkil verisi
-   içerir — **şifreli bir diske veya BitLocker'lı bir klasöre** koyun.
+   içerir — **şifreli bir diske** koyun (Windows'ta BitLocker, Mac'te FileVault).
    Yedeği aldıktan sonra `--verify` ile bir kez doğrulayın (S28‴ bozuk
    yedeğin yakalandığını gösteriyor). **Not:** arşiv dosyasının adı artık
    yedeklediği veritabanının adıdır (`collex_local.dump` — sizde ad

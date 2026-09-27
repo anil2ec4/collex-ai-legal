@@ -1108,8 +1108,8 @@ değildir:
 Üçüncüsü yedeği **denetlenebilir** yapan şeydir. Listesi olmayan bir klasör
 ColleX için yedek sayılmaz.
 
-> **Bu klasör müvekkil verisi içerir — şifreli bir diske veya BitLocker'lı
-> bir klasöre koyun.** Bu cümle her yedek sonrası ekrana çıkar; yer kaplasın
+> **Bu klasör müvekkil verisi içerir — şifreli bir diske koyun (Windows'ta
+> BitLocker, Mac'te FileVault ile şifrelenmiş bir disk).** Bu cümle her yedek sonrası ekrana çıkar; yer kaplasın
 > diye yazılmadı.
 
 **Geri yüklemek:** masaüstündeki **ColleX'i Geri Yükle** simgesi

@@ -453,8 +453,9 @@ Non-negotiable properties, all test-pinned:
   RLS invariant (ADR-026).
 
 Every surface that reports a backup repeats the warning verbatim: *"Bu klasör
-müvekkil verisi içerir — şifreli bir diske veya BitLocker'lı bir klasöre
-koyun."*
+müvekkil verisi içerir — şifreli bir diske koyun (Windows'ta BitLocker, Mac'te
+FileVault ile şifrelenmiş bir disk)."* (27.09.2026: it used to name BitLocker
+only; the production host is a Mac mini.)
 
 Deliberately NOT built: PITR / WAL archiving, `pg_basebackup`, a scheduled
 task, encryption. The backup is manual and the lawyer must run it.

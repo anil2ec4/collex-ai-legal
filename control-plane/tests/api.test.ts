@@ -1195,7 +1195,7 @@ describe("B-03 backup route", () => {
           files: summary.files,
           at: summary.lastAt,
           database: "collex_local",
-          warning: "Bu klasör müvekkil verisi içerir — şifreli bir diske veya BitLocker'lı bir klasöre koyun.",
+          warning: "Bu klasör müvekkil verisi içerir — şifreli bir diske koyun (Windows'ta BitLocker, Mac'te FileVault ile şifrelenmiş bir disk).",
         };
       },
       last: async () => {

@@ -3145,8 +3145,8 @@ paths:
         `drop database` — the existing database is RENAMED to
         `collex_local_eski_<tarih>`; `robocopy /E` merges originals and never
         purges. The response `warning` is shown verbatim wherever a backup is
-        reported: "Bu klasör müvekkil verisi içerir — şifreli bir diske veya
-        BitLocker'lı bir klasöre koyun."
+        reported: "Bu klasör müvekkil verisi içerir — şifreli bir diske koyun
+        (Windows'ta BitLocker, Mac'te FileVault ile şifrelenmiş bir disk)."
       responses:
         "200":
           description: The backup that was written
@@ -9580,7 +9580,8 @@ components:
           type: string
           description: >
             Verbatim: "Bu klasör müvekkil verisi içerir — şifreli bir diske
-            veya BitLocker'lı bir klasöre koyun."
+            koyun (Windows'ta BitLocker, Mac'te FileVault ile şifrelenmiş bir
+            disk)."
     LibraryStatus:
       type: object
       required: [libraryDir, queued, ingested, publicDocuments, running, lastIngest]
