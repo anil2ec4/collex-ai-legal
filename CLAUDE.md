@@ -1,7 +1,51 @@
 # CLAUDE.md
 
 Working contract for Claude Code (or any agent/human) in this repository.
-Last updated: **2026-09-04** — **W15, the plain-language wave, is complete.**
+
+**W22 (2026-09-27) — the product met realistic documents and a real browser.**
+Six independent investigators drove the live server with realistic Turkish
+petitions, contracts and a whole iş davası file, and every console screen at
+1440–360 px; five isolated fix workers and the session closed what they found.
+Measurements are STATUS rows **W22-1..W22-18** (first full measurement on
+Linux; the Mac mini's portable start/stop path ran for the first time — not
+on a physical Mac). Read the W22 section of `STATUS.md` before touching
+fees, deadlines, drafting export, petition analysis, contract review, source
+fetch or matter analysis. Rules it leaves behind:
+- **No appealability verdict from a statutory base amount.** Without this
+  year's limit, a value ABOVE the base is `kanunYoluAcik: null`
+  ("BELİRLENEMEDİ"); only a value at or under the base may read KESİN.
+- **`adliTatileTabi: false` is never extended**, whatever `applyAdliTatil`
+  says; no field name (`applyAdliTatil=…`) reaches the lawyer. The peşin
+  harç is floored at the nispi alt sınır.
+- **A paged document is sealed whole or not at all**
+  (`research/payloads.ts::assemblePagedDocument`, `MAX_DOCUMENT_PAGES`):
+  KVKK/BTK/GİB/Rekabet/AYM answer `markdown_chunk`, BDDK/Sigorta page 1 as
+  `markdown_content`. Never seal page 1 as the document.
+- **A tool wrapper never turns a failure into an empty result**; it returns
+  the typed failure fields (`error_code`, `retryable`, …) or raises. In
+  `gateway/failureText.ts` only FastMCP ARGUMENT validation is
+  INVALID_REQUEST — an outage must never tell the lawyer to rephrase.
+- **Filters fold Turkish, citations do not.** `foldTurkishForFilter` and its
+  SQL twin (`TR_FILTER_SQL_FROM/TO`, both cases mapped BEFORE `lower()`,
+  because a C locale's `lower()` folds ASCII only) serve every "contains"
+  filter; never use them for quote integrity or reference parsing.
+- **The NİHAİ copy refuses placeholders** (`409 EXPORT_REFUSED /
+  PLACEHOLDER_UNFILLED`) in the TS route AND in `export/draft.py`;
+  `verify_draft_or_refuse` is unchanged (ADR-024 amended). Draft text is
+  stored as written; escaping happens at render time, and old escaped
+  drafts are folded back with the SAME table as the quote comparison.
+- **"Çelişkileri bul" is `LIMITED`**, never `COMPLETE`: it compares only
+  matched pairs and says how many of how many. A date beside a court or
+  decision citation is a decision date (never compared, never an event); a
+  partial claim ("şimdilik", HMK m.107) is never compared.
+- **A console probe that asks a nil id on purpose uses `parseJsonQuiet`** —
+  through `parseJson` its expected `MATTER_NOT_FOUND` cleared the lawyer's
+  active matter.
+- **An answer's banner names its evidence**: uploads only →
+  `UPLOAD_CORPUS_NOTICE`, nothing admitted → `NO_EVIDENCE_CORPUS_NOTICE`;
+  only synthetic/unknown documents keep the "deneme belgeleri" warning.
+
+Previous line: Last updated: **2026-09-04** — **W15, the plain-language wave, is complete.**
 It changed no capability and no gate; it changed the WORDS on the screen and the
 explanation layer around them. Read `docs/implementation/waves/W15-DEGISMEZLER.md`
 (binding invariants + the canonical glossary) BEFORE writing any user-facing
@@ -282,7 +326,7 @@ at most annotated in place — never rewritten.
 | `control-plane/src/files/` | `/v1/files` lane: `store.ts` (postgres.js reader over tenant uploads + the `DraftingFilePort`; grouped chunk counts, `chunkWindow` pagination 12/200, `pages` stats), `routes.ts` (multipart upload with `matterId`, delete, `?q=` name filter; shells to `intake.cli` via injected exec; typed 400/404/415/422, **503 `STORE_UNAVAILABLE`**, **504 `UPLOAD_TIMEOUT`** at 180 s, **500 `INTAKE_FAILED`** with `correlationId` — stderr only in the server log; `FILE_ID_RE = ^[0-9a-f]{16}$` on DELETE → 404 with no process; `UPLOAD_CAP_MIB = 25` mirrors `intake/quarantine.py` and a test parses the Python line) |
 | `control-plane/src/contracts/` | **NEW (W14).** Rule-based, model-free, cloud-free. `citationAudit.ts` (B-13: three buckets `FOUND` / `NOT_FOUND` / `UNCERTAIN`, mandatory `asOf` = the DOCUMENT'S date, an unresolved citation's `kunye` is the EMPTY STRING and is never synthesized, an injected resolver that may throw — a throw yields UNCERTAIN, never NOT_FOUND), `corpusResolver.ts` (`createCorpusCitationResolver` over `exactPinLookup`; `pairArticlesWithTheirLaw` re-joins "6098 sayılı Kanun m. 299", which `parseReferences` returns as TWO references), `draftAudit.ts` (audits OUR OWN draft — no resolver needed, every citation there is already a hashed evidence record), `clauseReview.ts` (B-24: `splitClauses` + `runChecklist` → VAR/YOK/BELİRSİZ; **the word "risk" belongs to a hash-verified quote only** and every Turkish inflection is stripped from an unsourced line), `checklistStore.ts` (`PgChecklistStore` over `app_private.settings`, no DDL), `routes.ts` |
 | `control-plane/src/sources/` | **NEW (W14).** `catalog.ts` (26 selectable sources, 19 full-text kinds, 2 "içinde ara" lanes; validated against the capability registry at module load), `searchService.ts` (B-16; a row is a künye and carries NO digest and NO offsets — **a search snippet is never evidence**), `fetchService.ts` (the hash-sealed source card; SAME canonicalization as the live research lane, `verifySourceCard` re-verifies offline), `manifest.ts` (B-14 coverage manifest; an unmeasured cell is `null`, never 0), `localLibrary.ts` (B-20; `DisabledLocalLibrary` is the DEFAULT, so today's behaviour is unchanged), `routes.ts` |
-| `control-plane/src/fees/` | **NEW (W14, B-35).** Pure TS, no I/O: `tariffs.ts` (**20 tariff lines for 2026, 5 `dogrulandi`, 17 with `amount: null`**, `FEE_DISCLAIMER` verbatim), `calc.ts` (step-by-step; a missing figure answers `TUTAR_GEREKLI` and the total becomes `null` rather than a guess), `routes.ts` (`/v1/fees/tariffs\|compute`) |
+| `control-plane/src/fees/` | **NEW (W14, B-35).** Pure TS, no I/O: `tariffs.ts` (**20 tariff lines for 2026** — W22-12: 12 `dogrulandi`, 10 with `amount: null`, after `published2026.ts`; `FEE_DISCLAIMER` verbatim), `calc.ts` (step-by-step; a missing figure answers `TUTAR_GEREKLI` and the total becomes `null` rather than a guess), `routes.ts` (`/v1/fees/tariffs\|compute`) |
 | `control-plane/src/backup/` | **NEW (W14, B-03).** `runner.ts` (`pg_dump -Fc` + originals + **`yedek.json` manifest** with per-file size and SHA-256; a folder without a manifest is not a backup; restore RENAMES rather than drops; `execFile` with an argument array, never a shell; `robocopy /E` merges and never purges), `routes.ts` (`POST/GET /v1/backup`) |
 | `control-plane/src/verification/` | `validator.ts` (deterministic citation validator), `finalize.ts` (`canFinalize`) |
 | `control-plane/src/planner/` | `intake.ts`, `rulePlanner.ts`, `templates.ts`, `contrary.ts`, `outcomes.ts` |
@@ -855,7 +899,8 @@ cite the row. Other counts that docs quote and tests pin — all of them STATUS
 rows: `openapi.yaml` **67 paths / 82 operations / 140 schemas** (W16),
 `info.version` **`1.0.0`** (S8); **14** draft templates (W16 added hukukî mütalaa), each with a `domain`,
 and **8** field groups (S9); **41** deadline rules, 16 `dogrulandi` (S10);
-**20** fee tariff lines, 5 `dogrulandi`, 17 with `amount: null` (S11);
+**20** fee tariff lines, 12 `dogrulandi`, 10 with `amount: null` (W22-12;
+S11's "5 / 17" predates `published2026.ts`);
 **13** runnable migrations of 15 files, every one carrying a ledger probe
 (S12); **54** tools, all reachable (S14).
 
@@ -999,7 +1044,7 @@ async with Client(app) as client:
   uploads you made yourself.
 - Do not present any of the **eight unverified surfaces** as verified
   (`STATUS.md`): a `dogrulanmadi` deadline rule (25 of 41), a fee line with
-  `amount: null` (17 of 20), a UDF file (never opened in UYAP), the cloud AI
+  `amount: null` (10 of 20, W22-12), a UDF file (never opened in UYAP), the cloud AI
   lane (`liveTested:false`), the `.ics` stream (never opened in a calendar
   client), the B-16 live search, the local library (nothing reaches
   `collex_local` yet) or the B-13 report (a coverage statement, not a full
@@ -1031,9 +1076,10 @@ async with Client(app) as client:
   product the warning IS the product.
 - **Do not let the word "risk" appear on an unsourced line** (B-24). An
   observation whose `evidenceId` does not resolve to a hash-verified quote
-  is prefixed `⚠ KAYNAKSIZ — ` and every Turkish inflection of "risk" is
-  replaced with "gözlem". Torn out of context it must still not read as a
-  risk assessment.
+  is prefixed `⚠ KAYNAKSIZ — ` and the stem "risk" is replaced with
+  "gözlem" in the same case, suffix kept (RİSKLİ → GÖZLEMLİ, W22). An
+  observation is sourced only when its evidence resolves in the answer
+  store. Torn out of context it must still not read as a risk assessment.
 - **Do not invent a künye.** An unresolved citation's `kunye` is the EMPTY
   STRING and the renderer leaves the cell blank — never "?", never a dash,
   never "bilinmiyor", never a guess. And never report a citation as

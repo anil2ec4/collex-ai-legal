@@ -1,5 +1,128 @@
 # Current status
 
+## 27.09.2026 — W22: gerçek belgelerle sınama — altı bağımsız inceleme, beş düzeltme işçisi
+
+W21'e kadar her kapı sentetik belgelerle yeşildi. W22 ürünü **gerçek bir
+avukatın kullanacağı biçimde** sınadı: gerçekçi Türkçe dilekçeler
+(iş, kira, itirazın iptali, ceza istinaf, idari iptal, cevap), sözleşmeler
+(kira, iş, lisans), bir iş davası dosyası (dava/cevap, bilirkişi raporu,
+çelişen tanık tutanakları, taranmış SGK dökümü) ve konsolun her ekranı
+1440–360 px arasında, açık/koyu temada, klavyeyle. Altı bağımsız inceleme
+bulguları ürettikten sonra beş yalıtılmış düzeltme işçisi ve bu oturum
+düzeltmeleri yaptı; her düzeltmenin, düzeltmeden ÖNCE düşen bir regresyon
+testi var. Ortam: Linux, PostgreSQL 16, Node 22, Python 3.11 — **bu
+ürünün Linux'ta ilk tam ölçümü**; Mac mini hedefinin taşınabilir yolu da
+ilk kez çalıştırıldı (fiziksel Mac'te DEĞİL).
+
+Araç yüzeyi aynı (54), migrasyon eklenmedi (19), RLS aynı (32).
+Sözleşme değişiklikleri eklemeli; tek bilinçli kırılmalar aşağıda (E).
+
+### Ölçüldü (27.09.2026, W22 kapanışı)
+
+| # | Ne | Sonuç | Başarısız |
+|---|---|---|---|
+| W22-1 | `npx tsc --noEmit` | temiz | 0 |
+| W22-2 | `npx vitest run` | 202 dosya · **3852 geçti** · 8 atlandı (7 ters işaretleyici + yerel E5 model dosyaları yok). W21: 190 dosya · 3623 | 0 |
+| W22-3 | `pytest tests evals/tests` | **1759 geçti · 0 atlandı** (W21: 1609 + 1 atlandı). Gerçek OCR testi bu ortamda Tesseract (Türkçe) + Poppler kurulu olduğu için ilk kez KOŞTU ve geçti | 0 |
+| W22-4 | `db_local_check.py` | 19/19 PASS | 0 |
+| W22-5 | `smoke_check.py` · `http_e2e_check.py` · `live_local_gateway_check.py` | 54 araç · 54 araç HTTP'de · PASSED | 0 |
+| W22-6 | `run_evals.py --repeats 4` (SENTETİK) | RESULT: PASS · bant genişliği sıfır (4 tekrar / 4 ingest aynı) · Recall@5 0,9429 · ABSTAIN 14 · COMPLETE 11 · PARTIAL 3 · QUALIFIED 6 · yanlış cevap 0. **Linux'ta ilk koşu:** `run_evals.py` esbuild'i `node bin/esbuild` diye çağırıyordu; Linux/macOS'ta o dosya yerel ikilidir ve kapı hiç çalışamıyordu (düzeltildi) | 0 |
+| W22-7 | `demo.mjs` | 6/6 senaryo | 0 |
+| W22-8 | OpenAPI | 82 yol · 99 işlem · 164 şema · CR baytı 0 | — |
+| W22-9 | Konsol, gerçek Chromium, 16 görünüm × 1440/1280/1024/820/390/360 px × açık/koyu | 192 ölçümde yatay taşma **0**, sayfa hatası (JS) **0**. Uzun dosya başlığıyla üst çubuk 14 genişlikte ölçüldü: dosya seçicinin "⌕ Ara"yı örtmesi **0** (önce 1024→641 px arası her genişlikte örtüyordu) | 0 |
+| W22-10 | Gerçek OCR, uçtan uca (sunucu, taranmış 1 sayfalık Türkçe dilekçe) | 3,0 sn; taraflar, 4857/1475 atıfları ve 3 tarih doğru okundu | — |
+| W22-11 | `deploy/macos/collex-start.sh` / `collex-stop.sh`, **Linux'ta**, ayrı bir geçici PostgreSQL kümesiyle | başlatma 4,6 sn (19/19 migrasyon, 32/32 RLS, MCP açık, yerel model yoksa kelime aramasına Türkçe açıklamayla düşüyor) · nazik durdurma 4,2 sn. **Fiziksel Mac'te DEĞİL** — launchd sınanmadı | 0 |
+| W22-12 | Harç tarifesi (`GET /v1/fees/tariffs?year=2026`, çalışan sunucudan sayıldı) | 20 kalem · **12 `dogrulandi`** · **10 kalemde `amount: null`** (3'ü oran kalemi). S11'in "5 / 17"si eskidi | — |
+| W22-13 | Süre kuralları (`GET /v1/deadlines/rules`) | 41 kural · 16 `dogrulandi` · 7 `belirsiz` (S10 ile aynı) | — |
+| W22-14 | 441 KB'lık bir dilekçe, `POST /v1/contracts/petition-analysis` | 31,4 sn → **2,75 sn**; `analyzeIntake` (183 KB anlatı) 4658 ms → 59 ms. Önce istek süresince `/v1/health` 48,9 sn cevapsız kalıyordu | — |
+| W22-15 | Dokuz gerçekçi dilekçe, önce → sonra | KAYNAKSIZ işaretli cümle 81 → 40 · iddiaya bağlanan atıf 68 → 88 · iddia sayısı 87 → 74 (önsöz/imza/ek listesi artık iddia değil) | — |
+| W22-16 | Dosya incelemesi, "Çelişkileri bul", incelemecinin iş davası dosyası | işe giriş 2018↔2019 çiftleri **0/12 → 9/12** · tebliğ 22.12↔26.12 0/1 → 1/1 · net ücret 45.000↔32.000 2/8 → 8/8 · yanlış çelişki (karar tarihleri, kısmi talep) 3 → 0 · kronoloji olayı 31 → 16 | — |
+| W22-17 | 30 000 paragraflık TXT yükleme (`test_ingest_performance`) | 13,7 sn (düzeltilmiş cümle bölücünün açtığı O(n²) tekrar denetimi kapatıldıktan sonra; ara ölçüm 119 sn) | 0 |
+| W22-18 | Yedek + doğrulama (`backup.mjs`, geçici veritabanı, Linux) | 1,0 sn; manifest yeniden doğrulandı | 0 |
+
+### Neler düzeltildi — avukatı en çok yanıltabilecek olandan başlayarak
+
+**(A) Yanlış hukukî sonuç veren hesaplar.**
+- Kesinlik sınırı: güncel sınır girilmeden kanundaki TABAN tutarla (HMK
+  m.341: 3.000 TL) karşılaştırıp 20.000 TL için "kanun yolu AÇIKTIR"
+  yazıyordu. Artık tabanın üstünde hüküm yok ("BELİRLENEMEDİ"); tabanın
+  altında "KESİN" (hiçbir yılın sınırı tabandan düşük olamaz).
+- Adli tatil anahtarı `adliTatileTabi: false` kuralları da uzatıyordu (İİK
+  m.62 itirazı 25.07'den 07.09'a); motorun kendi uyarısı buna davet
+  ediyordu. Artık uzamaz; konsolda anahtar kapalı çizilir.
+- Peşin harç, asgari harcın dörtte birine (183 TL) düşüyordu; asgari (732 TL)
+  alınır. Kuruş yuvarlaması 1–5.000.000 TL arasında 344 değerde 1 kuruş
+  eksikti. "Kanun yolu" dava harcı anlamsız bir toplam veriyordu; tipli 400.
+- İcra itirazı taslağı, süre geçmişken "İİK m.62/1'deki yedi günlük süre
+  içinde" yazıyordu; artık süre motoruna soruluyor, geçmişse cümle düşüyor
+  ve uyarı `DEADLINE_DISCLAIMER` ile basılıyor.
+
+**(B) Dosyaya giren belgedeki hatalar.** "Yılmaz & Kaya" NİHAİ DOCX/UDF/MD'de
+"Yılmaz &amp; Kaya" basılıyordu; doldurulmamış "[… doldurun]" yer tutucuları
+NİHAİ kopyaya giriyordu (artık `409 PLACEHOLDER_UNFILLED`, iki katmanda);
+tek harfi değişen alıntı bildiriliyor ama işaretlenmiyordu; "YARGITAY'NA",
+"MAHKEMESİ'NE'NE"; Ek numaraları avukatın sırasını izlemiyordu; aynı adlı
+iki taslak dosya paketinde birbirini eziyordu.
+
+**(C) "Arandı, bulunamadı" ile "ulaşılamadı"nın karışması.** Rekabet/BTK/GİB
+araçları her hatayı boş sonuca çeviriyordu ve konsol "sonuç gerçekten boş"
+yazıyordu; ağ kesintisi "isteğiniz geçersiz" görünüyordu; bütün aramaları
+düşen canlı araştırma 200 KISMİ + "arşivde bulunamadı" dönüyordu; kısmi
+kesinti dilekçe analizinde "arandı, bulunamadı" çiziliyordu. Hepsi tipli
+ulaşılamadı durumuna döndü. KVKK/BTK/GİB/Rekabet/AYM tam metinleri hiç
+getirilemiyordu, BDDK/Sigorta Tahkim'de 1. sayfa "tam metin" diye
+mühürleniyordu; artık bütün sayfalar birleştirilip mühürleniyor ya da hiç
+mühürlenmiyor.
+
+**(D) Okuma ve eşleştirme.** DOCX'te izlenen değişiklikler, içerik
+denetimleri, dipnotlar ve üst/alt bilgi okunmuyor, birleştirilmiş hücre iki
+kez okunuyordu; UTF‑16 TXT reddediliyordu. "KIDEM", "YILMAZ", "bilirkisi"
+aramaları hiçbir şey bulmuyordu. Talep cümleleri "m. 14" noktasından
+kesilip taslağa kesik aktarılıyordu. Sözleşme incelemesi var olan maddeyi
+"YOK" (IBAN, cezaî şart, temerrüde…) ve olumsuz cümleyi "VAR" sayıyordu;
+şimdi her bulguda sözleşmeden birebir alıntı var. Dilekçe analizinde en
+yaygın atıf biçimi ("… TBK'nın 315. maddesi") iddiadan kopuyordu; karar
+künyesi mahkemesiz eşleşip "bulundu" olabiliyordu.
+
+**(E) Bilinçli sözleşme kırılmaları (hepsi tipli ve Türkçe):** `dava-harci`
++ `mahkeme: "kanun-yolu"` → 400; bilinmeyen `ekBilgiler` anahtarı ve
+seçenek dışı seçim değeri → 400; NİHAİ dışa aktarmada doldurulmamış yer
+tutucu → 409; `/v1/files/{bilinmeyen}/usage` → 404; bütün aramaları düşen
+`/v1/research` → 502 `UPSTREAM_UNAVAILABLE`; kesinlik sınırında tabanın
+üstündeki değer için `kanunYoluAcik: null`.
+
+**(F) Ekran.** Yeni dosyanın ilk sayfası aktif dosyayı sessizce siliyordu
+(sonraki yükleme dosyasız gidiyordu); duruşma formu anlatılıyor ama yoktu
+(eklendi); telefon başlığı 2 px taşıyordu; beş ana sekme 390 px'e
+sığmıyordu; cevabın kaynak notu her ekrana yapışıyordu; "aleyhe 0 kaynak"
+hiç taranmamış bir şeyi sayıyordu; üç denetimde odak halkası görünmüyordu;
+aynı ekranda Windows ve Mac yeniden başlatma cümlesi yan yanaydı.
+
+### W22'nin AÇIK bıraktıkları — kapatılmış gibi yazma
+
+- **Canlı resmî kaynaklar bu ortamdan sınanamadı:** ağ politikası
+  bedesten.adalet.gov.tr, mevzuat.gov.tr, karararama.yargitay.gov.tr vb.
+  alanları engelliyor. Kesinti yolu ölçüldü; başarılı canlı arama, sayfalı
+  tam metin birleştirme dahil, gerçek kaynakla ÖLÇÜLMEDİ.
+- **Gerçek dil modeli yine çağrılmadı**; model isteyen üç inceleme görevi
+  bu ortamda `409 MODEL_REQUIRED`.
+- **Fiziksel Mac'te hiçbir şey çalıştırılmadı** (W22-11 Linux'tur).
+- "Çelişkileri bul" artık `LIMITED` durumundadır: işe giriş çiftlerinin
+  3/12'si hâlâ kaçıyor (olay sözcüğü olmayan tanık anlatımı); ekran bunu
+  söyler. `full_review`/`red_team`'in kural şeridi aynı sınırla çalışır ama
+  `LIMITED` işaretli değildir.
+- Şablon formunun "Mahkeme ve dosya" satırında tek satırlık etiketli alan
+  komşularından 22 px yukarıda duruyor (salt görsel; denenen CSS çözümü
+  başka satırları bozduğu için geri alındı).
+- Cevap motoru modelsiz çalışırken alıntı sıralaması sözcükseldir: tutanak
+  başlığı gibi soru sözcüğünü içeren ama soruyu cevaplamayan bir pasaj
+  hâlâ öne çıkabilir (inceleme tablosunda artık "soruyu karşıladığı
+  denetlenmedi" yazar; cevap ekranında yazmaz).
+- BTK/GİB istemcilerinin belge hata yolunda ham TLS metni hâlâ MCP
+  yanıtında taşınıyor (sınıflandırılıyor, ekrana çıkmıyor); koşullu 55.
+  araç hâlâ `status: "error"` + ham metin döndürüyor.
+
+
 ## 11.09.2026 — W20: "beyin gerçek oldu" — kalıcı dosya incelemesi, yerel model hattı, özel anlamsal şerit
 
 W19 dosya incelemesini **sayım** yaptı ama senkron, modelsiz ve yalnız
