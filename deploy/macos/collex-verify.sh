@@ -1,4 +1,6 @@
 #!/bin/bash
+# UNVALIDATED ON PHYSICAL MAC
+#
 # ColleX doğrulama (macOS) — ColleX-Dogrula.cmd'nin karşılığı.
 #
 #   ColleX çalışırken bu Mac'te ölçer: 26 resmî kaynağın her birinde bir

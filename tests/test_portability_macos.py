@@ -42,6 +42,7 @@ def test_inventory() -> None:
         "collex-restore.sh",
         "collex-start.sh",
         "collex-stop.sh",
+        "collex-verify.sh",  # W23: on-machine verification, read-only
     ]
 
 
