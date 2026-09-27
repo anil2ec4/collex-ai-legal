@@ -1577,6 +1577,138 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /v1/drafts/{draftId}/import-docx:
+    post:
+      operationId: importDraftDocx
+      summary: Word'de düzelttim, geri yükle — verified DOCX round trip (W22)
+      description: >
+        Additive (W22). Every DOCX draft export (all four annex/marks modes)
+        embeds a hidden, tamper-evident identity: a custom XML part
+        (`collex.draft-identity/v1`: draft id, version, template, export
+        mode, per rendered paragraph its id, section, role, `supported`, the
+        sha256 of its canonical text and the `quoteSha256` of every quote it
+        cites, plus a digest over all of it) and hidden `_cxp<n>` bookmarks
+        around every paragraph's text. None of it is visible text. The digest
+        makes an edited identity detectable; it is not a signature.
+
+
+        This route reads an edited DOCX back through the SAME upload
+        quarantine as `/v1/files` (25 MiB cap, magic-byte sniff, ZIP-bomb
+        caps), with every tracked change read as ACCEPTED (and
+        `trackedChanges.pending` + a Turkish `message` when some are still
+        pending), checks the identity, aligns every Word paragraph back to the
+        draft by its bookmark (`matchedBy: kimlik`) or by text
+        (`matchedBy: metin`), and returns a per-paragraph diff WITHOUT saving
+        (`saved: false`). Each entry already carries its gate outcome from a
+        dry run of the one reviser (`reviseDraft`).
+
+
+        Confirm = the SAME file again with `confirm=true` and the preview's
+        `import.fileSha256` as `previewFingerprint`: the new version is written through `reviseDraft`, so the
+        quote-integrity gate (QUOTE_ALTERED), KAYNAKSIZ, the role rules and
+        the review record run exactly as on PUT. Edits inside `ek-dogrulama`
+        or `karsi-ictihat`, and edited machine lines (citation lines,
+        warnings, the DAYANAK KAYNAKLARI appendix), are reported
+        (`locked` / `ignoredLines`) and NOT applied. Placeholder text survives
+        as text, so the NİHAİ copy's placeholder refusal still applies.
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The edited .docx (at most 25 MiB, same cap as /v1/files).
+                confirm:
+                  type: string
+                  enum: ["true", "false"]
+                  description: >
+                    Omitted or `false` = preview only (nothing saved). `true`
+                    = save a new version; requires `previewFingerprint`.
+                previewFingerprint:
+                  type: string
+                  pattern: "^[0-9a-f]{64}$"
+                  description: >
+                    The `import.fileSha256` the preview returned; a different
+                    file is refused (409 IMPORT_PREVIEW_MISMATCH).
+      responses:
+        "200":
+          description: >
+            Preview (`saved: false`, `import`) or, on confirm, the saved new
+            draft version (the PUT response shape: the Draft plus `persisted`
+            and `issues`) with `import` (`import.saved: true`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [import]
+                properties:
+                  saved:
+                    type: boolean
+                  import:
+                    $ref: "#/components/schemas/DraftDocxImport"
+                additionalProperties: true
+        "400":
+          description: >
+            INVALID_REQUEST: no `file`, over the upload cap, an invalid
+            `confirm`, a confirm without `previewFingerprint`, or a structural revise
+            error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Unknown draftId (a malformed id is refused before the store).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: >
+            DOCX_OTHER_DRAFT (the file belongs to another draft;
+            `error.docxDraftId`), VERSION_CONFLICT (exported from an older
+            version; `error.currentVersion`, `error.docxVersion`),
+            DOCX_IDENTITY_MISMATCH (the identity does not describe this
+            version's stored text or quotes), IMPORT_PREVIEW_MISMATCH (the
+            confirmed file is not the previewed one). Nothing is saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "415":
+          description: UNSUPPORTED_TYPE — not a Word document (content sniffed, not the name).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: >
+            DOCX_IDENTITY_MISSING (no ColleX identity: not our export, or the
+            hidden part was removed), DOCX_IDENTITY_INVALID (the identity's
+            digest no longer holds — `error.identityStatus`), or
+            EXTRACTION_FAILED (an unreadable DOCX).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: >
+            IMPORT_FAILED — the read-back process failed; `detail` +
+            `correlationId`, stderr only in the server log.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   # ------------------------------------------------------------ matters (W12-A)
   /v1/matters:
     get:
@@ -6250,6 +6382,144 @@ components:
         updatedAt:
           type: string
           format: date-time
+    DraftDocxImport:
+      type: object
+      description: >
+        Additive (W22). The diff of an edited DOCX against the draft version
+        it was exported from, with each paragraph's gate outcome.
+      required: [draftId, baseVersion, fileSha256, counts, trackedChanges, paragraphs, ignoredLines, issues]
+      properties:
+        draftId:
+          type: string
+        baseVersion:
+          type: integer
+          description: The version the DOCX was exported from (= the current version, or 409).
+        fileSha256:
+          type: string
+          description: sha256 of the uploaded bytes; send it back with `confirm=true`.
+        exportMode:
+          type: object
+          properties:
+            annex:
+              type: string
+            marks:
+              type: string
+        saved:
+          type: boolean
+          description: Present (true) only on a confirmed save.
+        counts:
+          type: object
+          required: [unchanged, changed, added, deleted, notApplied, pendingTrackedChanges, ignoredLines]
+          properties:
+            unchanged:
+              type: integer
+            changed:
+              type: integer
+            added:
+              type: integer
+            deleted:
+              type: integer
+            notApplied:
+              type: integer
+              description: Edits inside a locked section (reported, not applied).
+            pendingTrackedChanges:
+              type: integer
+            ignoredLines:
+              type: integer
+        trackedChanges:
+          type: object
+          required: [pending, insertions, deletions, moves, formatting]
+          properties:
+            pending:
+              type: boolean
+            insertions:
+              type: integer
+            deletions:
+              type: integer
+            moves:
+              type: integer
+            formatting:
+              type: integer
+            message:
+              type: string
+              description: >
+                Present when changes are pending: the text was read with every
+                tracked change ACCEPTED.
+        unsupportedCountAfter:
+          type: integer
+          description: The KAYNAKSIZ count the saved version will have.
+        paragraphs:
+          type: array
+          items:
+            $ref: "#/components/schemas/DraftDocxImportEntry"
+        ignoredLines:
+          type: array
+          description: Edited machine lines (citations, warnings, appendix) — never applied.
+          items:
+            type: object
+            required: [text, reason]
+            properties:
+              text:
+                type: string
+              reason:
+                type: string
+        issues:
+          type: array
+          description: The reviser's soft issues (same shape as PUT's).
+          items:
+            type: object
+            additionalProperties: true
+    DraftDocxImportEntry:
+      type: object
+      required: [status, sectionId, sectionTitle, locked, applied, pendingTrackedChange]
+      properties:
+        status:
+          type: string
+          enum: [unchanged, changed, added, deleted]
+        sectionId:
+          type: string
+        sectionTitle:
+          type: string
+        paragraphId:
+          type: string
+          description: The existing paragraph (absent for an added one).
+        matchedBy:
+          type: string
+          enum: [kimlik, metin]
+          description: Hidden bookmark (`kimlik`) or text alignment (`metin`).
+        before:
+          type: string
+        after:
+          type: string
+        locked:
+          type: boolean
+          description: In `ek-dogrulama` / `karsi-ictihat` — never edited this way.
+        applied:
+          type: boolean
+        pendingTrackedChange:
+          type: boolean
+        note:
+          type: string
+        outcome:
+          type: object
+          description: The gate outcome of the saved paragraph (dry run of reviseDraft).
+          required: [supported, evidenceIds, kaynaksiz, quoteAltered, issues]
+          properties:
+            supported:
+              type: boolean
+            evidenceIds:
+              type: array
+              items:
+                type: string
+            kaynaksiz:
+              type: boolean
+            quoteAltered:
+              type: boolean
+            issues:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
     ApiError:
       type: object
       required: [error]

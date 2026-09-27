@@ -8,6 +8,7 @@
  *   PUT  /v1/drafts/{id}                  revise -> new version (W12)
  *   GET  /v1/drafts/{id}/versions         version history (W12)
  *   GET  /v1/drafts/{id}/export?format=   md (rendered here) | docx | udf (Python; udf = deneysel)
+ *   POST /v1/drafts/{id}/import-docx      W22: verified Word round trip (docxImport.ts)
  *   GET  /v1/draft-templates              template registry (13 templates)
  *
  * Exported as `createDraftingRouter(deps)`; the API integration mounts it
@@ -60,6 +61,11 @@ import {
   withLivePlaceholders,
 } from "./placeholders.js";
 import { auditDraftCitations } from "../contracts/draftAudit.js";
+import {
+  defaultDraftDocxReadExec,
+  registerDraftDocxImportRoute,
+  type DraftDocxReadExec,
+} from "./docxImport.js";
 import { InMemoryDraftStore, type DraftStore } from "./store.js";
 import { DRAFT_TEMPLATES, FIELD_GROUPS, labelForPath } from "./templates.js";
 import type { Draft, DraftAnswerLookup, DraftRequest, DraftingFilePort } from "./types.js";
@@ -431,6 +437,8 @@ export interface DraftingDependencies {
    * API integration passes the matter store's lookup.
    */
   matterTitle?: (matterId: string) => Promise<string | undefined>;
+  /** Additive (W22): the Word read-back runner of the import route; tests inject. */
+  docxRead?: DraftDocxReadExec;
 }
 
 /** W14 · B-13: the Atıf Denetim Raporu format, additive on the enum. */
@@ -971,6 +979,19 @@ export function createDraftingRouter(deps: DraftingDependencies = {}): Hono {
     } finally {
       await rm(workDir, { recursive: true, force: true });
     }
+  });
+
+  // W22 "Word'de düzelttim, geri yükle": the verified DOCX round trip. Every
+  // save goes through `reviseDraft`, exactly like PUT above.
+  registerDraftDocxImportRoute(app, {
+    store,
+    exec: deps.docxRead ?? defaultDraftDocxReadExec,
+    pythonPath,
+    repoRoot,
+    now,
+    log,
+    draftIdPattern: DRAFT_ID_RE,
+    withPersistOutcome,
   });
 
   return app;

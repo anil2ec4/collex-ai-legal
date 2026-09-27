@@ -78,6 +78,7 @@ from export.draft import (
     short_hash,
     verify_draft_or_refuse,
 )
+from export.draft_identity import attach_draft_identity
 from export.errors import ExportError, ExportRefused
 
 __all__ = [
@@ -361,14 +362,18 @@ def _add_draft_paragraph(
     *,
     contrary_section: bool = False,
     mode: ExportMode = DEFAULT_EXPORT_MODE,
-) -> None:
+) -> list[Any]:
+    """Write one draft paragraph; return the python-docx paragraphs of its
+    TEXT lines (W22: the hidden identity bookmarks exactly those)."""
     style = (
         STYLE_KAYNAKSIZ
         if not paragraph.supported and mode.show_marks
         else _ROLE_STYLES.get(paragraph.role, STYLE_BODY)
     )
-    for line in paragraph_lines(paragraph, marks=mode.show_marks):
+    text_lines = [
         _para(document, line, style)
+        for line in paragraph_lines(paragraph, marks=mode.show_marks)
+    ]
     if not paragraph.supported and paragraph.note and mode.show_marks:
         _para(document, f"Not: {paragraph.note}", STYLE_CITATION)
     elif contrary_section and paragraph.note:
@@ -391,6 +396,7 @@ def _add_draft_paragraph(
         )
         if contrary:
             _para(document, KARSI_ICTIHAT_NOTE, STYLE_WARNING)
+    return text_lines
 
 
 def _add_meta_table(document: Any, draft: Draft, generated_at: str, version: str) -> None:
@@ -512,6 +518,7 @@ def build_petition_document(
     # ---- body -------------------------------------------------------------
     by_id = draft.evidence_by_id()
     numbering = draft.numbering()
+    rendered: list[tuple[DraftSection, DraftParagraph, list[Any]]] = []
     for section in draft.sections:
         # B-02: the machine-owned verification section is APPARATUS, not body.
         if section.section_id == EK_DOGRULAMA_SECTION_ID and not mode.include_annex:
@@ -524,7 +531,7 @@ def build_petition_document(
             # intro — it must never read like a supporting authority.
             _para(document, KARSI_ICTIHAT_INTRO, STYLE_WARNING)
         for paragraph in section.paragraphs:
-            _add_draft_paragraph(
+            lines = _add_draft_paragraph(
                 document,
                 paragraph,
                 by_id,
@@ -532,11 +539,12 @@ def build_petition_document(
                 contrary_section=contrary_section,
                 mode=mode,
             )
+            rendered.append((section, paragraph, lines))
 
     if not mode.include_annex:
         # The clean filing copy stops here: no appendix, no schema tag, no
         # application instruction. The hash package is a SEPARATE file.
-        return document
+        return _with_identity(document, draft, mode, rendered)
 
     # ---- evidence appendix -------------------------------------------------
     document.add_heading("DAYANAK KAYNAKLARI", level=1)
@@ -556,6 +564,19 @@ def build_petition_document(
     # ---- closing notices ----------------------------------------------------
     _para(document, T.UDF_NOTICE, STYLE_WARNING)
     _para(document, DRAFT_REVIEW_BANNER, STYLE_WARNING)
+    return _with_identity(document, draft, mode, rendered)
+
+
+def _with_identity(
+    document: Any,
+    draft: Draft,
+    mode: ExportMode,
+    rendered: list[tuple[DraftSection, DraftParagraph, list[Any]]],
+) -> Any:
+    """W22 "Word'de düzelttim, geri yükle": the hidden, tamper-evident draft
+    identity (custom XML part + hidden bookmarks), in EVERY mode. It adds no
+    visible text and changes no paragraph; see export/draft_identity.py."""
+    attach_draft_identity(document, draft, mode, rendered)
     return document
 
 

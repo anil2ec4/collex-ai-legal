@@ -2867,6 +2867,21 @@ button.seal { border-radius: var(--r-ctl); }
   body.shell .masthead { position: static; width: auto; border: 0; }
   body.shell .wrap { padding: 0; }
 }
+/* ===== W22 · Word'den geri yükleme önizlemesi ===== */
+.dimportwrap { display: inline-flex; }
+.dimportlist { display: grid; gap: var(--sp-2); margin: var(--sp-3) 0; }
+.dimportrow { border: 1px solid var(--line); border-left: 4px solid var(--line-strong); border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-3); background: var(--panel); }
+.dimportrow.changed { border-left-color: var(--warn); }
+.dimportrow.added { border-left-color: var(--ok); }
+.dimportrow.deleted, .dimportrow.locked { border-left-color: var(--bad); }
+.dimporthead { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+.dimportsec { font-weight: 600; font-size: var(--fs-sm); color: var(--ink); }
+.dimportmeta { font-size: var(--fs-sm); color: var(--ink-soft); }
+.dimportold { margin: var(--sp-1) 0 0; color: var(--ink-soft); text-decoration: line-through; overflow-wrap: anywhere; }
+.dimportnew { margin: var(--sp-1) 0 0; color: var(--ink); background: var(--quote-bg); padding: 2px 4px; border-radius: 4px; overflow-wrap: anywhere; }
+.dimportout { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); color: var(--ink-soft); }
+.dimportout.bad { color: var(--bad); font-weight: 600; }
+.dimportwarn { color: var(--warn); font-weight: 600; font-size: var(--fs-sm); }
 </style>
 </head>
 <body class="shell">
@@ -8728,6 +8743,158 @@ button.seal { border-radius: var(--r-ctl); }
     }
   }
 
+  /* ============ W22 · "Word'de düzelttim, geri yükle" ============
+     ColleX'in dışa aktardığı her DOCX görünmeyen bir taslak kimliği taşır.
+     Avukat Word'de düzelttiği dosyayı buradan geri yükler: sunucu önce
+     kimliği denetler ve paragraf paragraf farkı ÖNİZLEME olarak döndürür —
+     hiçbir şey kaydedilmez. Avukat onaylarsa AYNI dosya "confirm=true" ve
+     önizlemenin parmak iziyle yeniden gönderilir; yeni sürüm, Kaydet'in
+     geçtiği aynı denetimlerden geçer. Kilitli bölümlerdeki değişiklikler
+     gösterilir, uygulanmaz. */
+  var DOCX_IMPORT_STATUS_TR = { changed: "değişti", added: "eklendi", deleted: "silindi", unchanged: "değişmedi" };
+  var DOCX_IMPORT_TONE = { changed: "warn", added: "ok", deleted: "bad", unchanged: "mute" };
+
+  function docxImportButton(d) {
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".docx";
+    input.hidden = true;
+    var btn = ghostBtn("Word'den geri yükle", function () {
+      if (editorDirty()) {
+        toast("Önce “Kaydet”e basın: Word'den geri yükleme kayıtlı son sürümle karşılaştırılır ve kaydedilmemiş düzenlemeleriniz kaybolur.", "bad");
+        return;
+      }
+      input.value = "";
+      input.click();
+    });
+    btn.title = "Word'de düzelttiğiniz DOCX'i yükleyin: önce farklar gösterilir, onayınız olmadan hiçbir şey kaydedilmez.";
+    input.addEventListener("change", function () {
+      var f = input.files && input.files[0];
+      if (f) { sendDocxImport(d, f, null); }
+    });
+    var wrap = el("span", "dimportwrap");
+    wrap.appendChild(btn);
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  function sendDocxImport(d, file, fileSha256, busyHost) {
+    var confirming = typeof fileSha256 === "string";
+    var host = busyHost || document.getElementById("edissues");
+    var busy = beginBusy({
+      title: confirming ? "Word düzeltmeleri kaydediliyor" : "Word dosyası okunuyor",
+      phase: confirming
+        ? "Onaylanan dosya yeniden gönderildi; yeni sürüm her dayanak denetimiyle birlikte yazılıyor."
+        : "Dosya gönderildi; taslak kimliği denetleniyor ve paragraflar kayıtlı sürümle karşılaştırılıyor.",
+      host: host,
+      onCancel: function () { toast("Geri yükleme durduruldu; hiçbir şey kaydedilmedi.", "warn"); }
+    });
+    var fd = new FormData();
+    fd.append("file", file, file.name);
+    if (confirming) {
+      fd.append("confirm", "true");
+      fd.append("previewFingerprint", fileSha256);
+    }
+    var init = { method: "POST", body: fd };
+    if (busy.signal) { init.signal = busy.signal; }
+    fetch("/v1/drafts/" + enc(d.draftId) + "/import-docx", init).then(parseJson).then(function (res) {
+      if (busy.cancelled()) { return; }
+      busy.stop();
+      if (res.status !== 200 || !res.body || !res.body["import"]) {
+        toast(errMessage(res), "bad");
+        return;
+      }
+      if (!confirming) { openDocxImportPreview(d, file, res.body["import"]); return; }
+      closeDocModal();
+      var saved = res.body;
+      var issues = Array.isArray(saved.issues) ? saved.issues : [];
+      var now = new Date();
+      openEditor(saved, { issues: issues, savedAt: pad2(now.getHours()) + ":" + pad2(now.getMinutes()) });
+      toast("Word'deki düzeltmeler yeni sürüm olarak kaydedildi — v" + (saved.version || "?") +
+        (issues.length ? " · " + issues.length + " uyarı" : ""), issues.length ? "" : "ok");
+    }).catch(function (error) {
+      if (busy.cancelled() || isAbortError(error)) { return; }
+      busy.stop();
+      toast(humanError(error), "bad");
+    });
+  }
+
+  function docxImportOutcomeLine(entry) {
+    var o = entry.outcome;
+    if (entry.locked && !entry.applied) { return entry.note || "Korunan bölüm: bu değişiklik uygulanmaz."; }
+    if (!o) { return entry.status === "deleted" ? "Paragraf yeni sürümde yer almaz." : ""; }
+    if (o.quoteAltered) {
+      return "Alıntı birebir değil — kaynak bağı kopar; paragraf KAYNAKSIZ kaydedilir (QUOTE_ALTERED).";
+    }
+    if (o.kaynaksiz) { return "Doğrulanmış bir kaynağa bağlı değil — KAYNAKSIZ işaretiyle kaydedilir; dayanağını siz eklemelisiniz."; }
+    if (o.evidenceIds && o.evidenceIds.length) { return "Kaynak bağı korunur (" + o.evidenceIds.length + " kaynak)."; }
+    return "Beyan olarak kaydedilir.";
+  }
+
+  function docxImportEntryCard(entry) {
+    var card = el("div", "dimportrow " + (entry.locked && !entry.applied ? "locked" : entry.status));
+    var head = el("div", "dimporthead");
+    head.appendChild(chip(DOCX_IMPORT_STATUS_TR[entry.status] || entry.status, DOCX_IMPORT_TONE[entry.status] || "mute"));
+    head.appendChild(el("span", "dimportsec", entry.sectionTitle || sectionFallbackTitle({ id: entry.sectionId })));
+    if (entry.matchedBy === "metin") { head.appendChild(el("span", "dimportmeta", "metinden eşleştirildi")); }
+    if (entry.pendingTrackedChange) { head.appendChild(chip("izlenen değişiklik bekliyor", "warn")); }
+    card.appendChild(head);
+    if (entry.status !== "added" && entry.before) { card.appendChild(el("p", "dimportold", entry.before)); }
+    if (entry.status !== "deleted" && entry.after) { card.appendChild(el("p", "dimportnew", entry.after)); }
+    var line = docxImportOutcomeLine(entry);
+    if (line) {
+      var tone = (entry.outcome && (entry.outcome.kaynaksiz || entry.outcome.quoteAltered)) || (entry.locked && !entry.applied) ? " bad" : "";
+      card.appendChild(el("p", "dimportout" + tone, line));
+    }
+    return card;
+  }
+
+  function openDocxImportPreview(d, file, imp) {
+    var panel = openModal("Word'den geri yükleme — önizleme", "formpanel");
+    modalHead(panel, "Word'den geri yükleme — önizleme");
+    var c = imp.counts || {};
+    panel.appendChild(el("p", "note-p",
+      (c.changed || 0) + " değişen · " + (c.added || 0) + " eklenen · " + (c.deleted || 0) + " silinen · " +
+      (c.unchanged || 0) + " değişmeyen paragraf. Henüz hiçbir şey kaydedilmedi: farkları inceleyip onaylarsanız sürüm " +
+      ((imp.baseVersion || d.version || 1) + 1) + " olarak kaydedilir ve her dayanak yeniden denetlenir."));
+    if (imp.trackedChanges && imp.trackedChanges.pending) {
+      panel.appendChild(el("p", "dimportwarn", imp.trackedChanges.message ||
+        "Belgede kabul edilmemiş izlenen değişiklikler var; metin, değişiklikler kabul edilmiş hâliyle okundu."));
+    }
+    var rows = Array.isArray(imp.paragraphs) ? imp.paragraphs : [];
+    var shown = rows.filter(function (e) { return e.status !== "unchanged"; });
+    var same = rows.length - shown.length;
+    var list = el("div", "dimportlist");
+    if (!shown.length) { emptyLine(list, "Word dosyasında bu taslağa göre değişen bir paragraf yok."); }
+    shown.forEach(function (entry) { list.appendChild(docxImportEntryCard(entry)); });
+    panel.appendChild(list);
+    if (same > 0) { panel.appendChild(el("p", "dimportmeta", same + " paragraf Word'de değiştirilmemiş; olduğu gibi kalır.")); }
+    var ignored = Array.isArray(imp.ignoredLines) ? imp.ignoredLines : [];
+    if (ignored.length) {
+      var det = el("details", "mini");
+      det.appendChild(el("summary", null, "Uygulanmayan satırlar (" + ignored.length + ")"));
+      ignored.forEach(function (row) {
+        det.appendChild(el("p", "dimportold", row.text));
+        det.appendChild(el("p", "dimportout bad", row.reason));
+      });
+      panel.appendChild(det);
+    }
+    if (typeof imp.unsupportedCountAfter === "number") {
+      panel.appendChild(el("p", "note-p", "Kaydedilirse KAYNAKSIZ paragraf sayısı: " + imp.unsupportedCountAfter + "."));
+    }
+    var acts = el("div", "actions");
+    var applicable = shown.some(function (e) { return e.applied; });
+    var ok = ghostBtn("Onayla ve yeni sürüm olarak kaydet", function () {
+      ok.disabled = true;
+      sendDocxImport(d, file, imp.fileSha256, panel);
+    }, "primary");
+    ok.disabled = !applicable;
+    if (!applicable) { ok.title = "Uygulanacak bir değişiklik yok."; }
+    acts.appendChild(ok);
+    acts.appendChild(ghostBtn("Vazgeç", function () { closeDocModal(); }));
+    panel.appendChild(acts);
+  }
+
   function renderEditor() {
     var target = document.getElementById("draftout");
     var d = editor.draft;
@@ -8787,6 +8954,8 @@ button.seal { border-radius: var(--r-ctl); }
       acts.appendChild(ghostBtn("Sürümler", function () { openVersionsModal(d.draftId); }));
       /* W14 B-13: taslağın TAM metni denetlenir (bölüm önizlemesi değil). */
       acts.appendChild(ghostBtn("Atıfları denetle", auditDraftFromEditor));
+      /* W22: Word'de düzeltilen DOCX'i doğrulayarak geri yükle. */
+      acts.appendChild(docxImportButton(d));
     }
     acts.appendChild(ghostBtn("Yeniden oluştur", rebuildFromEditor));
     top.appendChild(acts);
