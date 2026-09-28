@@ -373,7 +373,9 @@ export const FETCH_KINDS: readonly FetchKindDescriptor[] = Object.freeze([
     toolName: "get_mevzuat_content",
     capability: "document.fetch" as const,
     idParam: "mevzuat_id",
-    extraInput: Object.freeze({ page_number: 1 }),
+    // W23: the tool's largest page (50 000 characters) — a long law is
+    // fetched in as few calls as possible and sealed whole.
+    extraInput: Object.freeze({ page_number: 1, page_size: 50_000 }),
     provider: "MEVZUAT",
   }),
   Object.freeze({
@@ -382,7 +384,9 @@ export const FETCH_KINDS: readonly FetchKindDescriptor[] = Object.freeze([
     toolName: "get_mevzuat_gerekce",
     capability: "document.fetch" as const,
     idParam: "gerekce_id",
-    extraInput: Object.freeze({ page_number: 1 }),
+    // W23: the tool's largest page (50 000 characters) — a long law is
+    // fetched in as few calls as possible and sealed whole.
+    extraInput: Object.freeze({ page_number: 1, page_size: 50_000 }),
     provider: "MEVZUAT",
   }),
   Object.freeze({

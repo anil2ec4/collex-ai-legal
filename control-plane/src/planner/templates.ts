@@ -314,7 +314,9 @@ const FETCH_BY_PROVIDER: Readonly<Record<string, FetchDescriptor>> = Object.free
   MEVZUAT: Object.freeze({
     toolName: "get_mevzuat_content",
     idParam: "mevzuat_id",
-    extraInput: Object.freeze({ page_number: 1 }),
+    // W23: the tool's largest page (50 000 characters) — a long law is
+    // fetched in as few calls as possible and sealed whole.
+    extraInput: Object.freeze({ page_number: 1, page_size: 50_000 }),
   }),
   KIK: Object.freeze({
     toolName: "get_kik_v2_document_markdown",

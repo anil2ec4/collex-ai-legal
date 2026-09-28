@@ -484,7 +484,8 @@ describe("scenario (g): no model-invented identifiers", () => {
     const fetches = fake.calls.filter((c) => c.capability === "document.fetch");
     expect(fetches.length).toBeGreaterThan(0);
     for (const call of fetches) {
-      const allowed = ["id", "mevzuat_id", "page_number"];
+      // page_size is a tool constant (W23: 50 000), never a model-chosen value.
+      const allowed = ["id", "mevzuat_id", "page_number", "page_size"];
       for (const key of Object.keys(call.input)) expect(allowed).toContain(key);
       expect(fetchedIdOf(call)).toBeDefined();
     }

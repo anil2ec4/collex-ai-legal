@@ -114,3 +114,47 @@ describe("Kapsam notes speak Turkish, not catalog codes", () => {
     expect(notes).toContain("norm denetimi, bireysel başvuru");
   });
 });
+
+describe("a long law (get_mevzuat_content) is paged, not sealed as page 1 (W23)", () => {
+  // The tool's own paging: text[start:start+size], header "Mevzuat <id> | page c/t | page_size s\n\n".
+  const LAW = Array.from({ length: 130 }, (_, i) => `Madde ${i + 1} – Hüküm metni ${i + 1}; sınır ${i % 7 === 0 ? " " : ""}burada. `).join("\n");
+  const SIZE = 3000;
+  function lawGateway(kind: "Mevzuat" | "Gerekçe") {
+    const chunks: string[] = [];
+    for (let at = 0; at < LAW.length; at += SIZE) chunks.push(LAW.slice(at, at + SIZE));
+    return new FakeGateway((request: ToolCallRequest) => {
+      const args = request.args as Record<string, unknown>;
+      const page = Number(args["page_number"] ?? 1);
+      const id = String(args["mevzuat_id"] ?? args["gerekce_id"]);
+      return {
+        status: "ok",
+        data: `${kind} ${id} | page ${page}/${chunks.length} | page_size ${SIZE}\n\n${chunks[page - 1]}`,
+        provider: "MEVZUAT",
+        observedAt: T0,
+        warnings: [],
+      };
+    });
+  }
+
+  it("fetches every page with the largest page size and seals the law byte for byte", async () => {
+    const gateway = lawGateway("Mevzuat");
+    const result = await fetchSourceCard({ kind: "mevzuat", externalId: "345097" }, { gateway });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const pagesAsked = gateway.calls.map((c) => (c.args as Record<string, unknown>)["page_number"]);
+    expect(pagesAsked.length).toBeGreaterThan(1);
+    expect(pagesAsked).toEqual(pagesAsked.map((_, i) => i + 1));
+    for (const c of gateway.calls) expect((c.args as Record<string, unknown>)["page_size"]).toBe(50_000);
+    // No trimming at a page boundary: the pages join back to the exact text.
+    expect(result.card.text).toBe(LAW);
+    expect(result.card.contentSha256).toBe(sha256HexUtf8(LAW));
+  });
+
+  it("never puts the gerekçe page header into the sealed text", async () => {
+    const result = await fetchSourceCard({ kind: "mevzuat_gerekce", externalId: "g-77" }, { gateway: lawGateway("Gerekçe") });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.card.text.startsWith("Gerekçe g-77 |")).toBe(false);
+    expect(result.card.text).toBe(LAW);
+  });
+});

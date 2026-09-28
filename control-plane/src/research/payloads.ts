@@ -871,7 +871,16 @@ export function parseSearchPayload(toolName: string, rawData: unknown): SearchPa
 // Fetch payload parsers
 // ---------------------------------------------------------------------------
 
-const MEVZUAT_CONTENT_HEADER_RE = /^Mevzuat\s+\S+\s*\|\s*page\s+\d+\/\d+\s*\|\s*page_size\s+\d+\s*\n+/u;
+/**
+ * The page header `get_mevzuat_content` / `get_mevzuat_gerekce` put in front
+ * of every page (`mevzuat_mcp_server.py`): "<Mevzuat|Gerekçe> <id> | page c/t |
+ * page_size s" + a blank line. W23: the page numbers are READ (a long law is
+ * paged like every other paged document and sealed whole or not at all — page
+ * 1 used to be sealed as the law), the gerekçe header no longer leaks into
+ * the sealed text, and the body after the blank line is kept byte for byte:
+ * trimming it could glue two words together at a page boundary.
+ */
+const MEVZUAT_CONTENT_HEADER_RE = /^(?:Mevzuat|Gerekçe)\s+\S+\s*\|\s*page\s+(\d+)\/(\d+)\s*\|\s*page_size\s+\d+\n\n/u;
 
 function fetchFailure(kind: FailureKind, message: string): FetchParse {
   return {
@@ -943,7 +952,11 @@ export function parseFetchPayload(
       if (TEXT_FAILURE_RE.test(raw)) {
         return { kind: "failure", failure: textFailure(raw, "document fetch reported an error") };
       }
-      const text = raw.replace(MEVZUAT_CONTENT_HEADER_RE, "");
+      const header = MEVZUAT_CONTENT_HEADER_RE.exec(data);
+      const text = header !== null ? data.slice(header[0].length) : raw;
+      if (text.trim().length === 0) return fetchFailure("UNAVAILABLE", "document fetch returned empty text");
+      const pagination =
+        header !== null ? { page: Number(header[1]), totalPages: Number(header[2]) } : undefined;
       return {
         kind: "doc",
         doc: {
@@ -954,6 +967,7 @@ export function parseFetchPayload(
               : `Belge ${requestedId ?? ""}`.trim(),
           sourceUrl: "",
           text,
+          ...(pagination !== undefined ? { pagination } : {}),
         },
       };
     }

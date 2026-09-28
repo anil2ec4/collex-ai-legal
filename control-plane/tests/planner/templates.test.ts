@@ -422,6 +422,8 @@ describe("query builders + tool maps", () => {
     expect(buildFetchInput("MEVZUAT", "345097")).toEqual({
       mevzuat_id: "345097",
       page_number: 1,
+      // W23: the tool's largest page, so a long law is paged in few calls.
+      page_size: 50_000,
     });
     // A Sayıştay fetch mirrors the decision_type the planner searched with.
     expect(buildFetchInput("SAYISTAY", "s-1")).toMatchObject({ decision_type: "daire" });
