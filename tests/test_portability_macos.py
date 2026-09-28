@@ -388,3 +388,57 @@ def test_restore_wrapper_never_says_tamam_over_unverified_originals() -> None:
     assert failed.returncode == 1
     assert "Geri yükleme tamam" not in failed.stdout.decode("utf-8")
     assert "TAMAMLANMADI" in failed.stderr.decode("utf-8", errors="replace")
+
+
+# --- 28.09.2026: the Mac mini "brain" and the MacBook tunnel (option 2) ------
+# They live in deploy/beyin, NOT deploy/macos: deploy/macos is the single-host
+# layout whose every address is loopback (productionHost.test.ts), and these
+# two scripts deliberately talk across Tailscale.
+BEYIN = REPO / "deploy" / "beyin"
+
+
+def test_beyin_inventory() -> None:
+    assert sorted(p.name for p in BEYIN.iterdir() if p.name != ".gitattributes") == [
+        "ColleX-Uzaktan.command",
+        "collex-beyin.sh",
+    ]
+    assert "* text eol=lf" in (BEYIN / ".gitattributes").read_text(encoding="utf-8")
+
+
+def test_brain_listens_on_tailscale_only_with_a_password_file() -> None:
+    path = BEYIN / "collex-beyin.sh"
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("#!/bin/bash\n# UNVALIDATED ON PHYSICAL MAC\n")
+    # The runner binds the address Tailscale reports, and refuses anything else.
+    assert '--host "\\$IP"' in text
+    assert "100.*) ;;" in text
+    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    assert "0.0.0.0" not in code
+    # The password reaches llama-server as a FILE, never on a command line.
+    assert '--api-key-file "$KEY_FILE"' in text
+    assert "--api-key " not in text
+    assert "openssl rand -hex 12" in text and 'chmod 600 "$KEY_FILE"' in text
+    # One request at a time, and the context matches ColleX's default.
+    assert "-np 1" in text
+    assert 'CTX="${COLLEX_BEYIN_CTX:-8192}"' in text
+    bash = _posix_bash()
+    if bash is None:
+        pytest.skip("ENVIRONMENT BLOCKER: no POSIX bash on PATH for `bash -n`")
+    result = subprocess.run([bash, "-n"], input=path.read_bytes(), capture_output=True, timeout=30, check=False)
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+
+
+def test_remote_tunnel_reaches_only_the_loopback_console() -> None:
+    path = BEYIN / "ColleX-Uzaktan.command"
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("#!/bin/bash\n# UNVALIDATED ON PHYSICAL MAC\n")
+    # Local end on this Mac's loopback, remote end the Windows console's loopback.
+    assert '-L "127.0.0.1:$LOCAL_PORT:127.0.0.1:8787"' in text
+    assert "ExitOnForwardFailure=yes" in text
+    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    assert "0.0.0.0" not in code and " -g " not in code
+    bash = _posix_bash()
+    if bash is None:
+        pytest.skip("ENVIRONMENT BLOCKER: no POSIX bash on PATH for `bash -n`")
+    result = subprocess.run([bash, "-n"], input=path.read_bytes(), capture_output=True, timeout=30, check=False)
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")

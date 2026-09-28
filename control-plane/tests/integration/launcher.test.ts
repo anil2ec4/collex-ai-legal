@@ -36,9 +36,11 @@ describe("every double-click script is plain ASCII", () => {
   it("covers the five launchers", () => {
     expect(scripts.sort()).toEqual([
       "ColleX-Baslat.cmd",
+      "ColleX-Beyin-Bagla.cmd",
       "ColleX-Dogrula.cmd",
       "ColleX-Durdur.cmd",
       "ColleX-Geri-Yukle.cmd",
+      "ColleX-Uzak-Erisim.cmd",
       "ColleX-Yedekle.cmd",
     ]);
   });
@@ -323,6 +325,52 @@ describe("B-34/B-45 launcher: never kill a starting server, never trust a foreig
     expect(check).toContain("bu denetim atlandi");
     const executable = launcher.split(/\r?\n/u).filter((line) => !/^\s*rem\b/iu.test(line));
     expect(executable.join("\n")).not.toContain("(okunamadi)");
+  });
+});
+
+describe("the Mac mini brain and remote access (28.09.2026, option 2)", () => {
+  const connect = read("ColleX-Beyin-Bagla.cmd");
+  const ps1Bytes = readFileSync(resolve(REPO_ROOT, "scripts", "collex_beyin_bagla.ps1"));
+  const ps1 = ps1Bytes.toString("utf8");
+  const remote = read("ColleX-Uzak-Erisim.cmd");
+
+  it("the brain connector runs its PowerShell file, which is plain ASCII (PS 5.1 reads it as ANSI)", () => {
+    expect(connect).toContain('powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\\collex_beyin_bagla.ps1"');
+    expect([...ps1Bytes].filter((b) => b > 0x7f)).toEqual([]);
+  });
+
+  it("accepts only a Tailscale address, lists it explicitly, keeps text local, and writes USER variables only", () => {
+    expect(ps1).toContain("^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.");
+    for (const name of [
+      "COLLEX_LOCAL_LLM_BASE_URL",
+      "COLLEX_LOCAL_LLM_MODEL",
+      "COLLEX_TRUSTED_LOCAL_HOSTS",
+      "COLLEX_LOCAL_LLM_API_KEY",
+      "COLLEX_DATA_BOUNDARY",
+      "COLLEX_LOCAL_LLM_TIMEOUT_MS",
+    ]) {
+      expect(ps1).toContain(name);
+    }
+    expect(ps1).toContain("COLLEX_DATA_BOUNDARY            = 'LOCAL_ONLY'");
+    expect(ps1).toContain("[Environment]::SetEnvironmentVariable($name, [string]$vars[$name], 'User')");
+    const ps1Code = ps1.split(/\r?\n/u).filter((line) => !line.trimStart().startsWith("#")).join("\n");
+    expect(ps1Code).not.toMatch(/'Machine'|\.env\b/u);
+    // Nothing is written before the Mac mini accepted the password.
+    expect(ps1.indexOf("Authorization = \"Bearer $key\"")).toBeLessThan(ps1.indexOf("SetEnvironmentVariable"));
+    // The password is never printed back.
+    for (const line of ps1.split(/\r?\n/u)) {
+      if (/Write-Host/u.test(line)) expect(line).not.toContain("$key");
+    }
+  });
+
+  it("remote access opens SSH to Tailscale addresses only and never exposes ColleX itself", () => {
+    expect(remote).toContain("-RemoteAddress '100.64.0.0/10'");
+    expect(remote).toContain("net session >nul 2>nul");
+    expect(remote).toContain("if errorlevel 1 goto notadmin");
+    // The console is never forwarded or bound to the network.
+    const remoteCode = remote.split(/\r?\n/u).filter((line) => !/^\s*rem\b/iu.test(line)).join("\n");
+    expect(remoteCode).not.toMatch(/portproxy|8787|0\.0\.0\.0|listen_addresses=\*/iu);
+    expect(remoteCode).not.toMatch(/taskkill|netstat|Stop-Process/iu);
   });
 });
 

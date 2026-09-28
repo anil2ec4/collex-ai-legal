@@ -1,5 +1,7 @@
 # M2 Mac mini (8 GB) — yerel çıkarım cihazı kurulum ve ölçüm rehberi (W20)
 
+> **28.09.2026 — kurulum betiği:** bu belgedeki adımlar artık `deploy/beyin/collex-beyin.sh kur` (Mac) ve `ColleX-Beyin-Bagla.cmd` (Windows) ile tek komuttur; bağlantı ev ağı yerine **Tailscale** adresi üzerindendir (100.64.0.0/10, `endpointTrust.ts` bunu özel ağ sayar ve yine açık liste ister). Dışarıdan erişim: `ColleX-Uzak-Erisim.cmd` + `deploy/beyin/ColleX-Uzaktan.command`. Hiçbiri gerçek cihazda çalıştırılmadı (STATUS W23-22).
+
 > **W21 — bu belge bir ARA ÇÖZÜMDÜR.** Burada anlatılan yerleşim
 > (Windows ana makine + yerel ağdaki Mac'te yalnız dil modeli) yalnız
 > geliştirme döneminde kullanılabilecek geçici bir seçenektir. **Nihai

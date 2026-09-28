@@ -1414,6 +1414,44 @@ kullanılır ve her seferinde ayrı onay ister:
 Bulut yapay zekânın söylediği hiçbir şey kendi başına "kaynaklı" sayılmaz;
 doğrulama her zaman bu bilgisayarda yapılır.
 
+### Evdeki Mac mini'yi "beyin" yapmak ve dışarıdan bağlanmak
+
+Bu düzende ColleX evdeki Windows bilgisayarda çalışır; Mac mini yalnız
+ücretsiz bir yerel yapay zekâ modelini çalıştırır. Belgeler internete çıkmaz:
+iki bilgisayar **Tailscale** adlı ücretsiz, şifreli özel ağ üzerinden
+konuşur. Dışarıdayken MacBook da aynı özel ağdan evdeki ColleX'e bağlanır.
+Modemde hiçbir kapı açılmaz ve ColleX'in kendisi hiçbir zaman ağa açılmaz.
+
+**Bu düzen henüz gerçek bir Mac'te çalıştırılmadı.** Modelin hızı ve
+kalitesi de ölçülmedi; ilk kurulum bir deneme sayılmalıdır.
+
+**Bir kez yapılacaklar:**
+
+1. **Tailscale'i üç cihaza kurun** (tailscale.com; Mac'lerde App Store) ve
+   üçünde de **aynı hesapla** oturum açın.
+2. **Mac mini'de** Terminal'i açın, ColleX klasöründeki `deploy/beyin`
+   klasörüne geçin ve şunu yazın: `bash collex-beyin.sh kur`. Homebrew
+   yoksa betik size nasıl kuracağınızı söyler. Bittiğinde ekrana bir
+   **adres** (100. ile başlar) ve bir **parola** yazar. İlk açılışta model
+   (yaklaşık 5 GB) iner; `bash collex-beyin.sh durum` "HAZIR" diyene kadar
+   bekleyin.
+3. **Windows'ta** `ColleX-Beyin-Bagla.cmd`'ye çift tıklayın; adresi ve
+   parolayı girin. Mac mini cevap vermezse hiçbir ayar değişmez. Sonra
+   ColleX'i kapatıp yeniden açın.
+4. **Dışarıdan erişim için Windows'ta** `ColleX-Uzak-Erisim.cmd`'ye sağ
+   tıklayıp **Yönetici olarak çalıştır**'ı seçin. Windows'un SSH sunucusunu
+   yalnız Tailscale içinden erişilebilir biçimde açar ve bilgisayarın
+   prizdeyken uyumasını kapatır; kullanıcı adınızı ve adresini ekrana yazar.
+5. **MacBook'ta** `deploy/beyin/ColleX-Uzaktan.command` dosyasını çalıştırın
+   (Terminal'de: `bash ColleX-Uzaktan.command`). İlk seferde evdeki
+   bilgisayarın adresini ve kullanıcı adınızı sorar; sonra Windows
+   parolanızı ister ve ColleX'i MacBook'un tarayıcısında açar. İşiniz
+   bitince pencerede Enter'a basın.
+
+**Dikkat:** Dışarıdan bağlanabilmek için evdeki Windows bilgisayar açık ve
+ColleX çalışıyor olmalı. Mac mini kapalıysa ColleX yine çalışır; yalnız
+model isteyen işler "model gerekiyor" der ve hiçbir belge buluta gönderilmez.
+
 ---
 
 ## 12. Sorun giderme

@@ -42,6 +42,14 @@ Rules it leaves behind:
   value from outside the script (a database answer, a typed folder) unquoted
   inside a parenthesized block — its `)` closes the block and the lines
   after it run unconditionally. Keep the scripts plain ASCII.
+- **The Mac mini "brain" and remote access never open ColleX to a network**
+  (STATUS W23-22, unvalidated on real devices): the model listens only on the
+  Mac's Tailscale address with a password file (`collex-beyin.sh`); Windows
+  lists that host explicitly (`COLLEX_TRUSTED_LOCAL_HOSTS`) with
+  `COLLEX_DATA_BOUNDARY=LOCAL_ONLY`; a MacBook reaches the console only
+  through an SSH tunnel whose both ends are 127.0.0.1, and SSH answers only
+  100.64.0.0/10. Never forward 8787, never relax `localGuard` for a remote
+  host name.
 
 Previous line: **W22 (2026-09-27) — the product met realistic documents and a real browser.**
 Six independent investigators drove the live server with realistic Turkish
