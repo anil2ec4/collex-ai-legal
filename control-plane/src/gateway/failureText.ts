@@ -78,6 +78,34 @@ export interface ClassifiedFailureText {
   retryAfterMs?: number;
   /** Which rule decided — for tests and the server log, never for a screen. */
   basis: "marker" | "leading-kind" | "argument-validation" | "wording" | "unknown";
+  /**
+   * Additive (W22 follow-up): the source ANSWERED, but its TLS certificate
+   * did not verify. Still UNAVAILABLE (the closed FailureKind enum is not
+   * widened); `detail` lets a surface say the more precise Turkish sentence
+   * `FAILURE_DETAIL_TR.TLS_CERTIFICATE` instead of "ulaşılamadı".
+   */
+  detail?: "TLS_CERTIFICATE";
+}
+
+/**
+ * The gateway's safe message for a certificate failure
+ * (`legal_contracts.outcomes.TLS_CERTIFICATE_SAFE_MESSAGE`) and the driver
+ * wording it replaces. The gateway turns certificate verification ON for
+ * every host it used to reach with it off; this is how that failure reads.
+ */
+const TLS_CERTIFICATE_RE =
+  /TLS certificate could not be verified|CERTIFICATE_VERIFY_FAILED|certificate verify failed/iu;
+
+/** Turkish clause per `detail` — the machine code follows in parentheses. */
+export const FAILURE_DETAIL_TR: Readonly<Record<NonNullable<ClassifiedFailureText["detail"]>, string>> =
+  Object.freeze({
+    TLS_CERTIFICATE: "kaynağın güvenlik sertifikası doğrulanamadı; bağlantı güvenli kurulamadığı için belge alınmadı",
+  });
+
+function withDetail(text: string, classified: ClassifiedFailureText): ClassifiedFailureText {
+  return classified.kind === "UNAVAILABLE" && TLS_CERTIFICATE_RE.test(text)
+    ? { ...classified, detail: "TLS_CERTIFICATE" }
+    : classified;
 }
 
 function retryableKind(kind: FailureKind): boolean {
@@ -87,6 +115,10 @@ function retryableKind(kind: FailureKind): boolean {
 /** Classify one provider failure text (see the module comment for the order). */
 export function classifyFailureText(raw: string | undefined | null): ClassifiedFailureText {
   const text = String(raw ?? "").trim().replace(TOOL_ERROR_PREFIX_RE, "");
+  return withDetail(text, classifyKind(text));
+}
+
+function classifyKind(text: string): ClassifiedFailureText {
 
   const marker = TYPED_MARKER_RE.exec(text);
   if (marker !== null) {

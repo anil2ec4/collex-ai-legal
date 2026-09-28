@@ -18,6 +18,8 @@ import httpx
 from bs4 import BeautifulSoup
 from markitdown import MarkItDown
 
+from legal_contracts.pages import check_document_body, require_document_text
+
 from .models import (
     UyusmazlikSearchRequest,
     UyusmazlikApiDecisionEntry,
@@ -167,7 +169,14 @@ class UyusmazlikApiClient:
                 headers={"Accept": "application/pdf,*/*"},
             )
             response.raise_for_status()
+            # The decision is a PDF: a 200 HTML error/maintenance page or a
+            # JSON error object used to be converted and returned AS the
+            # decision text. It is now a typed failure (legal_contracts.pages).
+            check_document_body(
+                response.content, response.headers.get("content-type", ""), expect="pdf"
+            )
             markdown_content = await asyncio.to_thread(self._convert_pdf_to_markdown, response.content)
+            markdown_content = require_document_text(markdown_content)
             return UyusmazlikDocumentMarkdown(source_url=document_url, markdown_content=markdown_content)
         except httpx.HTTPError as e:
             logger.error("UyusmazlikApiClient: HTTP error fetching document from %s: %s", document_url, e)

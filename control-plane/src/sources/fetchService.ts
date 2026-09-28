@@ -18,6 +18,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { FAILURE_DETAIL_TR } from "../gateway/failureText.js";
 import type { ProviderGateway } from "../gateway/gateway.js";
 import {
   canonicalizeFetchedText,
@@ -129,7 +130,11 @@ const FETCH_FAILURE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   DOCUMENT_TOO_LARGE: `Belge ${MAX_DOCUMENT_PAGES} sayfadan uzun; ColleX tam metni mühürleyemedi ve bir kısmını tam metin gibi göstermez (DOCUMENT_TOO_LARGE). Belgeyi kaynağından açın.`,
 });
 
-export function fetchFailureMessageTr(kind: string): string {
+export function fetchFailureMessageTr(kind: string, detail?: "TLS_CERTIFICATE"): string {
+  if (detail !== undefined && kind === "UNAVAILABLE") {
+    const clause = FAILURE_DETAIL_TR[detail];
+    return `${clause.charAt(0).toLocaleUpperCase("tr-TR")}${clause.slice(1)} (${kind}).`;
+  }
   return (
     FETCH_FAILURE_MESSAGES[kind] ??
     `Belge getirilemedi (${kind}). Kaynak kartı üretilmedi.`
@@ -187,9 +192,9 @@ export async function fetchSourceCard(
   const retrievedAt = now();
   const input = buildInput(descriptor, request);
 
-  const fail = (kind: string): SourceFetchResult => ({
+  const fail = (kind: string, detail?: "TLS_CERTIFICATE"): SourceFetchResult => ({
     ok: false,
-    failure: { kind, message: fetchFailureMessageTr(kind), correlationId: newId() },
+    failure: { kind, message: fetchFailureMessageTr(kind, detail), correlationId: newId() },
   });
 
   let outcome;
@@ -201,7 +206,7 @@ export async function fetchSourceCard(
   } catch {
     return fail("UNAVAILABLE");
   }
-  if (outcome.status === "error") return fail(outcome.error.kind);
+  if (outcome.status === "error") return fail(outcome.error.kind, outcome.error.detail);
 
   const first = parseFetchPayload(descriptor.toolName, input, outcome.data);
   // A paged tool (KVKK, BTK, GİB, Rekabet, AYM, BDDK, Sigorta Tahkim) returns
@@ -224,6 +229,7 @@ export async function fetchSourceCard(
   if (parsed.kind === "failure") {
     return fail(
       parsed.failure.safeMessage.startsWith(DOCUMENT_TOO_LARGE_PREFIX) ? "DOCUMENT_TOO_LARGE" : parsed.failure.kind,
+      parsed.failure.detail,
     );
   }
 

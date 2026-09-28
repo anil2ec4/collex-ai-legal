@@ -20,8 +20,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { classifyFailureCode, classifyFailureText } from "../../src/gateway/failureText.js";
+import { FAILURE_DETAIL_TR, classifyFailureCode, classifyFailureText } from "../../src/gateway/failureText.js";
 import { parseFetchPayload, parseSearchPayload } from "../../src/research/payloads.js";
+import { fetchFailureMessageTr } from "../../src/sources/fetchService.js";
 
 const BTK_DOC_SSL = {
   source_url: "https://www.btk.gov.tr/uploads/x.pdf",
@@ -171,5 +172,52 @@ describe("marker texts the gateway now emits", () => {
   it("an exact FailureKind code wins over the free text next to it", () => {
     expect(classifyFailureCode("NOT_FOUND", "Could not reach the upstream service.").kind).toBe("NOT_FOUND");
     expect(classifyFailureCode("PARSER_ERROR", "connection refused").kind).toBe("PARSER_ERROR");
+  });
+});
+
+describe("a TLS certificate failure keeps its own reason (W22 follow-up)", () => {
+  // Certificate verification is now ON for the health probe and both KİK
+  // contexts; when a chain does not verify the gateway says so in its safe
+  // message, and the fetch card says it in Turkish instead of "ulaşılamadı".
+  const KIK_DOC_TLS = {
+    document_id: "abc",
+    kararNo: "",
+    markdown_content: "",
+    source_url: "https://ekap.kik.gov.tr/EKAP/Vatandas/KurulKararGoster.aspx?KararId=abc",
+    error_message: "UNAVAILABLE retry_after=30.0: Upstream TLS certificate could not be verified.",
+    error: "service_unavailable",
+    error_code: "UNAVAILABLE",
+    status_code: 503,
+    retry_after: "30.0",
+    retryable: true,
+    message: "UNAVAILABLE retry_after=30.0: Upstream TLS certificate could not be verified.",
+  };
+
+  it("the marker and the raw driver wording both carry detail TLS_CERTIFICATE", () => {
+    const marker = classifyFailureText(KIK_DOC_TLS.message);
+    expect(marker.kind).toBe("UNAVAILABLE");
+    expect(marker.detail).toBe("TLS_CERTIFICATE");
+    const raw = classifyFailureText(
+      "Error calling tool 'x': [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed",
+    );
+    expect(raw.detail).toBe("TLS_CERTIFICATE");
+    expect(
+      classifyFailureText("UNAVAILABLE retry_after=30.0: Could not reach the upstream service.").detail,
+    ).toBeUndefined();
+  });
+
+  it("a KİK document payload carries the detail into the parsed failure", () => {
+    const parsed = parseFetchPayload("get_kik_v2_document_markdown", { gundemMaddesiId: "abc" }, KIK_DOC_TLS);
+    expect(parsed.kind === "failure" && parsed.failure.kind).toBe("UNAVAILABLE");
+    expect(parsed.kind === "failure" && parsed.failure.detail).toBe("TLS_CERTIFICATE");
+  });
+
+  it("the fetch card sentence is Turkish, the code in parentheses", () => {
+    const sentence = fetchFailureMessageTr("UNAVAILABLE", "TLS_CERTIFICATE");
+    expect(sentence).toMatch(/^Kaynağın güvenlik sertifikası doğrulanamadı/u);
+    expect(sentence.endsWith("(UNAVAILABLE).")).toBe(true);
+    expect(sentence).toContain(FAILURE_DETAIL_TR.TLS_CERTIFICATE.slice(1));
+    expect(sentence).not.toMatch(/SSL|TLS|CERTIFICATE/u);
+    expect(fetchFailureMessageTr("UNAVAILABLE")).toMatch(/ulaşılamadı/u);
   });
 });

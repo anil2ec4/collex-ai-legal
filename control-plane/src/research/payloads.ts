@@ -65,6 +65,18 @@ export interface ParsedFailure {
   kind: FailureKind;
   retryable: boolean;
   safeMessage: string;
+  /** Additive: see ClassifiedFailureText.detail (a TLS certificate failure). */
+  detail?: "TLS_CERTIFICATE";
+}
+
+/** The `detail` the provider's own texts carry, if any. */
+function detailOf(...texts: ReadonlyArray<string | undefined>): { detail?: "TLS_CERTIFICATE" } {
+  for (const text of texts) {
+    if (text === undefined) continue;
+    const detail = classifyFailureText(text).detail;
+    if (detail !== undefined) return { detail };
+  }
+  return {};
 }
 
 export type SearchParse =
@@ -320,6 +332,7 @@ function failureFromRecord(rec: Record<string, unknown>): ParsedFailure | undefi
         : kind === "RATE_LIMITED" || kind === "TIMEOUT" || kind === "UNAVAILABLE",
     // Machine token only — provider prose is untrusted and is never echoed.
     safeMessage: `provider reported failure (${errorCode ?? kind})`,
+    ...(kind === "UNAVAILABLE" ? detailOf(message, errorMessage) : {}),
   };
 }
 
@@ -338,6 +351,7 @@ function failureFromErrorMessage(rec: Record<string, unknown>): ParsedFailure | 
     kind: classified.kind,
     retryable: classified.retryable || classified.kind === "UNAVAILABLE",
     safeMessage: `provider reported failure (${classified.kind})`,
+    ...(classified.detail !== undefined ? { detail: classified.detail } : {}),
   };
 }
 

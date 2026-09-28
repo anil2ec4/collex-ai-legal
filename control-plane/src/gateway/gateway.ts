@@ -204,6 +204,7 @@ export class HttpMcpGateway implements ProviderGateway {
         kind: classified.kind,
         retryable: classified.retryable,
         ...(classified.retryAfterMs !== undefined ? { retryAfterMs: classified.retryAfterMs } : {}),
+        ...(classified.detail !== undefined ? { detail: classified.detail } : {}),
         correlationId,
         safeMessage: `tool reported an execution error (${classified.basis})`,
       });

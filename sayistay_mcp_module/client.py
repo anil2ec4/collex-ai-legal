@@ -11,6 +11,8 @@ import io
 from urllib.parse import urlencode, urljoin
 from markitdown import MarkItDown
 
+from legal_contracts.pages import check_document_body, require_document_text
+
 from legal_contracts import UpstreamContractError, classify_exception_chain, failure_marker
 
 from .models import (
@@ -647,6 +649,12 @@ class SayistayApiClient:
             
             response = await self.http_client.get(document_url, headers=headers)
             response.raise_for_status()
+            # A 200 error/maintenance page, a JSON error object or an empty
+            # body is a typed failure, never the decision's text
+            # (legal_contracts.pages; caught below and written as the marker).
+            check_document_body(
+                response.content, response.headers.get("content-type", ""), expect="html"
+            )
             html_content = response.text
             
             if not html_content or not html_content.strip():
@@ -656,7 +664,7 @@ class SayistayApiClient:
                     decision_type=decision_type,
                     source_url=document_url,
                     markdown_content=None,
-                    error_message="Document content is empty"
+                    error_message=failure_marker(UpstreamContractError("Upstream returned an empty document.").failure())
                 )
             
             # Convert HTML to Markdown using existing method

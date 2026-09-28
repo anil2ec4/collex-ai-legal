@@ -70,6 +70,12 @@ export interface ProviderFailure {
   upstreamStatus?: number;
   correlationId: string;
   safeMessage: string;
+  /**
+   * Additive: a finer reason inside the kind, read from the provider's text
+   * (gateway/failureText.ts). "TLS_CERTIFICATE" = the source answered but its
+   * certificate did not verify.
+   */
+  detail?: "TLS_CERTIFICATE";
 }
 
 export interface SearchFilters {

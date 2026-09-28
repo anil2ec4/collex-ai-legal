@@ -10,6 +10,9 @@ import io
 import math
 from markitdown import MarkItDown
 
+from legal_contracts import InvalidToolInput, ProviderError
+from legal_contracts.pages import check_document_body, require_document_text
+
 from .models import (
     SigortaTahkimSearchRequest,
     SigortaTahkimDecisionSummary,
@@ -199,7 +202,12 @@ class SigortaTahkimApiClient:
         Returns:
             Tuple of (markdown_content, pdf_url)
         """
-        issue_num = int(issue_number)
+        try:
+            issue_num = int(issue_number)
+        except (TypeError, ValueError):
+            raise InvalidToolInput(
+                f"Invalid issue number: {issue_number}. Must be a number (e.g., '64')."
+            ) from None
         filename = self._get_pdf_filename(issue_num)
         pdf_url = f"{self.PDF_BASE_URL}{filename}"
 
@@ -207,6 +215,11 @@ class SigortaTahkimApiClient:
 
         response = await self.http_client.get(pdf_url, follow_redirects=True)
         response.raise_for_status()
+        # The issue is a PDF: a 200 HTML error/maintenance page or a JSON
+        # error object used to be converted and returned AS the journal text.
+        check_document_body(
+            response.content, response.headers.get("content-type", ""), expect="pdf"
+        )
 
         pdf_stream = io.BytesIO(response.content)
         # markitdown is sync; offload to thread so PDF parsing doesn't block
@@ -214,7 +227,7 @@ class SigortaTahkimApiClient:
         result = await asyncio.to_thread(
             self.markitdown.convert_stream, pdf_stream, file_extension=".pdf"
         )
-        return result.text_content.strip(), pdf_url
+        return require_document_text(result.text_content).strip(), pdf_url
 
     def _split_into_decisions(self, markdown_content: str) -> list[tuple[str, str]]:
         """
@@ -265,8 +278,9 @@ class SigortaTahkimApiClient:
                 source_url=pdf_url
             )
 
-        except ValueError:
-            raise Exception(f"Invalid issue number: {issue_number}. Must be a number (e.g., '64').")
+        except ProviderError:
+            # Already typed (a refused issue number, an error page, no text).
+            raise
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error fetching Sigorta Tahkim issue {issue_number}: {e}")
             raise Exception(f"Failed to fetch journal issue {issue_number}: {str(e)}")
@@ -341,8 +355,8 @@ class SigortaTahkimApiClient:
                 matches=matches
             )
 
-        except ValueError:
-            raise Exception(f"Invalid issue number: {issue_number}. Must be a number (e.g., '64').")
+        except ProviderError:
+            raise
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error in search_within issue {issue_number}: {e}")
             raise Exception(f"Failed to fetch journal issue {issue_number}: {str(e)}")

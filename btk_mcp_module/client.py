@@ -12,9 +12,9 @@ import httpx
 from markitdown import MarkItDown
 from pydantic import HttpUrl
 
+from legal_contracts.pages import check_document_body, require_document_text
 from legal_contracts import (
     InvalidToolInput,
-    UpstreamContractError,
     classify_exception_chain,
     failure_marker,
 )
@@ -195,16 +195,17 @@ class BtkApiClient:
             response = await self.http_client.get(pdf_url)
             response.raise_for_status()
 
-            content_type = response.headers.get("content-type", "").lower()
-            if "pdf" not in content_type and not pdf_url.lower().endswith(".pdf"):
-                raise UpstreamContractError("Upstream did not return a PDF document.")
-            # A .pdf URL answered with an HTML maintenance page (200) used to
-            # go through the PDF converter and come back as the "decision
-            # text". A PDF carries its magic header within the first KiB.
-            if b"%PDF-" not in response.content[:1024]:
-                raise UpstreamContractError("Upstream did not return a PDF document.")
+            # A .pdf URL answered with an HTML maintenance page (200) used to go
+            # through the PDF converter and come back as the "decision text".
+            # The PDF magic header decides; a known error page says which
+            # failure it is (legal_contracts.pages).
+            check_document_body(
+                response.content, response.headers.get("content-type", ""), expect="pdf"
+            )
 
-            markdown_content = await asyncio.to_thread(self._convert_pdf_to_markdown, response.content)
+            markdown_content = require_document_text(
+                await asyncio.to_thread(self._convert_pdf_to_markdown, response.content)
+            )
             total_pages = max(1, math.ceil(len(markdown_content) / self.DOCUMENT_MARKDOWN_CHUNK_SIZE))
             current_page = max(1, min(page_number, total_pages))
             start_index = (current_page - 1) * self.DOCUMENT_MARKDOWN_CHUNK_SIZE

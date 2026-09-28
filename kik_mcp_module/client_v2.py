@@ -19,6 +19,7 @@ except ImportError:
     HAS_CRYPTOGRAPHY = False
 
 from legal_contracts import ProviderError, classify_exception_chain, failure_marker
+from legal_contracts.pages import check_document_body, require_document_text
 
 from .models_v2 import (
     KikV2DecisionType, KikV2SearchPayload, KikV2SearchPayloadDk, KikV2SearchPayloadMk,
@@ -28,6 +29,68 @@ from .models_v2 import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The legacy cipher list the client has always offered (the KİK servers run an
+# older TLS stack). It widens the CIPHERS only; it never turns off identity.
+_LEGACY_CIPHERS = "ALL:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA"
+
+# Hosts a KİK document may be fetched from. ``GetSorgulamaUrl`` hands back a
+# URL (upstream text); anything outside these hosts is not followed.
+KIK_DOCUMENT_HOSTS = frozenset({"ekap.kik.gov.tr", "ekapv2.kik.gov.tr"})
+KIK_DOCUMENT_FALLBACK_URL = "https://ekap.kik.gov.tr/EKAP/Vatandas/KurulKararGoster.aspx"
+
+
+def legacy_compatible_ssl_context() -> ssl.SSLContext:
+    """TLS for the KİK hosts: legacy-compatible, but ALWAYS verified.
+
+    History (W22 follow-up, 27.09.2026): both KİK contexts were created with
+    hostname checking off and the verify mode set to "none" since the
+    upstream import (commit 1223b37, no reason recorded in the code, the
+    comments or the history). The only documented need is "legacy server
+    support" — ``OP_LEGACY_SERVER_CONNECT`` (servers without RFC 5746 secure
+    renegotiation) and a wider cipher list — and neither requires turning
+    off certificate verification, so it is back on: certifi's trust store
+    (the one httpx itself uses), hostname checked. Worse, the document URL
+    comes from the upstream's own ``GetSorgulamaUrl`` answer, so verification
+    off meant "any host that answer names, unauthenticated".
+
+    UNMEASURED against the live hosts: this environment's network policy
+    blocks *.gov.tr. If ekap.kik.gov.tr serves an incomplete chain, the fetch
+    now fails TYPED ("Upstream TLS certificate could not be verified.",
+    UNAVAILABLE) instead of silently trusting any certificate; the fix then
+    is to add the missing intermediate to a pinned bundle for that host —
+    never to switch verification off.
+    """
+    try:
+        import certifi
+
+        context = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:  # pragma: no cover - certifi ships with httpx
+        context = ssl.create_default_context()
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    if hasattr(ssl, "OP_LEGACY_SERVER_CONNECT"):
+        context.options |= ssl.OP_LEGACY_SERVER_CONNECT
+    context.set_ciphers(_LEGACY_CIPHERS)
+    return context
+
+
+def kik_document_url(base_document_url: str) -> str:
+    """The upstream-named document URL, only if it is https on a KİK host."""
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(base_document_url)
+    except ValueError:
+        return KIK_DOCUMENT_FALLBACK_URL
+    if parsed.scheme == "https" and (parsed.hostname or "").lower() in KIK_DOCUMENT_HOSTS:
+        return base_document_url
+    logger.warning(
+        "KikV2ApiClient: GetSorgulamaUrl named a host outside %s; using the direct URL",
+        sorted(KIK_DOCUMENT_HOSTS),
+    )
+    return KIK_DOCUMENT_FALLBACK_URL
+
 
 class KikV2ApiClient:
     """
@@ -101,18 +164,8 @@ class KikV2ApiClient:
         return iv.hex() + ciphertext.hex()
 
     def __init__(self, request_timeout: float = 60.0):
-        # Create SSL context with legacy server support
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        
-        # Enable legacy server connect option for older SSL implementations (Python 3.12+)
-        if hasattr(ssl, 'OP_LEGACY_SERVER_CONNECT'):
-            ssl_context.options |= ssl.OP_LEGACY_SERVER_CONNECT
-        
-        # Set broader cipher suite support including legacy ciphers
-        ssl_context.set_ciphers('ALL:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA')
-        
+        ssl_context = legacy_compatible_ssl_context()
+
         self.http_client = httpx.AsyncClient(
             base_url=self.BASE_URL,
             verify=ssl_context,
@@ -418,7 +471,7 @@ class KikV2ApiClient:
                     logger.warning(f"KikV2ApiClient: Could not encrypt document ID, using as-is: {enc_error}")
 
             # Construct full document URL with the encrypted KararId
-            document_url = f"{base_document_url}?KararId={karar_id}"
+            document_url = f"{kik_document_url(base_document_url)}?KararId={karar_id}"
             logger.info(f"KikV2ApiClient: Step 2 - Retrieved document URL: {document_url}")
 
         except Exception as e:
@@ -432,7 +485,7 @@ class KikV2ApiClient:
                     logger.info(f"KikV2ApiClient: Encrypted numeric ID in fallback: {karar_id}")
                 except Exception as enc_error:
                     logger.warning(f"KikV2ApiClient: Could not encrypt in fallback: {enc_error}")
-            document_url = f"https://ekap.kik.gov.tr/EKAP/Vatandas/KurulKararGoster.aspx?KararId={karar_id}"
+            document_url = f"{KIK_DOCUMENT_FALLBACK_URL}?KararId={karar_id}"
             logger.info(f"KikV2ApiClient: Falling back to direct URL: {document_url}")
         
         try:
@@ -440,12 +493,7 @@ class KikV2ApiClient:
             logger.info(f"KikV2ApiClient: Step 2 - Using httpx to retrieve document from: {document_url}")
 
             # Create a separate httpx client for document retrieval with HTML headers
-            doc_ssl_context = ssl.create_default_context()
-            doc_ssl_context.check_hostname = False
-            doc_ssl_context.verify_mode = ssl.CERT_NONE
-            if hasattr(ssl, 'OP_LEGACY_SERVER_CONNECT'):
-                doc_ssl_context.options |= ssl.OP_LEGACY_SERVER_CONNECT
-            doc_ssl_context.set_ciphers('ALL:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA')
+            doc_ssl_context = legacy_compatible_ssl_context()
 
             async with httpx.AsyncClient(
                 verify=doc_ssl_context,
@@ -459,39 +507,35 @@ class KikV2ApiClient:
             ) as doc_client:
                 response = await doc_client.get(document_url)
                 response.raise_for_status()
+                # A 200 error/maintenance page or a JSON error object is a
+                # typed failure, never the decision's text.
+                check_document_body(
+                    response.content, response.headers.get("content-type", ""), expect="html"
+                )
                 html_content = response.text
                 logger.info(f"KikV2ApiClient: Retrieved content via httpx, length: {len(html_content)}")
-            
-            # Convert HTML to Markdown using MarkItDown with BytesIO
-            try:
-                from markitdown import MarkItDown
-                from io import BytesIO
-                
-                md = MarkItDown()
-                html_bytes = html_content.encode('utf-8')
-                html_stream = BytesIO(html_bytes)
-                
-                # markitdown is sync; offload to thread so HTML parsing doesn't
-                # block the event-loop / other in-flight MCP requests.
-                result = await asyncio.to_thread(md.convert_stream, html_stream, file_extension=".html")
-                markdown_content = result.text_content
-                
-                return KikV2DocumentMarkdown(
-                    document_id=document_id,
-                    kararNo="",
-                    markdown_content=markdown_content,
-                    source_url=document_url,
-                    error_message=""
-                )
-                
-            except ImportError:
-                return KikV2DocumentMarkdown(
-                    document_id=document_id,
-                    kararNo="",
-                    markdown_content="MarkItDown library not available",
-                    source_url=document_url,
-                    error_message="MarkItDown library not installed"
-                )
+
+            # Convert HTML to Markdown using MarkItDown with BytesIO. markitdown
+            # is a hard dependency: a missing library is a server fault, not a
+            # document (it used to return "MarkItDown library not available" AS
+            # the markdown_content).
+            from markitdown import MarkItDown
+            from io import BytesIO
+
+            md = MarkItDown()
+            html_stream = BytesIO(html_content.encode('utf-8'))
+            # markitdown is sync; offload to thread so HTML parsing doesn't
+            # block the event-loop / other in-flight MCP requests.
+            result = await asyncio.to_thread(md.convert_stream, html_stream, file_extension=".html")
+            markdown_content = require_document_text(result.text_content)
+
+            return KikV2DocumentMarkdown(
+                document_id=document_id,
+                kararNo="",
+                markdown_content=markdown_content,
+                source_url=document_url,
+                error_message=""
+            )
                 
         except Exception as e:
             logger.error(f"KikV2ApiClient: Error retrieving document {document_id}: {e!r}")

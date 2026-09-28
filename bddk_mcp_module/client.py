@@ -11,6 +11,9 @@ import math
 from urllib.parse import urlparse
 from markitdown import MarkItDown
 
+from legal_contracts import ProviderError, UpstreamNotFound
+from legal_contracts.pages import check_document_body, require_document_text
+
 from .models import (
     BddkSearchRequest,
     BddkDecisionSummary,
@@ -193,6 +196,8 @@ class BddkApiClient:
             response = None
             
             # Try each URL pattern until one works
+            last_status_error: Optional[httpx.HTTPStatusError] = None
+            seen_statuses: set = set()
             for url in potential_urls:
                 try:
                     logger.info(f"Trying BDDK document URL: {url}")
@@ -203,16 +208,28 @@ class BddkApiClient:
                     response.raise_for_status()
                     document_url = url
                     break
-                except httpx.HTTPStatusError:
+                except httpx.HTTPStatusError as status_error:
+                    last_status_error = status_error
+                    seen_statuses.add(status_error.response.status_code)
                     continue
-            
-            if not response or not document_url:
-                raise Exception(f"Could not find document with ID {document_id}")
+
+            if not document_url:
+                if last_status_error is not None and seen_statuses != {404}:
+                    # Not every pattern said "no such document" (e.g. a 5xx):
+                    # that is the upstream's failure, classified by status.
+                    raise last_status_error
+                # Every candidate URL answered 404: the document does not
+                # exist upstream. This used to be a bare Exception and read
+                # as "Unexpected upstream failure".
+                raise UpstreamNotFound(f"No BDDK document with ID {document_id}.")
             
             logger.info(f"Successfully fetched BDDK document from: {document_url}")
             
             # Determine content type
             content_type = response.headers.get("content-type", "").lower()
+            # A 200 error/maintenance page, a JSON error object or an empty
+            # body is a typed failure, never the document's text.
+            check_document_body(response.content, content_type, expect="pdf_or_html")
             
             # Convert to Markdown based on content type
             if "pdf" in content_type:
@@ -232,7 +249,7 @@ class BddkApiClient:
                 markdown_content = result.text_content
             
             # Clean up the markdown content
-            markdown_content = markdown_content.strip()
+            markdown_content = require_document_text(markdown_content).strip()
             
             # Calculate pagination
             total_length = len(markdown_content)
@@ -250,6 +267,9 @@ class BddkApiClient:
                 total_pages=total_pages
             )
             
+        except ProviderError:
+            # Already typed (not found, an error page, no readable text).
+            raise
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error fetching BDDK document {document_id}: {e}")
             raise Exception(f"Failed to fetch BDDK document: {str(e)}")

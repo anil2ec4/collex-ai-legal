@@ -2081,9 +2081,12 @@ def get_or_create_health_check_client() -> httpx.AsyncClient:
     """Get or create a reusable HTTP client for health checks."""
     global _health_check_client
     if _health_check_client is None:
+        # Certificate verification ON (httpx's certifi store). The probe used
+        # to run with verify=False although the Bedesten client it stands in
+        # for verifies — a health check that accepts any certificate reports
+        # "healthy" for a host the real tool would refuse (W22 follow-up).
         _health_check_client = httpx.AsyncClient(
             timeout=10.0,
-            verify=False,
             follow_redirects=True
         )
     return _health_check_client
@@ -2145,7 +2148,9 @@ async def check_government_servers_health() -> Dict[str, Any]:
                 "X-Requested-With": "XMLHttpRequest"
             },
             timeout=30.0,
-            verify=False
+            # Verification ON: no reason for verify=False was ever recorded
+            # (it arrived with the upstream import); a TLS failure is now the
+            # typed "Upstream TLS certificate could not be verified." reason.
         ) as client:
             response = await client.post(
                 "https://karararama.yargitay.gov.tr/aramalist",

@@ -195,6 +195,44 @@ class UpstreamNotFound(ProviderError):
     kind = FailureKind.NOT_FOUND
 
 
+TLS_CERTIFICATE_SAFE_MESSAGE = "Upstream TLS certificate could not be verified."
+
+_CERT_VERIFY_WORDING = re.compile(r"CERTIFICATE_VERIFY_FAILED|certificate verify failed", re.IGNORECASE)
+
+
+def _is_certificate_failure(exc: BaseException) -> bool:
+    """True when the chain holds a TLS CERTIFICATE verification failure.
+
+    Distinguished from "could not reach" because the fix is different: the
+    host answered, but its certificate chain did not verify against the
+    trust store (ColleX never turns verification off to get past it). The
+    driver text is read here for classification only and never echoed.
+    """
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLCertVerificationError):
+            return True
+        if _CERT_VERIFY_WORDING.search(str(current) or ""):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _unreachable(exc: BaseException) -> ProviderFailure:
+    """A transport failure: UNAVAILABLE, retryable; a certificate failure says so."""
+    return ProviderFailure(
+        kind=FailureKind.UNAVAILABLE,
+        retryable=True,
+        safe_message=(
+            TLS_CERTIFICATE_SAFE_MESSAGE
+            if _is_certificate_failure(exc)
+            else "Could not reach the upstream service."
+        ),
+    )
+
+
 def _failure_from_http_status(status: int, response: Any = None) -> ProviderFailure:
     """One status → kind table for httpx, httpx2 (openai) and friends."""
     if status == 429:
@@ -252,11 +290,7 @@ def _classify_foreign_client_exception(exc: BaseException) -> Optional[ProviderF
                 safe_message="Upstream request timed out.",
             )
         if isinstance(exc, openai.APIConnectionError):
-            return ProviderFailure(
-                kind=FailureKind.UNAVAILABLE,
-                retryable=True,
-                safe_message="Could not reach the upstream service.",
-            )
+            return _unreachable(exc)
         if isinstance(exc, openai.APIStatusError):
             return _failure_from_http_status(
                 int(exc.status_code), getattr(exc, "response", None)
@@ -277,11 +311,7 @@ def _classify_foreign_client_exception(exc: BaseException) -> Optional[ProviderF
                 exc.response.status_code, exc.response
             )
         if isinstance(exc, httpx2.TransportError):
-            return ProviderFailure(
-                kind=FailureKind.UNAVAILABLE,
-                retryable=True,
-                safe_message="Could not reach the upstream service.",
-            )
+            return _unreachable(exc)
     except ImportError:  # pragma: no cover - httpx2 comes with openai only
         pass
     return None
@@ -340,11 +370,7 @@ def classify_exception(exc: BaseException) -> ProviderFailure:
         return foreign
 
     if isinstance(exc, (httpx.ConnectError, httpx.NetworkError, httpx.TransportError)):
-        return ProviderFailure(
-            kind=FailureKind.UNAVAILABLE,
-            retryable=True,
-            safe_message="Could not reach the upstream service.",
-        )
+        return _unreachable(exc)
 
     if isinstance(exc, (json.JSONDecodeError, UnicodeDecodeError, ValidationError)):
         return ProviderFailure(
@@ -363,11 +389,7 @@ def classify_exception(exc: BaseException) -> ProviderFailure:
             safe_message="Upstream request timed out.",
         )
     if isinstance(exc, (ssl.SSLError, ConnectionError, socket.gaierror)):
-        return ProviderFailure(
-            kind=FailureKind.UNAVAILABLE,
-            retryable=True,
-            safe_message="Could not reach the upstream service.",
-        )
+        return _unreachable(exc)
 
     # Unknown failure: treat as non-retryable unavailability without leaking
     # internal details into the safe message.
