@@ -153,6 +153,9 @@ async function main() {
     python,
     [
       "-m",
+      // uvicorn_watchdog.py: uvicorn exits when this process's pipe closes,
+      // however this process ends (a SIGKILL skips every handler below).
+      "uvicorn_watchdog",
       "uvicorn",
       "asgi_app:app",
       "--host",
@@ -165,7 +168,8 @@ async function main() {
     {
       cwd: REPO_ROOT,
       env: childEnv(args.token),
-      stdio: ["ignore", "pipe", "pipe"],
+      // stdin is the parent-death pipe: never written, only held open.
+      stdio: ["pipe", "pipe", "pipe"],
     },
   );
   // Server logs go to stderr so stdout stays a machine-parseable channel.
