@@ -22,15 +22,17 @@ function sha(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-function fakeServer(opts: { brokenSeal?: boolean; down?: boolean } = {}) {
+function fakeServer(opts: { brokenSeal?: boolean; down?: boolean; mcpStates?: string[] } = {}) {
   const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
+  const mcpStates = [...(opts.mcpStates ?? [])];
   const fetchImpl: FetchLike = async (url, init) => {
     const body = init?.body !== undefined ? (JSON.parse(init.body) as Record<string, unknown>) : undefined;
     calls.push({ url, ...(body !== undefined ? { body } : {}) });
     if (opts.down === true) throw new Error("ECONNREFUSED");
     const reply = (status: number, json: unknown) => ({ status, json: async () => json });
     if (url.endsWith("/v1/health")) {
-      return reply(200, { version: "1.0.0", platform: "darwin", db: "ok", mcp: "ok", ocr: { state: "OCR_READY" }, localAi: { state: "not_configured" }, ai: { configured: false } });
+      const mcp = mcpStates.length > 1 ? mcpStates.shift()! : (mcpStates[0] ?? "ok");
+      return reply(200, { version: "1.0.0", platform: "darwin", db: "ok", mcp, ocr: { state: "OCR_READY" }, localAi: { state: "not_configured" }, ai: { configured: false } });
     }
     if (url.endsWith("/v1/sources/catalog")) return reply(200, CATALOG);
     if (url.endsWith("/v1/sources/search")) {
@@ -88,6 +90,36 @@ describe("on-machine verification", () => {
     const report = await runVerification({ fetchImpl: fakeServer({ brokenSeal: true }).fetchImpl, pauseMs: 0, only: ["yargitay"] });
     expect(report.sources[0]?.fetch?.state).toBe("MUHUR_TUTMADI");
     expect(report.summary.fetchSealBroken).toBe(1);
+  });
+
+  it("waits while the source gateway is still starting (28.09.2026: 26 instant ULASILAMADI)", async () => {
+    const slept: number[] = [];
+    const lines: string[] = [];
+    const server = fakeServer({ mcpStates: ["starting", "starting", "ok"] });
+    const report = await runVerification({
+      fetchImpl: server.fetchImpl,
+      pauseMs: 0,
+      only: ["yargitay"],
+      sleep: async (ms) => void slept.push(ms),
+      onProgress: (line) => lines.push(line),
+    });
+    expect(report.health.mcp).toBe("ok");
+    expect(slept).toEqual([5000, 5000]);
+    expect(lines[0]).toContain("hâlâ açılıyor");
+    expect(report.sources[0]?.state).toBe("ULASILDI");
+    expect(renderReportTr(report)).not.toContain("açık değildi");
+  });
+
+  it("says the gateway was not open, instead of blaming the sources, when it never came up", async () => {
+    const report = await runVerification({
+      fetchImpl: fakeServer({ mcpStates: ["starting"] }).fetchImpl,
+      pauseMs: 0,
+      only: ["btk"],
+      mcpWaitMs: 15_000,
+      sleep: async () => undefined,
+    });
+    expect(report.health.mcp).toBe("starting");
+    expect(renderReportTr(report)).toContain("Resmî kaynak bağlantı bileşeni açık değildi (starting)");
   });
 
   it("says ColleX is not running instead of reporting every source as failed", async () => {

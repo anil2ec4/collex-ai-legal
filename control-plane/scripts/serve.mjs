@@ -561,7 +561,10 @@ if (args.withMcp) {
  * not coming back. After MCP_START_DEADLINE_MS the state falls to 'down',
  * which the console already renders with an actionable line.
  */
-const MCP_START_DEADLINE_MS = 60_000;
+// 180 s, the same as serve-mcp.mjs's own health wait: a cold Windows start
+// was still 'starting' at 60 s (28.09.2026). A gateway that becomes ready
+// after this deadline still flips the state back to 'ok' (onReady).
+const MCP_START_DEADLINE_MS = 180_000;
 
 const { createStoreRetrievalPort, createStoreTextPort, createStoreVersionFactsPort } =
   await importControlPlane("src/pipeline/storeAdapters.ts");

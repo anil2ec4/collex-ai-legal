@@ -124,7 +124,16 @@ export interface VerifyOptions {
   fetchFullText?: boolean;
   sleep?: (ms: number) => Promise<void>;
   onProgress?: (line: string) => void;
+  /**
+   * How long to wait while the official-source gateway still reports
+   * 'starting' (default 180 s, polled every 5 s). 28.09.2026: run right after
+   * a start, every source read ULASILAMADI in a few milliseconds because the
+   * gateway was not up yet — a statement about ColleX, not the sources.
+   */
+  mcpWaitMs?: number;
 }
+
+const MCP_POLL_MS = 5_000;
 
 function sha256Utf8(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -330,7 +339,13 @@ export async function runVerification(options: VerifyOptions = {}): Promise<Veri
   const say = options.onProgress ?? (() => undefined);
   const startedAt = now().toISOString();
 
-  const health = await readHealth(base, fetchImpl);
+  let health = await readHealth(base, fetchImpl);
+  const polls = Math.ceil((options.mcpWaitMs ?? 180_000) / MCP_POLL_MS);
+  for (let i = 0; health.reachable && health.mcp === "starting" && i < polls; i += 1) {
+    if (i === 0) say("Resmî kaynak bağlantı bileşeni hâlâ açılıyor; hazır olması bekleniyor (en fazla 3 dakika)…");
+    await sleep(MCP_POLL_MS);
+    health = await readHealth(base, fetchImpl);
+  }
   const sources: SourceCheck[] = [];
   if (health.reachable) {
     const catalog = await readCatalog(base, fetchImpl);
@@ -389,6 +404,14 @@ export function renderReportTr(report: VerifyReport, extras: readonly string[] =
     lines.push(`- Taranmış belge okuma (OCR): ${h.ocr ?? "bilinmiyor"}`);
     lines.push(`- Yerel yapay zekâ modeli: ${h.localModel ?? "bilinmiyor"}`);
     lines.push(`- Bulut yapay zekâ anahtarı: ${h.cloudConfigured === true ? "ayarlı" : "ayarlı değil"}`, "");
+    if (h.mcp !== undefined && h.mcp !== "ok") {
+      lines.push(
+        `**Resmî kaynak bağlantı bileşeni açık değildi (${h.mcp}).** Aşağıdaki ULAŞILAMADI satırları bu yüzdendir: ` +
+          "kaynakların değil, ColleX'in bağlantı bileşeninin durumunu gösterir. \"ColleX Sunucu\" penceresindeki " +
+          "[serve-mcp] satırlarına bakın; ColleX'i yeniden başlatıp bu denetimi tekrar çalıştırın.",
+        "",
+      );
+    }
     const s = report.summary;
     lines.push("## Resmî kaynaklar — özet", "");
     lines.push(

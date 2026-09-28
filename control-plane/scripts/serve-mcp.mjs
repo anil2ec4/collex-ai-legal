@@ -36,7 +36,10 @@ import { fileURLToPath } from "node:url";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const HOST = "127.0.0.1";
-const HEALTH_TIMEOUT_MS = 90_000;
+// A cold first start on Windows (every module compiled, the virus scanner
+// reading each file) can take well over a minute; 28.09.2026 the lawyer's
+// machine was still starting at 60 s.
+const HEALTH_TIMEOUT_MS = 180_000;
 
 function parseArgs(argv) {
   const args = { port: 8898, token: process.env["MCP_API_TOKEN"] ?? "", parentStdin: false };
@@ -149,13 +152,20 @@ async function main() {
   const baseUrl = `http://${HOST}:${args.port}`;
   const python = venvPython();
 
+  // POSIX: uvicorn_watchdog.py exits uvicorn when this process's stdin pipe
+  // closes, however this process ends (a SIGKILL skips every handler below).
+  // Windows (28.09.2026): the watchdog was never run there, and on the
+  // lawyer's machine the gateway did not answer /health within 60 s. A
+  // synchronous pipe read in one thread can block other I/O on that handle
+  // under Windows, so Windows keeps the pre-W23 start (stdin ignored, plain
+  // uvicorn); ColleX-Durdur.cmd still stops it by its "uvicorn asgi_app"
+  // command line.
+  const watchdog = process.platform !== "win32";
   const child = spawn(
     python,
     [
       "-m",
-      // uvicorn_watchdog.py: uvicorn exits when this process's pipe closes,
-      // however this process ends (a SIGKILL skips every handler below).
-      "uvicorn_watchdog",
+      ...(watchdog ? ["uvicorn_watchdog"] : []),
       "uvicorn",
       "asgi_app:app",
       "--host",
@@ -168,8 +178,8 @@ async function main() {
     {
       cwd: REPO_ROOT,
       env: childEnv(args.token),
-      // stdin is the parent-death pipe: never written, only held open.
-      stdio: ["pipe", "pipe", "pipe"],
+      // POSIX: stdin is the parent-death pipe, never written, only held open.
+      stdio: [watchdog ? "pipe" : "ignore", "pipe", "pipe"],
     },
   );
   // Server logs go to stderr so stdout stays a machine-parseable channel.
