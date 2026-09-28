@@ -20,6 +20,7 @@ except ImportError:
 
 from legal_contracts import ProviderError, classify_exception_chain, failure_marker
 from legal_contracts.pages import check_document_body, require_document_text
+from legal_contracts.tls import verified_ssl_context
 
 from .models_v2 import (
     KikV2DecisionType, KikV2SearchPayload, KikV2SearchPayloadDk, KikV2SearchPayloadMk,
@@ -29,10 +30,6 @@ from .models_v2 import (
 )
 
 logger = logging.getLogger(__name__)
-
-# The legacy cipher list the client has always offered (the KİK servers run an
-# older TLS stack). It widens the CIPHERS only; it never turns off identity.
-_LEGACY_CIPHERS = "ALL:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA"
 
 # Hosts a KİK document may be fetched from. ``GetSorgulamaUrl`` hands back a
 # URL (upstream text); anything outside these hosts is not followed.
@@ -61,18 +58,9 @@ def legacy_compatible_ssl_context() -> ssl.SSLContext:
     is to add the missing intermediate to a pinned bundle for that host —
     never to switch verification off.
     """
-    try:
-        import certifi
-
-        context = ssl.create_default_context(cafile=certifi.where())
-    except ImportError:  # pragma: no cover - certifi ships with httpx
-        context = ssl.create_default_context()
-    context.check_hostname = True
-    context.verify_mode = ssl.CERT_REQUIRED
-    if hasattr(ssl, "OP_LEGACY_SERVER_CONNECT"):
-        context.options |= ssl.OP_LEGACY_SERVER_CONNECT
-    context.set_ciphers(_LEGACY_CIPHERS)
-    return context
+    # The one shared builder (legal_contracts/tls.py); KİK is the only client
+    # whose code documents the legacy-server need, so only KİK asks for it.
+    return verified_ssl_context(legacy_server=True)
 
 
 def kik_document_url(base_document_url: str) -> str:

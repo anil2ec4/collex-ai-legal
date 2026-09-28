@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 from markitdown import MarkItDown
 
 from legal_contracts.pages import check_document_body, require_document_text
+from legal_contracts.tls import verified_ssl_context
 
 from .models import (
     UyusmazlikSearchRequest,
@@ -53,7 +54,10 @@ class UyusmazlikApiClient:
                 "Referer": self.BASE_URL + "/",
             },
             timeout=request_timeout,
-            verify=False,
+            # Certificate verification ON (legal_contracts/tls.py). verify=False
+            # came with the upstream import with no recorded reason, and no
+            # legacy-server need is documented for this host.
+            verify=verified_ssl_context(),
             follow_redirects=True,
         )
 

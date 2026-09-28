@@ -2,6 +2,8 @@
 
 import asyncio
 import httpx
+
+from legal_contracts.tls import verified_ssl_context
 # from bs4 import BeautifulSoup # Uncomment if needed for advanced HTML pre-processing
 from typing import Dict, Any, List, Optional
 import logging
@@ -113,7 +115,10 @@ class EmsalApiClient:
                 "X-Requested-With": "XMLHttpRequest",
             },
             timeout=request_timeout,
-            verify=False # As per user's original FastAPI code
+            # Certificate verification ON (legal_contracts/tls.py). It was
+            # off "as per user's original FastAPI code" — no technical reason
+            # recorded, and no legacy-server need documented for this host.
+            verify=verified_ssl_context(),
         )
         self._bucket = _TokenBucket(
             capacity=self._DEFAULT_CAPACITY,

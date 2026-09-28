@@ -439,28 +439,81 @@ async def test_health_probe_verifies_certificates(monkeypatch):
         )
 
 
-# Clients that STILL turn verification off. They came with the upstream
-# import, their sources could not be measured from here (the network policy
-# blocks *.gov.tr), and changing them is the lead's decision. Pinned so that
-# no NEW site can appear unnoticed, and so the two fixed here cannot return.
-VERIFY_OFF_ALLOWED = {
-    "danistay_mcp_module/client.py",
-    "emsal_mcp_module/client.py",
-    "uyusmazlik_mcp_module/client.py",
-    "yargitay_mcp_module/client.py",
-}
+# Files allowed to turn certificate verification off: NONE. The last four
+# (Emsal, Uyuşmazlık, Danıştay, Yargıtay) came with the upstream import "as
+# per original user code" and were switched on in the W22 follow-up; every
+# gateway client now builds its TLS through legal_contracts/tls.py or httpx's
+# verifying default. A certificate that does not verify is a typed failure
+# (TLS_CERTIFICATE), never a reason to put a file on this list.
+VERIFY_OFF_ALLOWED: frozenset = frozenset()
 _VERIFY_OFF = re.compile(r"verify\s*=\s*False|CERT_NONE|check_hostname\s*=\s*False")
+_SKIP_DIRS = {".venv", "node_modules", "tests", "control-plane", ".git", "__pycache__", ".claude"}
 
 
-def test_no_new_host_is_reached_with_verification_off():
+def test_no_file_reaches_a_host_with_verification_off():
     offenders = set()
-    candidates = list(REPO_ROOT.glob("*.py")) + list(REPO_ROOT.glob("*_mcp_module/*.py"))
-    candidates += list((REPO_ROOT / "legal_contracts").glob("*.py"))
-    for path in candidates:
-        for line in path.read_text(encoding="utf-8").splitlines():
+    for path in REPO_ROOT.rglob("*.py"):
+        relative = path.relative_to(REPO_ROOT)
+        if _SKIP_DIRS.intersection(relative.parts):
+            continue
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             code = line.split("#", 1)[0]
             if _VERIFY_OFF.search(code):
-                offenders.add(path.relative_to(REPO_ROOT).as_posix())
-    assert offenders <= VERIFY_OFF_ALLOWED, sorted(offenders - VERIFY_OFF_ALLOWED)
-    assert "mcp_server_main.py" not in offenders
-    assert "kik_mcp_module/client_v2.py" not in offenders
+                offenders.add(relative.as_posix())
+    assert offenders == set(VERIFY_OFF_ALLOWED), sorted(offenders)
+
+
+@pytest.mark.parametrize(
+    "module_name, class_name",
+    [
+        ("emsal_mcp_module.client", "EmsalApiClient"),
+        ("uyusmazlik_mcp_module.client", "UyusmazlikApiClient"),
+        ("danistay_mcp_module.client", "DanistayApiClient"),
+        ("yargitay_mcp_module.client", "YargitayOfficialApiClient"),
+        ("kik_mcp_module.client_v2", "KikV2ApiClient"),
+    ],
+)
+async def test_every_court_client_verifies_certificates(module_name, class_name):
+    """The client's own connection pool: certificate required, hostname checked."""
+    import importlib
+
+    client = getattr(importlib.import_module(module_name), class_name)()
+    try:
+        context = client.http_client._transport._pool._ssl_context
+        assert context.verify_mode is ssl.CERT_REQUIRED, class_name
+        assert context.check_hostname is True, class_name
+    finally:
+        await client.http_client.aclose()
+
+
+def test_only_kik_asks_for_the_legacy_server_allowance():
+    """Legacy renegotiation / wide ciphers are granted where the code says why."""
+    from legal_contracts.tls import verified_ssl_context
+
+    plain = verified_ssl_context()
+    assert plain.verify_mode is ssl.CERT_REQUIRED and plain.check_hostname is True
+    if hasattr(ssl, "OP_LEGACY_SERVER_CONNECT"):
+        assert not plain.options & ssl.OP_LEGACY_SERVER_CONNECT
+    sources = {
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in REPO_ROOT.glob("*_mcp_module/*.py")
+        if "legacy_server=True" in path.read_text(encoding="utf-8")
+    }
+    assert sources == {"kik_mcp_module/client_v2.py"}, sorted(sources)
+
+
+@pytest.mark.parametrize(
+    "tool, args",
+    [
+        ("search_emsal_detailed_decisions", {"keyword": "kira"}),
+        ("get_emsal_document_markdown", {"id": "123"}),
+        ("get_uyusmazlik_document_markdown_from_url", {"document_url": UYUSMAZLIK_URL}),
+    ],
+)
+@respx.mock
+async def test_emsal_and_uyusmazlik_certificate_failure_is_typed(tool, args):
+    respx.route().mock(side_effect=httpx.ConnectError(TLS_TEXT))
+    result = await _call(tool, args)
+    text = result.content[0].text
+    assert result.isError is True
+    assert text == "UNAVAILABLE retry_after=30.0: Upstream TLS certificate could not be verified.", text

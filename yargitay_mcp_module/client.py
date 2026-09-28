@@ -45,7 +45,9 @@ class YargitayOfficialApiClient:
                 "Referer": f"{self.BASE_URL}/" # Some APIs might check referer
             },
             timeout=request_timeout,
-            verify=False # SSL verification disabled as per original user code - use with caution
+            # verify=False removed (W22 follow-up): httpx's default verifies
+            # against certifi with the hostname checked. No tool uses this
+            # client today; it must not reach a host unverified if one does.
         )
 
     async def search_detailed_decisions(

@@ -38,7 +38,9 @@ class DanistayApiClient:
                 "X-Requested-With": "XMLHttpRequest",
             },
             timeout=request_timeout,
-            verify=False 
+            # verify=False removed (W22 follow-up): httpx's default verifies
+            # against certifi with the hostname checked. No tool uses this
+            # client today; it must not reach a host unverified if one does.
         )
 
     def _prepare_keywords_for_api(self, keywords: List[str]) -> List[str]:
