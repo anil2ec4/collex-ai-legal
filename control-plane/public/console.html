@@ -2895,6 +2895,12 @@ button.seal { border-radius: var(--r-ctl); }
 .lwmsg, .lwsrc, .lwnote { margin: 4px 0 0; overflow-wrap: anywhere; }
 .lwsrc, .lwmeta, .lwnote { font-size: 13px; color: var(--ink-soft); }
 .lwunread { margin-top: 10px; }
+/* W22 · UYAP klasörünü dosyalara dağıtma (yalnız bu kart) */
+.uyapcard .uyaprow { border-top: 1px solid var(--line); padding: var(--sp-2) 0; }
+.uyapcard .uyapfield { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.uyapcard .uyapquote { color: var(--ink-soft); font-style: italic; }
+.uyapcard .uyapnone { color: var(--ink-faint); }
+.uyapcard .uyaprow select.tin, .uyapcard .uyaprow input.tin { width: 100%; max-width: 40rem; margin-top: var(--sp-2); }
 </style>
 </head>
 <body class="shell">
@@ -19579,6 +19585,302 @@ button.seal { border-radius: var(--r-ctl); }
       entries.forEach(visit);
       if (pending === 0) { resolve(files); }
     });
+  }
+
+  /* ============ W22 · UYAP'tan indirilen klasörü dosyalara dağıt ============
+     Avukat UYAP Avukat Portal'dan indirdiği klasörü ya da .zip arşivini verir;
+     sunucu her belgenin ilk sayfasını okur (mahkeme, esas, karar, tür, tarih
+     — her biri okunduğu metinle) ve hangi dava dosyasına ait olduğunu ÖNERİR.
+     Önizlemede hiçbir belge yüklenmez. Avukat her satırı onaylar ya da
+     değiştirir; yalnız onaylananlar tek tek, tek yükleme yolundan geçer.
+     "karar sizin" satırları hiçbir zaman kendiliğinden bir dosyaya gitmez.
+     Aktarım sunucuda sürdüğü için tarayıcıdan durdurulmaz (bkz. yedekleme). */
+
+  var UYAP_MULTIPART_LIMIT = 40 * 1024 * 1024;
+  var UYAP_STATUS_TR = {
+    matched: ["eşleşti", "ok"],
+    ambiguous: ["karar sizin", "warn"],
+    unmatched: ["eşleşen dosya yok", "warn"],
+    no_esas: ["esas okunamadı", "mute"]
+  };
+  var UYAP_OUTCOME_TR = {
+    added: ["eklendi", "ok"],
+    duplicate: ["zaten vardı", "mute"],
+    unmatched: ["eşleşmedi", "warn"],
+    skipped: ["atlandı", "mute"],
+    failed: ["işlenemedi", "bad"]
+  };
+  var uyapState = { preview: null, choices: {} };
+
+  function uyapSourceTR(field) {
+    return field && field.source === "filename" ? "dosya adından" : "belgeden";
+  }
+
+  /* Okunan her değer, okunduğu metinle birlikte yazılır: avukat neye
+     dayanıldığını görür, ColleX'in tahminini değil. */
+  function uyapFieldLine(label, field, shown) {
+    var line = el("div", "uyapfield");
+    line.appendChild(el("span", "lab", label + ": "));
+    if (!field) {
+      line.appendChild(el("span", "uyapnone", "okunamadı"));
+      return line;
+    }
+    line.appendChild(el("strong", null, shown !== undefined ? shown : field.value));
+    line.appendChild(el("span", "uyapquote", " — “" + String(field.quote).replace(/\s+/g, " ") + "” (" + uyapSourceTR(field) + ")"));
+    return line;
+  }
+
+  function uyapPreview(payload, label) {
+    var out = document.getElementById("uyapout");
+    if (!out) { return; }
+    out.textContent = "";
+    var busy = beginBusy({
+      title: "UYAP klasörü okunuyor — " + label,
+      phase: "Belgeler bu bilgisayarda okunuyor. Bu aşamada hiçbir belge yüklenmez.",
+      longWait: "Belge sayısı çoksa okuma birkaç dakika sürebilir.",
+      host: out,
+      onCancel: function (ms) {
+        busyCancelledCard(out, ms, { detail: "Hiçbir belge yüklenmedi; okuma sunucuda bir süre daha sürebilir." });
+      }
+    });
+    var init = typeof FormData !== "undefined" && payload instanceof FormData
+      ? { method: "POST", body: payload }
+      : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) };
+    if (busy.signal) { init.signal = busy.signal; }
+    fetch("/v1/files/uyap-preview", init).then(parseJson).then(function (res) {
+      if (busy.cancelled()) { return; }
+      busy.stop();
+      if (res.status !== 200 || !res.body || !Array.isArray(res.body.rows)) {
+        errCard(out, "Klasör okunamadı", errMessage(res), errMessageTech(res));
+        return;
+      }
+      renderUyapPreview(out, res.body);
+    }).catch(function (error) {
+      if (busy.cancelled()) { return; }
+      busy.stop();
+      errCard(out, "Klasör okunamadı", humanError(error));
+    });
+  }
+
+  function uyapPreviewFiles(files) {
+    var all = Array.prototype.slice.call(files || []);
+    var docs = all.filter(function (f) { return /\.(pdf|docx|txt|udf|zip)$/i.test(f.name || ""); });
+    if (!docs.length) { toast("Seçilen yerde belge yok (PDF · DOCX · TXT · UDF ya da .zip).", "warn"); return; }
+    var total = docs.reduce(function (sum, f) { return sum + (f.size || 0); }, 0);
+    if (total > UYAP_MULTIPART_LIMIT) {
+      toast("Seçilen belgeler toplam " + fmtSizeTR(total) + "; tarayıcıdan en fazla 40 MB gönderilebilir. Klasörün bu bilgisayardaki tam yolunu yazıp “Yolu oku”ya basın.", "warn");
+      return;
+    }
+    var form = new FormData();
+    docs.forEach(function (f) { form.append("file", f, f.webkitRelativePath || f.name); });
+    var skipped = all.length - docs.length;
+    uyapPreview(form, docs.length + " belge" + (skipped ? " (" + skipped + " belge olmayan dosya gönderilmedi)" : ""));
+  }
+
+  function uyapChoiceOptions(row) {
+    var opts = [["skip", "Atla — hiçbir dosyaya ekleme"]];
+    if (row.match.newMatter) { opts.push(["new", "Yeni dosya aç: " + row.match.newMatter.title]); }
+    var listed = {};
+    (row.match.candidates || []).forEach(function (c) {
+      listed[c.matterId] = true;
+      opts.push(["m:" + c.matterId, "Ekle: " + c.title + (c.docketNo ? " (" + c.docketNo + ")" : "")]);
+    });
+    (mattersCache || []).forEach(function (m) {
+      if (m && m.id && !listed[m.id]) { opts.push(["m:" + m.id, "Başka dosya: " + m.title]); }
+    });
+    return opts;
+  }
+
+  function uyapProposedChoice(row) {
+    if (row.proposedAction === "assign" && row.match.matterId) { return "m:" + row.match.matterId; }
+    if (row.proposedAction === "new") { return "new"; }
+    return "skip";
+  }
+
+  function renderUyapPreview(out, pv) {
+    uyapState.preview = pv;
+    uyapState.choices = {};
+    out.textContent = "";
+    animIndex = 0;
+    var card = el("section", "card");
+    card.appendChild(el("h3", "fname", pv.total + " belge okundu — hiçbiri henüz yüklenmedi"));
+    var s = pv.summary || {};
+    card.appendChild(el("p", "note-p",
+      (s.matched || 0) + " belge bir dosyanızla eşleşti · " + (s.ambiguous || 0) + " belgede karar sizin · " +
+      (s.unmatched || 0) + " belge için eşleşen dosya yok · " + (s.noEsas || 0) + " belgede esas numarası okunamadı · " +
+      (s.duplicates || 0) + " belge zaten yüklü."));
+    card.appendChild(el("p", "note-p",
+      "Her satırdaki seçimi kontrol edin. Önerilen seçim hazır gelir; “karar sizin” satırları siz seçmedikçe hiçbir dosyaya eklenmez."));
+    if (pv.skipped && pv.skipped.length) {
+      var det = el("details", "mini");
+      det.appendChild(el("summary", null, "Belge olmayan dosyalar (" + pv.skipped.length + ") — atlandı"));
+      pv.skipped.slice(0, 100).forEach(function (name) { det.appendChild(el("div", "batchrow", name)); });
+      card.appendChild(det);
+    }
+    pv.rows.forEach(function (row) {
+      var r = el("div", "uyaprow");
+      var head = el("div", "filehead");
+      head.appendChild(el("strong", "nm", row.path));
+      var st = UYAP_STATUS_TR[row.match.status] || [row.match.status, "mute"];
+      head.appendChild(chip(st[0], st[1]));
+      if (row.duplicate || row.duplicateInBatchOf) { head.appendChild(chip("zaten yüklü", "mute")); }
+      r.appendChild(head);
+      var rd = row.reading || {};
+      r.appendChild(uyapFieldLine("Mahkeme", rd.court));
+      r.appendChild(uyapFieldLine("Esas", rd.esas));
+      if (rd.karar) { r.appendChild(uyapFieldLine("Karar", rd.karar)); }
+      r.appendChild(uyapFieldLine("Belge türü", rd.documentType, rd.documentType ? rd.documentType.label : undefined));
+      r.appendChild(uyapFieldLine("Tarih", rd.documentDate, rd.documentDate ? fmtDateTR(rd.documentDate.value) : undefined));
+      (row.notes || []).forEach(function (n) { r.appendChild(el("p", "note-p", n)); });
+      r.appendChild(el("p", "note-p", row.match.reason));
+      (row.match.candidates || []).forEach(function (c) {
+        if (row.match.status !== "matched") { r.appendChild(el("p", "note-p", "• " + c.title + " — " + c.reason)); }
+      });
+      var pick = el("select", "tin");
+      pick.setAttribute("aria-label", row.path + " için seçim");
+      uyapChoiceOptions(row).forEach(function (o) {
+        var opt = el("option", null, o[1]);
+        opt.value = o[0];
+        pick.appendChild(opt);
+      });
+      pick.value = uyapProposedChoice(row);
+      if (!row.importable) { pick.value = "skip"; pick.disabled = true; }
+      var title = el("input", "tin");
+      title.type = "text";
+      title.setAttribute("aria-label", "Açılacak dosyanın adı");
+      title.value = row.match.newMatter ? row.match.newMatter.title : "";
+      title.hidden = pick.value !== "new";
+      pick.addEventListener("change", function () { title.hidden = pick.value !== "new"; });
+      uyapState.choices[row.path] = { pick: pick, title: title };
+      r.appendChild(pick);
+      r.appendChild(title);
+      card.appendChild(r);
+    });
+    var acts = el("div", "actions");
+    acts.appendChild(ghostBtn("Seçimleri onayla ve aktar", runUyapImport, "primary"));
+    acts.appendChild(ghostBtn("Vazgeç", function () { out.textContent = ""; uyapState.preview = null; }, "small"));
+    card.appendChild(acts);
+    techBox(card, ["Okuma kuralı: " + (pv.readerVersion || ""), "Önizleme no: " + pv.previewId, "Geçerlilik: " + fmtDateTR(pv.expiresAt)]);
+    out.appendChild(anim(card));
+  }
+
+  function uyapCollectRows() {
+    var pv = uyapState.preview;
+    return pv.rows.map(function (row) {
+      var c = uyapState.choices[row.path];
+      var v = c ? c.pick.value : "skip";
+      if (v.indexOf("m:") === 0) { return { path: row.path, action: "assign", matterId: v.slice(2) }; }
+      if (v === "new" && row.match.newMatter) {
+        var t = c.title.value.trim() || row.match.newMatter.title;
+        return { path: row.path, action: "new", newMatter: { title: t, court: row.match.newMatter.court, docketNo: row.match.newMatter.docketNo } };
+      }
+      return { path: row.path, action: "skip" };
+    });
+  }
+
+  function runUyapImport() {
+    var out = document.getElementById("uyapout");
+    var pv = uyapState.preview;
+    if (!out || !pv) { return; }
+    var rows = uyapCollectRows();
+    out.textContent = "";
+    var busy = beginBusy({
+      title: "Belgeler dosyalarınıza ekleniyor",
+      phase: "Onayladığınız belgeler tek tek yükleniyor ve seçtiğiniz dosyalara bağlanıyor.",
+      longWait: "Her belge ayrı okunur; çok belgede bu birkaç dakika sürebilir.",
+      host: out,
+      noCancelReason: "Bu iş tarayıcıdan durdurulmaz: belgeler sunucuda tek tek yüklenir ve tarayıcıda durdurmak sunucudaki işi durdurmaz. Bitince sonuç burada yazacak."
+    });
+    sendJson("/v1/files/uyap-import", "POST", { previewId: pv.previewId, rows: rows }).then(function (res) {
+      busy.stop();
+      if (res.status !== 200 || !res.body || !Array.isArray(res.body.rows)) {
+        errCard(out, "Belgeler aktarılamadı", errMessage(res), errMessageTech(res));
+        return;
+      }
+      renderUyapResult(out, res.body);
+      uyapState.preview = null;
+      if (typeof loadFiles === "function") { loadFiles(); }
+      if (typeof loadMatters === "function") { loadMatters(); }
+    }).catch(function (error) {
+      busy.stop();
+      errCard(out, "Belgeler aktarılamadı", humanError(error));
+    });
+  }
+
+  function renderUyapResult(out, result) {
+    out.textContent = "";
+    animIndex = 0;
+    var card = el("section", "card");
+    card.appendChild(el("h3", "fname", result.sentence));
+    (result.createdMatters || []).forEach(function (m) {
+      card.appendChild(el("p", "note-p", "Yeni dosya açıldı: " + m.title));
+    });
+    result.rows.forEach(function (row) {
+      var r = el("div", "batchrow");
+      r.appendChild(el("span", "nm", row.path));
+      var o = UYAP_OUTCOME_TR[row.outcome] || [row.outcome, "mute"];
+      r.appendChild(chip(o[0], o[1]));
+      r.appendChild(el("span", null, row.reason));
+      (row.warnings || []).forEach(function (w) {
+        if (/^MATTER_LINK_FAILED:/.test(String(w))) { r.appendChild(el("span", "note-p", String(w).replace(/^MATTER_LINK_FAILED:/, ""))); }
+      });
+      if (row.error) { techBox(r, [row.error.kind, row.error.correlationId ? "Kayıt no: " + row.error.correlationId : ""]); }
+      card.appendChild(r);
+    });
+    out.appendChild(anim(card));
+    toast(result.sentence, result.summary && result.summary.failed ? "warn" : "ok");
+  }
+
+  function mountUyapCard() {
+    var bar = document.getElementById("folderbar");
+    if (!bar || !bar.parentNode || document.getElementById("uyapcard")) { return; }
+    var card = el("section", "card uyapcard");
+    card.id = "uyapcard";
+    card.appendChild(el("h3", "fname", "UYAP'tan indirdiğim klasörü dosyalarıma dağıt"));
+    card.appendChild(el("p", "note-p",
+      "UYAP Avukat Portal'dan indirdiğiniz klasörü ya da .zip arşivini verin. ColleX her belgenin ilk sayfasından " +
+      "mahkemeyi, esas ve karar numarasını, belge türünü ve tarihini okur ve belgenin hangi dava dosyanıza ait olduğunu önerir. " +
+      "Siz onaylamadan hiçbir belge yüklenmez. UYAP şifreniz istenmez; okuma bu bilgisayarda yapılır."));
+    var dirInput = el("input");
+    dirInput.type = "file";
+    dirInput.multiple = true;
+    dirInput.setAttribute("webkitdirectory", "");
+    dirInput.hidden = true;
+    var zipInput = el("input");
+    zipInput.type = "file";
+    zipInput.accept = ".zip";
+    zipInput.hidden = true;
+    dirInput.addEventListener("change", function () { if (this.files && this.files.length) { uyapPreviewFiles(this.files); } this.value = ""; });
+    zipInput.addEventListener("change", function () { if (this.files && this.files.length) { uyapPreviewFiles(this.files); } this.value = ""; });
+    var acts = el("div", "actions");
+    acts.appendChild(ghostBtn("UYAP klasörünü seç", function () { dirInput.click(); }));
+    acts.appendChild(ghostBtn(".zip arşivini seç", function () { zipInput.click(); }));
+    card.appendChild(dirInput);
+    card.appendChild(zipInput);
+    card.appendChild(acts);
+    var pathRow = el("div", "actions");
+    var pathIn = el("input", "tin");
+    pathIn.type = "text";
+    pathIn.setAttribute("aria-label", "Klasörün bu bilgisayardaki tam yolu");
+    pathIn.placeholder = "ya da klasörün bu bilgisayardaki tam yolu";
+    pathRow.appendChild(pathIn);
+    pathRow.appendChild(ghostBtn("Yolu oku", function () {
+      var dir = pathIn.value.trim();
+      if (!dir) { toast("Önce klasörün tam yolunu yazın.", "warn"); return; }
+      uyapPreview({ dir: dir }, dir);
+    }));
+    card.appendChild(pathRow);
+    card.appendChild(el("p", "note-p",
+      "Tarayıcıdan seçilen belgeler toplam 40 MB'ı, .zip arşivi 25 MB'ı aşarsa klasörün tam yolunu yazın."));
+    var out = el("div");
+    out.id = "uyapout";
+    out.setAttribute("aria-live", "polite");
+    card.appendChild(out);
+    bar.parentNode.insertBefore(card, bar.nextSibling);
+  }
+
+  if (typeof document !== "undefined" && document && typeof document.getElementById === "function") {
+    mountUyapCard();
   }
 
   /* ===================== Belge sayfası — yeni eylemler ===================== */

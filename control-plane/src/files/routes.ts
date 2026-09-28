@@ -67,6 +67,7 @@ import {
   type FilesReadStore,
 } from "./store.js";
 import { databaseDownHintTr } from "../platform/operatorHints.js";
+import { mountUyapRoutes, type UyapMatterDeps } from "./uyapRoutes.js";
 import { encodeRfc8187 } from "../drafting/routes.js";
 
 /**
@@ -216,6 +217,22 @@ export interface IntakeExecRequest {
   pythonPath: string;
   args: string[];
   cwd: string;
+  /**
+   * Additive (W22): wall budget for THIS process. Absent = the upload budget
+   * `INTAKE_EXEC_TIMEOUT_MS`. Only the UYAP folder preview asks for more —
+   * it reads every document of a download in one process.
+   */
+  timeoutMs?: number;
+}
+
+/**
+ * THE argument vector of a single-document intake (W22). `POST /v1/files`
+ * and the UYAP import (`uyapRoutes.ts`) both build it here, so the import
+ * cannot drift into a second intake path: same module, same flags, same
+ * `process_file`.
+ */
+export function intakeFileArgs(dsn: string, path: string): string[] {
+  return ["-X", "utf8", "-m", "intake.cli", "--dsn", dsn, "--file", path, "--json"];
 }
 
 export interface IntakeExecResult {
@@ -241,7 +258,7 @@ function defaultPythonPath(repoRoot: string): string {
 }
 
 /** Real runner: execFile + argument array — shell-free by construction. */
-const execFileRunner: IntakeExec = ({ pythonPath, args, cwd }) =>
+const execFileRunner: IntakeExec = ({ pythonPath, args, cwd, timeoutMs }) =>
   new Promise((resolvePromise) => {
     execFile(
       pythonPath,
@@ -250,7 +267,7 @@ const execFileRunner: IntakeExec = ({ pythonPath, args, cwd }) =>
         cwd,
         windowsHide: true,
         maxBuffer: 32 * 1024 * 1024,
-        timeout: INTAKE_EXEC_TIMEOUT_MS,
+        timeout: timeoutMs ?? INTAKE_EXEC_TIMEOUT_MS,
       },
       (error, stdout, stderr) => {
         const code =
@@ -289,7 +306,7 @@ interface CliError {
   error: { kind: string; message: string; warnings?: string[] };
 }
 
-function parseCliJson(stdout: string): Record<string, unknown> | undefined {
+export function parseCliJson(stdout: string): Record<string, unknown> | undefined {
   const text = stdout.trim();
   if (!text.startsWith("{")) return undefined;
   try {
@@ -302,7 +319,7 @@ function parseCliJson(stdout: string): Record<string, unknown> | undefined {
   }
 }
 
-function isCliError(
+export function isCliError(
   body: Record<string, unknown> | undefined,
 ): body is CliError & Record<string, unknown> {
   if (body === undefined) return false;
@@ -483,6 +500,12 @@ export interface FilesRouterDeps {
    * to `<repoRoot>/var/uploads`, the ONE location that module writes to.
    */
   uploadsDir?: string;
+  /**
+   * W22: the matter side of "UYAP'tan indirdiğim klasörü dosyalarıma
+   * dağıt" (`POST /v1/files/uyap-preview`, `POST /v1/files/uyap-import`).
+   * Mounted only when given — the routes need the matters and the linker.
+   */
+  uyap?: UyapMatterDeps;
 }
 
 export function createFilesRouter(deps: FilesRouterDeps): Hono {
@@ -580,6 +603,20 @@ export function createFilesRouter(deps: FilesRouterDeps): Hono {
     );
   };
 
+  if (deps.uyap !== undefined) {
+    mountUyapRoutes(app, {
+      ...deps.uyap,
+      dsn,
+      runIntake,
+      pythonPath,
+      repoRoot,
+      log,
+      getStore,
+      cliFailure,
+      configured: dsn !== "" || deps.exec !== undefined,
+    });
+  }
+
   app.post("/v1/files/:id/reanalyze", async (c) => {
     if (dsn === "" && deps.exec === undefined) return cliUnavailable(c);
     const fileId = c.req.param("id");
@@ -652,7 +689,7 @@ export function createFilesRouter(deps: FilesRouterDeps): Hono {
       await writeFile(tempPath, Buffer.from(await file.arrayBuffer()));
       const result = await runIntake({
         pythonPath,
-        args: ["-X", "utf8", "-m", "intake.cli", "--dsn", dsn, "--file", tempPath, "--json"],
+        args: intakeFileArgs(dsn, tempPath),
         cwd: repoRoot,
       });
       const parsed = parseCliJson(result.stdout);

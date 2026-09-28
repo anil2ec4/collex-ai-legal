@@ -1630,6 +1630,9 @@ export function createApp(deps: ApiDependencies): Hono {
         // L-VERIFY V-4: without this line "Aslını indir" answered 404
         // ORIGINAL_NOT_FOUND on every COLLEX_DATA_DIR installation.
         uploadsDir,
+        // W22: the UYAP folder preview/import files documents under matters
+        // through the SAME linker every upload uses.
+        uyap: { matters: matterStore, linker, now },
       }),
     );
   }

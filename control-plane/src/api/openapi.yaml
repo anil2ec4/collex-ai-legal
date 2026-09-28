@@ -5175,6 +5175,184 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /v1/files/uyap-preview:
+    post:
+      operationId: previewUyapDownload
+      summary: Read a UYAP download and propose which matter each document belongs to (nothing is stored)
+      description: >
+        W22 ("UYAP'tan indirdiğim klasörü dosyalarıma dağıt"). The lawyer
+        downloads a case file from UYAP Avukat Portal; ColleX reads the
+        download on THIS computer — no UYAP login, no credential, no network.
+        Input: JSON `{dir}` (an absolute folder path on this computer), or
+        multipart with ONE `.zip` (`file`), or the documents of a folder as
+        repeated `file` fields (a browser folder pick; the part's filename may
+        carry the relative path). The API runs `intake.cli --uyap-scan`,
+        which READS ONLY: the same quarantine (magic-byte sniff, ZIP gates —
+        a `.zip` is opened one level deep through those same gates, a nested
+        archive refuses the whole container, the container obeys the 25 MB
+        upload cap) and the same extraction as an upload, with OCR off.
+        Nothing is ingested, stored or filed; that happens only in
+        POST /v1/files/uyap-import for the rows the lawyer confirms.
+
+
+        Per document: court, esas number, karar number, document type and
+        document date, each with the exact `quote` it was read from and its
+        span (`start`/`end`, Unicode code points over the NFC canonical text
+        the intake would store, or over the file NAME when `source` is
+        `filename`). The content wins over the name; a disagreement is kept
+        (`esasConflict`, both values). Numbers on lines citing another
+        decision, "ilk derece"/"birleşen" lines and "dava tarihi" are never
+        read as this document's. `sha256` is over the original bytes — the
+        digest the intake records — and decides duplicates against every
+        stored upload (exact id lookup, never one page of the list).
+
+
+        Matching (`match`): `matched` only when exactly one matter carries the
+        same esas number (exact, as a number) AND the same court (the filter
+        fold: Turkish letters and case folded, punctuation ignored).
+        `ambiguous` lists candidates and assigns nothing; `unmatched`
+        proposes a new matter prefilled with court and esas; `no_esas` has
+        neither. A preview can be confirmed for 30 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [dir]
+              properties:
+                dir:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+                  description: Absolute path of a folder on this computer.
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties:
+                file:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: >
+                    One `.zip` alone, or up to 200 documents. Non-documents
+                    are listed in `skipped`, never treated as failures.
+      responses:
+        "200":
+          description: The reading and the proposal of every document.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UyapPreview"
+        "400":
+          description: >
+            INVALID_REQUEST — no input, a relative folder path, a stray field
+            (`issues[].path` names it), a `.zip` sent with other files, more
+            than 200 documents, a container over 25 MB, or a ZIP gate refusal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: NOT_FOUND — the folder does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          description: UNSUPPORTED_TYPE — the container is not a .zip, or is itself a document.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: >
+            STORE_UNAVAILABLE — the upload store could not answer the
+            duplicate question (the preview is refused rather than claiming
+            "no duplicates"), or the matters could not be read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "504":
+          description: UPLOAD_TIMEOUT — reading the download took longer than 10 minutes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /v1/files/uyap-import:
+    post:
+      operationId: importUyapDownload
+      summary: Ingest and file the documents the lawyer confirmed in a UYAP preview
+      description: >
+        W22. Only the rows the request names with `assign` (an existing
+        matter) or `new` (a matter to open, prefilled by the preview and
+        accepted by the lawyer) are ingested; every other row is skipped.
+        Each confirmed document goes through THE single intake path — the
+        same `intake.cli --file` invocation POST /v1/files uses — one by one,
+        then is filed under its matter through the same link every upload
+        uses (a failed link is a `MATTER_LINK_FAILED:` warning on the row,
+        never a failed import). Before ingest the bytes are hashed again and
+        compared with the preview; afterwards the intake's own sha256 is
+        compared: a document that changed is refused
+        (`CHANGED_SINCE_PREVIEW`) and never filed. A document already stored
+        (same sha256) is never ingested again; with `assign`/`new` it is
+        filed, with `skip` it is only reported. Several `new` rows naming the
+        same court, esas and title open ONE matter. Every named matter is
+        checked before any document is touched (404 MATTER_NOT_FOUND with
+        `matterIds`). The answer carries one row per previewed document and
+        the lawyer's sentence ("12 belge: 9'u 3 dosyaya eklendi, 2'si zaten
+        vardı, 1'i eşleşmedi.").
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UyapImportRequest"
+      responses:
+        "200":
+          description: One outcome per previewed document, and the summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UyapImportResult"
+        "400":
+          description: >
+            INVALID_REQUEST — strict schema (`issues[].path` names the field,
+            e.g. `rows.0.matterId`), or a row whose `path` is not in the
+            preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: >
+            UYAP_PREVIEW_NOT_FOUND (unknown or expired preview) or
+            MATTER_NOT_FOUND (with `matterIds`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: UYAP_IMPORT_IN_PROGRESS — this preview is being imported right now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: STORE_UNAVAILABLE — the upload or matter store could not answer; nothing was ingested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
 components:
   schemas:
     # ---------------------------------------------------------------- answers
@@ -12471,6 +12649,342 @@ components:
           description: >-
             Union the public corpus back in. Default false — matter evidence
             only.
+    # ------------------------------------------------------ W22 UYAP download
+    UyapField:
+      type: object
+      required: [value, quote, start, end, source]
+      properties:
+        value:
+          type: string
+          description: >
+            Canonical value — court as written, esas/karar as `YYYY/N`, date
+            as `YYYY-MM-DD`.
+        quote:
+          type: string
+          description: The exact text the value was read from.
+        start:
+          type: integer
+          description: Code-point offset (NFC canonical text, or the file name when `source` is `filename`).
+        end:
+          type: integer
+        source:
+          type: string
+          enum: [content, filename]
+    UyapTypeField:
+      type: object
+      required: [code, label, quote, start, end, source]
+      properties:
+        code:
+          type: string
+          enum: [gerekceli_karar, tensip_zapti, durusma_tutanagi, bilirkisi_raporu, muzekkere_cevabi,
+                 tebligat, muzekkere, ara_karar, dilekce, karar, vekaletname, ihtarname]
+        label:
+          type: string
+        quote:
+          type: string
+        start:
+          type: integer
+        end:
+          type: integer
+        source:
+          type: string
+          enum: [content, filename]
+    UyapReading:
+      type: object
+      required: [readerVersion, textRead, court, esas, karar, documentType, documentDate, filename, esasConflict]
+      properties:
+        readerVersion:
+          type: string
+          example: uyap-okuma-v1
+        textRead:
+          type: boolean
+          description: False when only the file name could be read (e.g. a page without a text layer; OCR is off in the preview).
+        court:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/UyapField" }]
+        esas:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/UyapField" }]
+        karar:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/UyapField" }]
+        documentType:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/UyapTypeField" }]
+        documentDate:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/UyapField" }]
+        filename:
+          type: object
+          description: What the file NAME alone says (kept even when the content wins).
+          properties:
+            esas:
+              nullable: true
+              allOf: [{ $ref: "#/components/schemas/UyapField" }]
+            documentType:
+              nullable: true
+              allOf: [{ $ref: "#/components/schemas/UyapTypeField" }]
+        esasConflict:
+          type: boolean
+          description: The name and the content carry different esas numbers; the content's is used.
+    UyapCandidate:
+      type: object
+      required: [matterId, title, court, docketNo, reason]
+      properties:
+        matterId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        court:
+          type: string
+        docketNo:
+          type: string
+        reason:
+          type: string
+          description: Turkish — why this matter is listed and why it was not chosen.
+    UyapMatch:
+      type: object
+      required: [status, matterId, candidates, reason, newMatter]
+      properties:
+        status:
+          type: string
+          enum: [matched, ambiguous, unmatched, no_esas]
+        matterId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Set only when `status` is `matched`.
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/UyapCandidate"
+        reason:
+          type: string
+        newMatter:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/UyapNewMatter" }]
+    UyapNewMatter:
+      type: object
+      additionalProperties: false
+      required: [title, court, docketNo]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        court:
+          type: string
+          maxLength: 200
+        docketNo:
+          type: string
+          maxLength: 100
+    UyapPreviewRow:
+      type: object
+      required: [path, name, sizeBytes, sha256, kind, readable, error, warnings, reading, match,
+                 duplicate, duplicateInBatchOf, importable, proposedAction, notes]
+      properties:
+        path:
+          type: string
+          description: Path inside the download; the key the import names.
+        name:
+          type: string
+        sizeBytes:
+          type: integer
+        sha256:
+          type: string
+        kind:
+          type: string
+          nullable: true
+        readable:
+          type: boolean
+        error:
+          type: object
+          nullable: true
+          properties:
+            kind:
+              type: string
+            message:
+              type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        reading:
+          $ref: "#/components/schemas/UyapReading"
+        match:
+          $ref: "#/components/schemas/UyapMatch"
+        duplicate:
+          type: object
+          nullable: true
+          description: The stored upload with the same sha256.
+          properties:
+            fileId:
+              type: string
+            name:
+              type: string
+            matterId:
+              type: string
+              nullable: true
+            matterTitle:
+              type: string
+              nullable: true
+        duplicateInBatchOf:
+          type: string
+          nullable: true
+          description: Path of an earlier document of this download with the same bytes.
+        importable:
+          type: boolean
+          description: False when the quarantine refused the file.
+        proposedAction:
+          type: string
+          enum: [assign, skip, new]
+        notes:
+          type: array
+          items:
+            type: string
+    UyapPreview:
+      type: object
+      required: [previewId, expiresAt, readerVersion, source, total, skipped, rows, summary]
+      properties:
+        previewId:
+          type: string
+          format: uuid
+        expiresAt:
+          type: string
+          format: date-time
+        readerVersion:
+          type: string
+        source:
+          type: object
+          properties:
+            kind:
+              type: string
+              enum: [zip, files, dir]
+            label:
+              type: string
+        total:
+          type: integer
+        skipped:
+          type: array
+          items:
+            type: string
+          description: Non-document files, by relative path.
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/UyapPreviewRow"
+        summary:
+          type: object
+          properties:
+            total: { type: integer }
+            matched: { type: integer }
+            ambiguous: { type: integer }
+            unmatched: { type: integer }
+            noEsas: { type: integer }
+            duplicates: { type: integer }
+            unreadable: { type: integer }
+            esasConflicts: { type: integer }
+    UyapImportRequest:
+      type: object
+      additionalProperties: false
+      required: [previewId, rows]
+      properties:
+        previewId:
+          type: string
+          format: uuid
+        rows:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: false
+            required: [path, action]
+            properties:
+              path:
+                type: string
+              action:
+                type: string
+                enum: [assign, skip, new]
+              matterId:
+                type: string
+                format: uuid
+                description: Required with `assign`, refused otherwise.
+              newMatter:
+                $ref: "#/components/schemas/UyapNewMatter"
+    UyapImportRow:
+      type: object
+      required: [path, name, outcome, fileId, matterId, matterTitle, reason, error, warnings]
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        outcome:
+          type: string
+          enum: [added, duplicate, unmatched, skipped, failed]
+        fileId:
+          type: string
+          nullable: true
+        matterId:
+          type: string
+          nullable: true
+        matterTitle:
+          type: string
+          nullable: true
+        reason:
+          type: string
+        error:
+          type: object
+          nullable: true
+          properties:
+            kind:
+              type: string
+              description: e.g. CHANGED_SINCE_PREVIEW, EXTRACTION_FAILED, UPLOAD_TIMEOUT, INTAKE_FAILED
+            message:
+              type: string
+            correlationId:
+              type: string
+        warnings:
+          type: array
+          items:
+            type: string
+    UyapImportResult:
+      type: object
+      required: [previewId, total, rows, createdMatters, summary, sentence]
+      properties:
+        previewId:
+          type: string
+          format: uuid
+        total:
+          type: integer
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/UyapImportRow"
+        createdMatters:
+          type: array
+          items:
+            type: object
+            properties:
+              matterId: { type: string, format: uuid }
+              title: { type: string }
+              court: { type: string }
+              docketNo: { type: string }
+        summary:
+          type: object
+          properties:
+            total: { type: integer }
+            added: { type: integer }
+            matters: { type: integer }
+            duplicates: { type: integer }
+            unmatched: { type: integer }
+            skipped: { type: integer }
+            failed: { type: integer }
+        sentence:
+          type: string
+          example: "12 belge: 9'u 3 dosyaya eklendi, 2'si zaten vardı, 1'i eşleşmedi."
   responses:
     PayloadTooLarge:
       description: >

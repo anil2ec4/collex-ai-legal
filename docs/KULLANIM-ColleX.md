@@ -372,6 +372,53 @@ Yükleme sırasında görebileceğiniz satırlar:
   metinler yazılmaz; alıntılar ve doğrulama değerleri kayıtta kalır ve cevap
   bunu bir uyarı satırıyla söyler.
 
+### UYAP'tan indirdiğim klasörü dosyalarıma dağıt
+
+UYAP Avukat Portal'dan bir dava dosyasının evrakını indirdiyseniz, bu kart
+belgeleri tek tek yüklemenize gerek bırakmaz. **Belgeler** sekmesinde, klasör
+düğmesinin hemen altındadır. UYAP şifreniz istenmez; ColleX UYAP'a
+bağlanmaz, yalnız sizin indirdiğiniz dosyaları bu bilgisayarda okur.
+
+1. **UYAP klasörünü seç** ile klasörü, ya da **.zip arşivini seç** ile
+   indirdiğiniz arşivi verin. Klasör büyükse (tarayıcıdan toplam 40 MB'ı,
+   arşiv 25 MB'ı aşıyorsa) klasörün bilgisayardaki tam yolunu yazıp
+   **Yolu oku**'ya basın.
+2. ColleX her belgenin ilk sayfasından **mahkemeyi, esas numarasını, varsa
+   karar numarasını, belge türünü** (dilekçe, tensip zaptı, duruşma
+   tutanağı, bilirkişi raporu, gerekçeli karar, tebligat, müzekkere cevabı
+   …) **ve tarihini** okur. Her bilginin yanında, okunduğu yazı tırnak
+   içinde ve "(belgeden)" ya da "(dosya adından)" notuyla durur. Bu
+   aşamada **hiçbir belge yüklenmez**.
+3. Her satır bir öneriyle gelir:
+   - **eşleşti** — mahkeme de esas numarası da dosyalarınızdan yalnız
+     birininkiyle aynı; o dosyaya eklenmesi önerilir.
+   - **karar sizin** — esas numarası birden fazla dosyanızda var, belgede
+     mahkeme okunamadı ya da mahkeme adı farklı yazılmış. ColleX seçmez;
+     satır "Atla" ile gelir, isterseniz listeden dosyayı siz seçersiniz.
+   - **eşleşen dosya yok** — bu esas numaralı dosyanız yok; mahkemesi ve
+     esas numarası doldurulmuş **Yeni dosya aç** önerilir, adını
+     değiştirebilirsiniz.
+   - **esas okunamadı** — ne belgede ne dosya adında esas numarası var;
+     dosyayı siz seçersiniz ya da atlarsınız.
+   - **zaten yüklü** — aynı belge daha önce yüklenmiş ya da klasörde iki kez
+     var; yeniden yüklenmez.
+   Dosya adındaki esas numarası belgenin içindekiyle çelişiyorsa ikisi de
+   yazılır ve belgenin içindeki kullanılır. Belgedeki başka dosyalara ait
+   numaralar (atıf yapılan Yargıtay kararı, ilk derece dosyası, dava tarihi)
+   bu belgenin numarası ya da tarihi sayılmaz.
+4. Seçimleri kontrol edip **Seçimleri onayla ve aktar**'a basın. Yalnız
+   onayladığınız belgeler, tek tek yüklediğinizde geçtikleri aynı
+   kontrollerden geçerek yüklenir ve seçtiğiniz dosyaya bağlanır. Sonunda
+   tek cümle görürsünüz, örneğin: "12 belge: 9'u 3 dosyaya eklendi, 2'si
+   zaten vardı, 1'i eşleşmedi."
+
+Aktarım başladıktan sonra tarayıcıdan durdurulmaz; belgeler bu bilgisayarda
+tek tek işlenir, bitince sonuç kartta yazar. Önizleme 30 dakika geçerlidir;
+bu sürede onaylamazsanız klasörü yeniden okutun. Önizlemede metni okunamayan
+(taranmış) bir belge yalnız dosya adına göre değerlendirilir; aktarımda bu
+bilgisayarda yazı tanıma kuruluysa yeniden okunur. Tek seferde en fazla
+**200 belge**.
+
 ### Belge kartı
 
 Her belgede: **Belgeye sor**, **Tam metni aç**, **Bu dosyayla araştır**,

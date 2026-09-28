@@ -8,6 +8,7 @@ Usage (always through the repo venv interpreter):
     .venv/Scripts/python.exe -m intake.cli --dsn <dsn> --show <fileId>
     .venv/Scripts/python.exe -m intake.cli --dsn <dsn> --reanalyze <fileId>
     .venv/Scripts/python.exe -m intake.cli --dsn <dsn> --delete <fileId>
+    .venv/Scripts/python.exe -m intake.cli --dsn <dsn> --uyap-scan <folder|x.zip> [--stage-dir <empty>]
     .venv/Scripts/python.exe -m intake.cli --dsn <dsn> --ensure-db [...]
 
 Output contract:
@@ -21,6 +22,9 @@ Output contract:
   where three of twenty documents are scans still ingests seventeen and
   says exactly which three failed and why. Exit code is 0 when at least
   one file succeeded, 2 when every file failed.
+* ``--uyap-scan``    -> ``{"uyapScan": {...}}`` (W22): a READ-ONLY preview
+  of a UYAP download — see ``intake/uyap.py``. Nothing is ingested; the
+  rows the lawyer confirms are ingested later with ``--file``, one by one.
 * ``--list``         -> ``{"files": [...]}``   (GET /v1/files body).
 * ``--show``         -> the detail body        (GET /v1/files/{id}).
 * ``--delete``       -> ``{"deleted": ...}``; document, versions, chunks,
@@ -310,6 +314,15 @@ def main(argv: list[str] | None = None) -> int:
     action.add_argument("--delete", metavar="FILEID",
                         help="delete one fileId (doc, versions, chunks,"
                              " jobs, snapshots, stored original)")
+    action.add_argument("--uyap-scan", metavar="PATH", dest="uyap_scan",
+                        help="W22: PREVIEW a UYAP download (a folder, or a"
+                             " .zip with --stage-dir): court, esas, karar,"
+                             " document type and date per document, each"
+                             " with its quoted span, plus sha256. Reads"
+                             " only; nothing is ingested or stored")
+    parser.add_argument("--stage-dir", default=None, dest="stage_dir",
+                        help="empty folder a .zip given to --uyap-scan is"
+                             " unpacked into (after the quarantine ZIP gates)")
     args = parser.parse_args(argv)
 
     # Every connection opened from here on is bounded (contract [X]).
@@ -364,6 +377,13 @@ def main(argv: list[str] | None = None) -> int:
             _print_json(reanalyze_file(
                 dsn, args.reanalyze, args.tenant, store_dir=args.store_dir,
             ))
+        elif args.uyap_scan:
+            # Reads files only; the database is never opened here.
+            from intake.uyap import scan as uyap_scan
+
+            _print_json({"uyapScan": uyap_scan(
+                args.uyap_scan, stage_dir=args.stage_dir,
+            )})
         elif args.delete:
             _print_json(delete_file(
                 dsn, args.delete, args.tenant,
@@ -371,7 +391,8 @@ def main(argv: list[str] | None = None) -> int:
             ))
         elif not args.ensure_db:
             parser.error(
-                "one of --file/--dir/--list/--show/--reanalyze/--delete (or --ensure-db)"
+                "one of --file/--dir/--list/--show/--reanalyze/--delete/--uyap-scan"
+                " (or --ensure-db)"
                 " is required"
             )
     except IntakeError as exc:

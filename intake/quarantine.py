@@ -16,7 +16,10 @@ ZIP safety (DOCX and UDF are both ZIP containers):
 * encrypted entries reject
 * NO nested-zip descent: an entry that is itself a zip archive (by name
   suffix) is rejected outright, and nothing in this package ever opens an
-  inner archive.
+  inner archive. (W22: ``open_document_container`` opens a UYAP download
+  .zip exactly one level deep through these same gates and hands each
+  document back as BYTES; each one then meets ``verify_upload`` — and its
+  own ZIP gates — as a separate upload. See the section at the end.)
 
 Header honesty limitation (documented, not hidden): the caps validate the
 sizes DECLARED in the zip central directory. Python's ``zipfile`` enforces
@@ -36,6 +39,7 @@ the archive shape those parsers see has already passed the caps above.
 from __future__ import annotations
 
 import hashlib
+import re
 import io
 import zipfile
 from dataclasses import dataclass
@@ -267,3 +271,149 @@ def verify_upload(name: str, data: bytes) -> VerifiedFile:
         sha256=hashlib.sha256(data).hexdigest(),
         size_bytes=len(data),
     )
+
+
+# ---------------------------------------------------------------------------
+# Document CONTAINER (W22, "UYAP'tan indirdiğim klasörü dosyalarıma dağıt")
+# ---------------------------------------------------------------------------
+#
+# A lawyer who downloads a case file from UYAP Avukat Portal often gets ONE
+# .zip holding the documents (.udf, .pdf, sometimes .docx/.txt). Accepting
+# that .zip is safe ONLY if it passes the very same gates as any other ZIP
+# the quarantine opens, so this function adds no gate of its own and relaxes
+# none:
+#
+# * the SAME size cap as a single upload (``MAX_FILE_BYTES``) for the whole
+#   container — a download larger than that is refused with the remedy
+#   (extract it and give the folder), never truncated;
+# * the SAME ``_check_zip_safety`` (entry count, per-entry and total
+#   uncompressed size, compression ratio, traversal, encryption, and the
+#   nested-archive refusal: a .zip/.rar/.7z INSIDE the container rejects the
+#   whole container);
+# * the container is opened ONE level deep and no further. Each document it
+#   carries leaves as bytes and must pass ``verify_upload`` on its own, like a
+#   file the lawyer extracted by hand — a .udf or .docx entry is itself a ZIP
+#   and meets its own ZIP gates there. Nothing here opens an inner archive.
+#
+# A container that is itself a DOCX or a UDF is a document, not a folder
+# download, and is refused with that sentence.
+
+#: Extensions a container entry must carry to be treated as a document.
+CONTAINER_DOCUMENT_SUFFIXES = (".pdf", ".docx", ".txt", ".udf")
+
+#: Longest path component written for an entry (the rest is cut, suffix kept).
+_CONTAINER_COMPONENT_MAX = 120
+
+_UNSAFE_COMPONENT_CHARS = re.compile(r'[<>:"|?*\x00-\x1f]')
+
+
+@dataclass(frozen=True)
+class ContainerEntry:
+    """One document carried by a container: a SAFE relative path + bytes."""
+
+    path: str   # POSIX relative path, every component sanitized
+    data: bytes
+
+
+@dataclass(frozen=True)
+class ContainerContents:
+    documents: tuple[ContainerEntry, ...]
+    #: Relative paths of entries that are not documents (html, xml, ...),
+    #: reported by name, never treated as failures.
+    skipped: tuple[str, ...]
+
+
+def _entry_display_name(info: zipfile.ZipInfo) -> str:
+    """The entry name as the lawyer's computer wrote it.
+
+    An archive made on a Turkish Windows without the UTF-8 flag (bit 11)
+    stores names in the OEM code page (cp857); ``zipfile`` decodes those as
+    cp437, which turns "Bilirkişi" into "Bilirki₧i". Re-decoding is exact
+    for such archives and a no-op when the flag is set.
+    """
+    name = info.filename
+    if info.flag_bits & 0x800:
+        return name
+    try:
+        return name.encode("cp437").decode("cp857")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return name
+
+
+def _safe_component(part: str) -> str:
+    cleaned = _UNSAFE_COMPONENT_CHARS.sub("_", part).strip().strip(".")
+    if not cleaned:
+        return "_"
+    if len(cleaned) > _CONTAINER_COMPONENT_MAX:
+        suffix = PurePosixPath(cleaned).suffix
+        cleaned = cleaned[: _CONTAINER_COMPONENT_MAX - len(suffix)] + suffix
+    return cleaned
+
+
+def _safe_relative_path(name: str) -> str:
+    parts = [
+        _safe_component(part)
+        for part in name.replace("\\", "/").split("/")
+        if part not in ("", ".")
+    ]
+    return "/".join(parts)
+
+
+def open_document_container(name: str, data: bytes) -> ContainerContents:
+    """Open a UYAP download .zip ONE level deep, through the ZIP gates.
+
+    Raises a typed IntakeError (400/415) exactly like ``verify_upload``;
+    returns the documents as bytes under sanitized relative paths plus the
+    non-document entries by name.
+    """
+    if not name:
+        raise InvalidRequestError("dosya adı boş")
+    if PurePosixPath(name.replace("\\", "/")).suffix.lower() != ".zip":
+        raise UnsupportedTypeError(
+            "toplu belge arşivi .zip uzantılı olmalı; klasörü doğrudan da"
+            " verebilirsiniz"
+        )
+    if len(data) == 0:
+        raise InvalidRequestError("boş dosya")
+    if len(data) > MAX_FILE_BYTES:
+        raise InvalidRequestError(
+            f"arşiv boyutu sınırı aşıldı: {len(data)} > {MAX_FILE_BYTES} bayt"
+            " — arşivi bilgisayarınızda açıp klasörü verin"
+        )
+    if not data.startswith(b"PK\x03\x04"):
+        raise UnsupportedTypeError(
+            "dosya bir ZIP arşivi değil (magic-byte sniff başarısız)"
+        )
+    zf = _check_zip_safety(data)
+    names = set(zf.namelist())
+    if ("[Content_Types].xml" in names and "word/document.xml" in names) or any(
+        PurePosixPath(n).name == "content.xml" for n in names
+    ):
+        raise UnsupportedTypeError(
+            "bu dosya bir belge (Word ya da UYAP belgesi), belge arşivi değil;"
+            " tek belge olarak yükleyin"
+        )
+
+    documents: list[ContainerEntry] = []
+    skipped: list[str] = []
+    used: set[str] = set()
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+        rel = _safe_relative_path(_entry_display_name(info))
+        if not rel:
+            continue
+        if PurePosixPath(rel).suffix.lower() not in CONTAINER_DOCUMENT_SUFFIXES:
+            skipped.append(rel)
+            continue
+        unique = rel
+        counter = 2
+        while unique.lower() in used:
+            path = PurePosixPath(rel)
+            unique = str(path.with_name(f"{path.stem} ({counter}){path.suffix}"))
+            counter += 1
+        used.add(unique.lower())
+        # ZipExtFile enforces the DECLARED size and the CRC, so an entry
+        # cannot expand past what _check_zip_safety already accepted.
+        documents.append(ContainerEntry(path=unique, data=zf.read(info)))
+    return ContainerContents(documents=tuple(documents), skipped=tuple(skipped))
