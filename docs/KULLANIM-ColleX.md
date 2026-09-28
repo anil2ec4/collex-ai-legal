@@ -120,12 +120,20 @@ vardır:
 - İki düğme: **Başlayalım** · **Önce nasıl çalıştığını okuyayım**.
 
 Kart, ilk iki adımı tamamladığınızda kendiliğinden kalkar. Geri getirmek
-isterseniz üst çubuktaki **?** düğmesi › **Karşılama kartını yeniden göster**.
+isterseniz **? Yardım** düğmesi › **Karşılama kartını yeniden göster**.
 
-### Üst çubuk
+### Kenar çubuğu (geniş ekranda) ve üst çubuk (dar ekranda)
 
-Soldan sağa: ColleX işareti · **aktif dosya seçici** · **Kendi kayıtlarım** ·
-**Canlı araştırma** · **Bulut yapay zekâ** · **?** · **◐ Tema**.
+Geniş ekranda (dizüstü ve masaüstü) ColleX'in kabuğu **solda bir kenar
+çubuğudur**. Yukarıdan aşağı: ColleX işareti · **⌕ Ara** (Ctrl K) · **aktif
+dosya seçici** · beş ekran (**Dosyalarım**, **Araştır**, **Belgeler**,
+**Taslak**, **Ayarlar**) · **? Yardım** ve **◐ Tema** · en altta üç durum
+rozeti (**Kendi kayıtlarım**, **Canlı araştırma**, **Bulut yapay zekâ**).
+Taslak düzenleyicisini açtığınızda kenar çubuğu ince bir simge şeridine
+iner; metne yer açılır.
+
+Dar ekranda (tablet, telefon) aynı öğeler sayfanın üstünde durur: ColleX
+işareti, aktif dosya seçici, rozetler, araçlar ve beş ekranın sekmeleri.
 
 Ortadaki üç küçük rozet ColleX'in üç ayağını gösterir. Yeşil = çalışıyor,
 gri = kapalı, kırmızı = sorun. Normal kullanımda "Kendi kayıtlarım" ve
@@ -276,15 +284,15 @@ Kaydedince dosya açılır ve **kendiliğinden aktif dosya olur**.
 
 ### Aktif dosya
 
-Üst çubukta hangi dosyada çalıştığınız yazar. Aktif dosya seçiliyken
+**Aktif dosya** seçicisinde hangi dosyada çalıştığınız yazar. Aktif dosya seçiliyken
 yüklediğiniz belge, sorduğunuz soru, ürettiğiniz taslak ve hesapladığınız
-süre **kendiliğinden o dosyaya bağlanır**. Dosyayı üst çubuktan
+süre **kendiliğinden o dosyaya bağlanır**. Dosyayı aynı seçiciden
 değiştirebilirsiniz. Başka bir tarayıcı sekmesinde dosyayı değiştirirseniz
 bu sekme "Aktif dosya başka sekmede değişti" der.
 
 Hiçbir dosya seçili değilse soru kutusunun altında tek satır uyarı çıkar:
 *"Bir dava dosyası seçili değil — bu cevap hiçbir dosyaya kaydedilmeyecek.
-Bağlamak için üst çubuktan bir dosya seçin."*
+Bağlamak için “Aktif dosya” seçicisinden bir dosya seçin."*
 
 ### Dosya sayfası
 
@@ -315,6 +323,38 @@ kaydı **Dosyadan çıkar** deyip doğrusunu yeniden ekleyin (not kayıtları
 serbestçe düzenlenir). Bir not veya olay kaydının metni **64 KB**'ı aşamaz;
 uzun metinleri belge olarak yükleyin (ekran "Dosya kaydı çok büyük…" der).
 
+
+### Mevzuat değişikliği kontrolü
+
+Dosya sayfasının **Dosya incelemesi** sekmesinin altında **Mevzuat
+değişikliği kontrolü** kartı vardır. Kart, o dosyanın taslaklarında,
+araştırmalarında ve belgelerinde atıf yaptığınız kanun maddelerini toplar
+ve **Kontrol et**'e bastığınızda her kanunun resmî kaynaktaki güncel
+metnini bu dosyadaki **ilk kontrolle** karşılaştırır. Her satırda maddenin
+nerede geçtiği ve şu durumlardan biri yazar:
+
+- **İLK KONTROL — karşılaştırma noktası kaydedildi** — bugün alındı,
+  henüz karşılaştırılacak bir şey yok;
+- **DEĞİŞMEDİ (ilk kontrolden bu yana)** — metin ilk kontroldeki ile aynı;
+- **DEĞİŞMİŞ OLABİLİR** — metin farklı; varsa metindeki en yeni değişiklik
+  notunun tarihi de yazar. Kaynak aynı metni yeniden biçimlendirmiş de
+  olabilir: maddenin güncel metnini resmî kaynaktan açıp karşılaştırın;
+- **ULAŞILAMADI** / **BELİRLENEMEDİ** — bunlar **hiçbir zaman "değişmedi"
+  anlamına gelmez**;
+- **KONTROL EDİLMEDİ** — bu turda sıra gelmedi (bir kontrol en çok 12
+  kanuna bakar); bir sonraki kontrolde en uzun süredir bakılmayanlar önce
+  gelir.
+
+ColleX **neyin değiştiğini okumaz ve yorumlamaz**; yalnız değişmiş
+olabileceğini söyler. Bir değişikliği gördükten sonra karşılaştırma
+noktasını yenilemek için kutuyu işaretleyip yeniden kontrol edin.
+
+### Duruşma özetini telefona almak
+
+Takvim'de bir duruşmanın **Duruşma hazırlığı** kartında **Tek sayfa
+yazdır / PDF** düğmesi vardır. Yalnız o kart basılır: tarih, saat, mahkeme,
+salon, açık süreler, son belgeler ve kronoloji. Yazdırma penceresinde
+"PDF olarak kaydet"i seçip dosyayı telefonunuza atabilirsiniz.
 ### Süreler paneli
 
 **Dosyalarım**'ın üstündeki **"Yaklaşan ve geciken süreler"** paneli bütün
@@ -934,6 +974,47 @@ günü sayılmaz, hafta sonu ve resmî tatil ileri alınır, ayın karşılığ�
 son gün, adli tatile denk gelirse 7 Eylül'e uzatma) ve varsa uyarılar
 (elektronik tebligatta beşinci gün, tefhim/öğrenme, arife öğleden sonra,
 CMK'da adli tatilin uzatmaması).
+
+### Tebligattan süre çıkar
+
+Süre penceresinin en üstündeki **Tebligattan süre çıkar** düğmesi, elinize
+geçen tebligattan süreyi çıkarır. E-tebligat alındı belgesini, tebligat
+mazbatasını ya da tebliğ edilen belgenin kendisini (gerekçeli karar, dava
+dilekçesi, ödeme emri, bilirkişi raporu…) seçer, yükler ya da metnini
+yapıştırırsınız; **Belgeyi oku**ya basarsınız.
+
+ColleX belgeden şunları okur ve **her birinin yanında belgedeki cümleyi**
+gösterir:
+
+- **Tebliğ tarihi.** Kâğıt tebligatta mazbatadaki tarih. E-tebligatta
+  belgenin elektronik adresinize **ulaştığı tarih** ve ona eklenen beş gün
+  (7201 s.K. m.7/a). Beşinci gün hafta sonuna ya da tatile denk gelse de
+  ileri alınmaz, ColleX erken ve güvenli tarihi kullanır ve bunu size
+  yazar. Bu kural henüz madde metniyle karşılaştırılmadığı için yanında
+  "doğrulanmadı" yazar.
+- **Tebliğ tarihi olarak ALINMAYAN tarihler**: karar tarihi, gönderim
+  tarihi, e-tebligatın **açıldığı/okunduğu** tarih, kesinleşme şerhi…
+  Her biri nedeniyle listelenir.
+- **Ne tebliğ edildiği** ve buna göre **hangi sürenin başladığı**
+  (gerekçeli kararda istinaf, dava dilekçesinde cevap, ödeme emrinde
+  itiraz…) ve o sürenin son günü, süre hesabının kendisiyle.
+
+Belgede iki farklı tebliğ tarihi görünürse ColleX **seçmez**, ikisini de
+gösterir ve sizin seçmenizi ister. Tarihi okuyamazsa tahmin etmez, sizden
+ister. **Onayla ve dosyaya ekle**ye basana kadar hiçbir şey kaydedilmez;
+onaylanan süre dosyanın sürelerine ve takviminize geçer. Aynı süreyi ikinci
+kez onaylarsanız ikinci bir kayıt açılmaz.
+
+### Hızlı aramada "Önerilen iş"
+
+**⌕ Ara** kutusuna (Ctrl K) ne yapmak istediğinizi kendi cümlenizle
+yazabilirsiniz: *"ödeme emrine itiraz süresi"*, *"istinaf süresi"*,
+*"e-tebligat geldi"*, *"istinaf harcı"*, *"yasal faiz"*, *"karşı tarafın
+dilekçesini incele"*, *"ihtarname hazırla"*, *"Yargıtay kararı ara kira
+tespiti"*. ColleX listenin en üstünde doğru ekranı önerir; süre
+cümlelerinde süre penceresi o kural seçili açılır. **Hiçbir şey kendiliğinden
+çalışmaz**, seçimi siz yaparsınız. Eşleşen bir iş yoksa yalnız **"Bu soruyu
+araştır"** satırı çıkar ve cümleniz Araştır ekranının soru kutusuna yazılır.
 
 ### Doğrulanmış ve doğrulanmamış kurallar
 
@@ -1576,5 +1657,5 @@ yoktur.
 
 Bir sorunuz olursa **Ayarlar › Sistem durumu** ekranını açın; orada neyin ne
 durumda olduğu Türkçe yazar. Ekranda anlamadığınız bir kelime görürseniz
-yanındaki **?** düğmesine, ya da üst çubuktaki **?** düğmesi › **Sözlük**'e
+yanındaki **?** düğmesine, ya da **? Yardım** düğmesi › **Sözlük**'e
 basın.

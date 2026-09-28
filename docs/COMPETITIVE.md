@@ -1,5 +1,24 @@
 # Rakip karşılaştırması: Apilex · De Jure · ColleX
 
+> **28.09.2026 (W23) notu — önce bunu okuyun.** Bu tarihte rakip siteleri
+> geliştirme ortamından açılamadı (ağ politikası, 403); aşağıdaki
+> düzeltmeler yalnız arama motoru ÖZETLERİNE dayanır ve biri uydurma çıktı.
+> Kullanmadan önce sayfaları erişimi olan bir makinede yeniden okuyun.
+> Özetlere göre: Apilex kendini "agentic legal workspace" olarak sunuyor;
+> **kendi sunucunuza kurulum (on-premise / tek kiracılı)**, SSO ve denetim
+> kaydı sunuyor; Word eklentisi Microsoft Marketplace'te; UYAP Chrome
+> eklentisi dosyaları "eşitlediğini" söylüyor; sözleşme risk incelemesi var
+> (aşağıdaki eşlik matrisinin 15. satırı bu yüzden eskidi). Bu yüzden
+> **"tek yerel ürün" iddiası tek başına artık yazılmaz**: yerellik ColleX'te
+> varsayılandır, Apilex'te kurumsal eklentidir. De Jure'de ürün değişikliği
+> görülmedi. Pazar iki oyunculu değil: UYAP/UETS entegrasyonu ve duruşma/
+> tebligat takibi satan başka ürünler de var. W23'te ColleX bu akışların
+> yerel ve kaynağına bağlı karşılıklarını ekledi — tebligattan süreye, UYAP
+> indirme klasörünü dosyalara dağıtma, Word'den geri yükleme, mevzuat
+> değişikliği kontrolü, faiz hesabı, tek kutudan "Önerilen iş", duruşma
+> özetinin tek sayfa baskısı (STATUS W23). UYAP/UETS'e giriş yapan bir
+> entegrasyon, tarayıcı eklentisi ve mobil uygulama bilerek YOKTUR.
+
 **Belge tarihi: 02.09.2026** (rakip profilleri o güne aittir; ColleX sütunları **03.09.2026** Faz C kapanışına güncellendi). Bu belge W13 istihbarat dalgasının
 (`docs/implementation/waves/W13-APILEX.md`, `W13-DEJURE.md`,
 `W13-TRMARKET.md`, `W13-GLOBAL.md`) ve W13 backlog'unun §A/§B/§C bölümlerinin

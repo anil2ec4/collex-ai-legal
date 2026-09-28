@@ -2,7 +2,41 @@
 
 Working contract for Claude Code (or any agent/human) in this repository.
 
-**W22 (2026-09-27) — the product met realistic documents and a real browser.**
+**W23 (2026-09-28) — competitor workflows, the open list closed, a new shell.**
+Measurements are STATUS rows **W23-1..W23-17**; read the W23 section before
+touching the console shell, deadlines-from-notice, UYAP import, Word round
+trip, legislation watch, interest, answer shape or the MCP failure path.
+Rules it leaves behind:
+- **The console shell is a CSS layer, not new markup.** `<body class="shell">`
+  + `@media screen and (min-width: 1100px)` place the SAME masthead elements
+  into a left sidebar with `display: contents` and grid rows; narrow layouts
+  are untouched. Controls use `--r-ctl`; only status badges stay pill-shaped.
+  Never tell the lawyer about a "üst çubuk" — say "“Aktif dosya” seçicisi".
+- **Nothing proposes and acts at once.** Palette intents (`PAL_INTENTS`),
+  the tebligat reader and the UYAP preview only PROPOSE; the lawyer confirms.
+  An ambiguous UYAP match is never auto-assigned; two tebliğ date candidates
+  are never resolved by ColleX.
+- **Every failure on the MCP wire is typed, and TLS is always verified.**
+  `legal_contracts/pages.py` decides an error page from response evidence
+  only; `legal_contracts/tls.py::verified_ssl_context` is the ONE TLS
+  builder and `tests/test_error_pages_and_tls.py` pins an EMPTY list of files
+  that turn verification off. A caller-supplied document URL is fetched only
+  on the source's own https domain (KİK, Uyuşmazlık).
+- **`get_mevzuat_content` / `get_mevzuat_gerekce` are paged documents**: the
+  header's `page c/t` is pagination, the body after the blank line is kept
+  byte for byte, fetches ask `page_size: 50_000`.
+- **uvicorn runs under `uvicorn_watchdog.py`**: it exits when serve-mcp's
+  stdin pipe closes. Keep "uvicorn asgi_app" on the command line — both stop
+  scripts match it.
+- **Legislation watch compares a text fingerprint, not a version date** (the
+  tools publish none); ULAŞILAMADI is never "değişmedi". **Interest** never
+  guesses a rate (`ORAN_GEREKLI`, total `null`); the two kanunî faiz periods
+  are `dogrulanmadi`, the e-tebligat fifth-day rule too.
+- **`ColleX-Dogrula` is the measurement for what this environment cannot
+  reach** (live sources, a real model, the Mac). It writes nothing into the
+  lawyer's records; its report is the evidence to cite.
+
+Previous line: **W22 (2026-09-27) — the product met realistic documents and a real browser.**
 Six independent investigators drove the live server with realistic Turkish
 petitions, contracts and a whole iş davası file, and every console screen at
 1440–360 px; five isolated fix workers and the session closed what they found.

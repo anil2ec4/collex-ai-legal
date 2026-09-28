@@ -1,5 +1,135 @@
 # Current status
 
+## 28.09.2026 — W23: rakiplerin sattığı iş akışları, açık listenin kapanışı, yeni kabuk
+
+W22'nin açık bıraktığı kod maddelerinin hepsi kapandı; Apilex ve De Jure'nin
+sattığı ama ColleX'te olmayan iş akışları eklendi; konsol modern bir
+uygulama kabuğuna geçti. Beş özellik ve dört düzeltme işçisi yalıtılmış
+çalışma kopyalarında çalıştı, her iş bu oturumda birleştirilip yeniden
+ölçüldü; her düzeltmenin düzeltmeden ÖNCE düşen bir testi var. Ortam:
+Linux, PostgreSQL 16, Node 22, Python 3.11.
+
+Araç yüzeyi aynı (54 / anahtarla 55), migrasyon eklenmedi (19), RLS aynı
+(32). Yeni kalıcı durum (mevzuat izleme karşılaştırma noktaları) mevcut
+`app_private.settings` jsonb'sinde durur. Sözleşme değişiklikleri eklemeli.
+
+**Rakip araştırması, dürüst sınırıyla:** Apilex ve De Jure sitelerine bu
+ortamdan erişilemedi (ağ politikası, 403); bulgular arama motoru özetlerine
+dayanır ve biri uydurma çıktı (`scratchpad/competitors-2026-09.md` oturuma
+özeldir). Özetlere göre Apilex artık kendi sunucunuza kurulum (on-premise),
+Word eklentisi ve UYAP'ı eşitleyen bir tarayıcı eklentisi satıyor; bu yüzden
+"tek yerel ürün" iddiası tek başına artık yazılmaz. ColleX'in farkı: kanıttan
+tebliğe, tebliğden süreye, süreden takvime, dilekçeye, atıf denetimine ve
+NİHAİ kopyaya giden zincirin her halkası kaynağına bağlı; kimlik bilgisi,
+kota, uzaktan kurulum yok.
+
+### Ölçüldü (28.09.2026, W23 kapanışı — makine boştayken, sırayla)
+
+| # | Ne | Sonuç | Başarısız |
+|---|---|---|---|
+| W23-1 | `npx tsc --noEmit` | temiz | 0 |
+| W23-2 | `npx vitest run` | 223 dosya · **4149 geçti** · 9 atlandı (8 ters işaretleyici — gerçek takımlar koştu — + yerel E5 model dosyaları yok) | 0 |
+| W23-3 | `pytest tests evals/tests` | **1905 geçti · 0 atlandı** | 0 |
+| W23-4 | `db_local_check.py` | 19/19 PASS | 0 |
+| W23-5 | `smoke_check.py` · `http_e2e_check.py` · `live_local_gateway_check.py` | 54 araç · 54 araç HTTP'de · PASSED | 0 |
+| W23-6 | `run_evals.py --repeats 4` (SENTETİK) | RESULT: PASS · bant genişliği sıfır (4 tekrar / 4 ingest aynı) · Recall@5 0,9429 · ABSTAIN 14 · COMPLETE 11 · PARTIAL 3 · QUALIFIED 6 · yanlış cevap 0 · kesinleştirilebilir %81,0 — W22-6 ile aynı; cevap biçimi sıralaması (aşağıda C) cevap katmanını değiştirmedi, yalnız `fx-amend-003`'e doğru bir `ANSWER_SHAPE_NOT_FOUND:DATE` uyarısı ekledi | 0 |
+| W23-7 | `demo.mjs` | 6/6 senaryo | 0 |
+| W23-8 | OpenAPI | **90 yol · 108 işlem · 195 şema** · CR baytı 0 (W22-8: 82 · 99 · 164) | — |
+| W23-9 | Konsol, gerçek Chromium: 17 görünüm × 1440/1100/1024/820/390/360 px açık + 1440/390 koyu; ayrıca dosya sayfası (Dosya incelemesi) ve Belgeler kartları | 136 ölçümde yatay taşma **0**, sayfa hatası (JS) **0** | 0 |
+| W23-10 | Şablon formu, aynı satırdaki girişlerin dikey kayması, 14 şablon × 1440/1280/1024/820 px | **22–23 px → 0 px** | 0 |
+| W23-11 | "Çelişkileri bul", incelemecinin 9 belgelik iş davası dosyası (W22-16'nın dosyası) | işe giriş 2018↔2019 çiftleri **9/12 → 12/12** (ek beyanla 16/16) · net ücret, bordro dahil **9/12 → 12/12** · tebliğ 1/1 · yanlış çelişki **0 → 0** · karşılaştırılmayan değer (karar tarihi, "şimdilik") 5 → 5 | — |
+| W23-12 | MCP hata yanıtlarında sürücü/TLS/üst kaynak metni (her araç × SSL, bağlantı, zaman aşımı, 5xx, bozuk gövde) | sızıntı **104 (+14 anahtarlı) → 0**; hata sayfasının belge metni olarak dönmesi 7 → 3 (işaretsiz, başlıksız çıplak `<html>` sayfası: KİK, Sayıştay, BDDK-html — ayırt edilemez, modül bunu yazar); sertifika doğrulaması kapalı istemci **7 → 0** (boş liste bir testle sabit) | — |
+| W23-13 | `serve-mcp.mjs` SIGKILL ile öldürülünce uvicorn çocuğu | önce 10 sn sonra hâlâ yaşıyor, portu tutuyor (iki sahipsiz süreç bulundu) → sonra kapanıyor | 0 |
+| W23-14 | `ColleX-Dogrula` bu ortamda, deneme sunucusuna karşı | 26/26 kaynak **ULAŞILAMADI**, her biri hata türüyle (ağ politikası); hiçbiri "sonuç yok" diye yazılmadı | — |
+| W23-15 | Tebligattan süre, tarayıcıda, UETS alındı belgesi (ulaşma 27.10.2026) | tebliğ 01.11.2026 (Pazar ve ay sonu uyarılarıyla), gönderim ve okunma tarihleri gerekçeyle reddedildi, öneri `hmk-istinaf` → son gün 16.11.2026; 1440/390 px taşma 0 | — |
+| W23-16 | Word'den geri yükleme, tarayıcıda (dışa aktar → düzelt → yükle → onayla) | önizleme 3 değişen paragraf, karşı içtihat bölümündeki düzenleme uygulanmadı ve bunu yazdı, onayla sürüm 1 → 2; kopyalanan paragrafın ayrı paragraf okunması (aşağıda D) | — |
+| W23-17 | Sayfalı mevzuat metni (`get_mevzuat_content`) | 1. sayfa "tam metin" diye mühürleniyordu → bütün sayfalar birleştirilip birebir mühürleniyor; gerekçe başlığı metne girmiyor | — |
+
+### Neler yapıldı
+
+**(A) Rakiplerin sattığı iş akışları, yerel ve kaynağına bağlı.**
+- **Tebligattan süreye** (`deadlines/serviceNotice.ts`, `POST
+  /v1/deadlines/from-notice`): e-tebligat alındı belgesi, mazbata ya da
+  tebliğ edilen belgenin kendisi okunur; tebliğ tarihi (e-tebligatta ulaşma
+  + 5 gün, 7201 s.K. m.7/a — DOĞRULANMADI işaretli), ne tebliğ edildiği ve
+  başlayan süre, her biri belgedeki alıntıyla. İki aday tarih varsa seçim
+  avukatındır; tarih okunamazsa tahmin yok. Onaylanana kadar hiçbir şey
+  yazılmaz; ikinci onay yinelenmiş kayıt açmaz.
+- **UYAP indirme klasörünü dosyalara dağıtma** (`intake/uyap.py`, `POST
+  /v1/files/uyap-preview|uyap-import`): klasör ya da .zip (aynı karantina ve
+  ZIP-bombası denetimleri); mahkeme, esas, karar, belge türü ve tarih
+  alıntısıyla okunur; esas numarası birebir, mahkeme Türkçe katlamayla
+  eşleşir; belirsiz eşleşme asla kendiliğinden atanmaz; tek alım yolu
+  (`POST /v1/files` ile aynı argv); yinelenen belge sha256 ile atlanır.
+  Gerçek bir UYAP indirmesi görülmedi — belgeler gerçeğe benzetilerek yazıldı.
+- **Word'de düzelttim, geri yükle** (`export/draft_identity.py`, `POST
+  /v1/drafts/{id}/import-docx`): her DOCX'te gizli, kurcalanınca belli olan
+  kimlik; geri yüklenen dosya önce paragraf paragraf önizlenir; onay
+  `reviseDraft` yolundan geçer, yani alıntı bütünlüğü, KAYNAKSIZ işareti,
+  kilitli bölümler ve NİHAİ yer tutucu kapısı aynen çalışır.
+- **Mevzuat değişikliği kontrolü** (`legislationWatch/`, `GET|POST
+  /v1/matters/{id}/legislation-watch`, `GET /v1/legislation-watch`): dosyanın
+  taslak, cevap ve belgelerinde atıf yapılan kanunlar; araçlar sürüm tarihi
+  vermediği için karşılaştırılan şey kaynak metninin parmak izidir, yanında
+  metindeki en yeni değişiklik notunun tarihi. ULAŞILAMADI hiçbir zaman
+  "değişmedi" değildir. Canlı kaynakla ölçülmedi.
+- **Faiz hesabı** (`interest/`, `GET /v1/interest/rates`, `POST
+  /v1/interest/compute`): basit faiz, gün gün, oran değişince bölünür.
+  Kanunî faizin iki dönemi (%9 01.01.2006'dan, %24 01.06.2024'ten)
+  `dogrulanmadi`; avans faizi hiç yok — oran bilinmeyen gün `ORAN_GEREKLI`,
+  toplam `null`.
+- **Önerilen iş** (hızlı arama, Ctrl K): avukatın cümlesi kurallı bir
+  tabloyla doğru ekrana ya da süre kuralına eşlenir; hiçbir şey kendiliğinden
+  çalışmaz.
+- **Duruşma özeti** tek sayfa yazdır / PDF (mobil uygulamanın yerine).
+- **ColleX-Dogrula** (`ColleX-Dogrula.cmd`, `deploy/macos/collex-verify.sh`,
+  `verify/onMachine.ts`): avukatın kendi bilgisayarında 26 kaynağı sırayla
+  dener, tam metnin parmak izini bağımsız hesaplar, ayarlıysa yerel modeli
+  örnek cümlelerle dener, Mac'te makineyi yazar; hiçbir kayda yazmaz.
+
+**(B) W22'nin açık listesi.** "Çelişkileri bul" 12/12 (W23-11), full_review /
+red_team / chronology artık `LIMITED` ve "N çiftten M'si" cümlesini söyler;
+22 px form kayması 0 (W23-10); BTK/GİB ham TLS metni ve koşullu 55. aracın
+ham hatası tipli (W23-12); cevap ekranı artık "öne çıkan alıntıda sorunun
+beklediği biçimde bir değer bulunamadı" der (C).
+
+**(C) Cevap biçimi** (`answer/answerShape.ts`, `shape-v1`): soru bir tarih,
+tutar, süre, sayı, kişi ya da mahkeme soruyorsa, o biçimde değer taşıyan
+pasaj öne alınır, başlık/etiket satırı sona itilir; bulunamazsa uyarı
+(`ANSWER_SHAPE_NOT_FOUND:<TÜR>`) ve ekranda sunucunun cümlesi. Bu bir biçim
+denetimidir; alıntının soruyu cevapladığını denetlemez ve ekran böyle der.
+
+**(D) Bulunup düzeltilen kusurlar.** Uzun bir kanunun 1. sayfası tam metin
+diye mühürleniyordu ve gerekçe başlığı metne giriyordu (W23-17); hata
+sayfaları belge metni olarak dönüyordu (W23-12); KİK "başarılı" aramaları
+`error_code:"0"` yüzünden ölü arşiv sayılıyordu; tek belgelik vektör deposu
+çöküyordu; öldürülen `serve-mcp` portu tutan sahipsiz uvicorn bırakıyordu
+(W23-13, `uvicorn_watchdog.py`); Uyuşmazlık belge aracı kendisine verilen her
+adrese gidiyordu (artık yalnız https + uyusmazlik.gov.tr); süre penceresi
+önceden seçilen kuralı ilk kuralla eziyordu; kopyalanan bir paragraf
+Word'den geri yüklemede özgün paragrafın kimliğini alıyordu; `bakeoff` CLI
+testleri kendi süreçlerinin sınırından kısa bir test sınırıyla yarışıyordu.
+
+**(E) Kabuk.** Geniş ekranda (≥ 1100 px) sol kenar çubuğu; nötr palet; 8 px
+köşeli denetimler; ekrandaki "üst çubuk" cümleleri "Aktif dosya seçicisi"
+oldu.
+
+### W23'ün AÇIK bıraktıkları — kapatılmış gibi yazma
+
+Kodla kapatılabilecek açık madde kalmadı. Kalanlar bu ortamda
+ÖLÇÜLEMEYENLER ve her biri avukatın bilgisayarında tek çift tıkla
+ölçülür (`ColleX-Dogrula`):
+- **Canlı resmî kaynaklar**: ağ politikası `*.gov.tr`'yi engelliyor. Tam
+  metin birleştirme, mevzuat izleme ve açılan TLS doğrulaması gerçek
+  kaynakla ÖLÇÜLMEDİ. Bir kaynak eksik sertifika zinciri sunarsa artık tipli
+  "sertifika doğrulanamadı" hatası verir; çözüm o sunucunun ara
+  sertifikasını eklemektir, doğrulamayı kapatmak değil.
+- **Gerçek dil modeli** hiç çağrılmadı; model isteyen üç inceleme görevi bu
+  ortamda `409 MODEL_REQUIRED`.
+- **Fiziksel Mac**'te hiçbir şey çalıştırılmadı.
+- Sekiz doğrulanmamış yüzey (CLAUDE.md) aynen geçerli; buna ek olarak
+  e-tebligatın beşinci gün kuralı ve kanunî faizin iki oranı `dogrulanmadi`.
+
 ## 27.09.2026 — W22: gerçek belgelerle sınama — altı bağımsız inceleme, beş düzeltme işçisi
 
 W21'e kadar her kapı sentetik belgelerle yeşildi. W22 ürünü **gerçek bir
