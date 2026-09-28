@@ -2888,6 +2888,13 @@ button.seal { border-radius: var(--r-ctl); }
 .ntq { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--line); font-size: var(--fs-sm); line-height: var(--lh-body); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ntcand { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
 .ntcand.chosen { border-color: var(--ok, var(--line)); }
+/* Mevzuat değişikliği kontrolü (dosya sayfası › Dosya incelemesi). */
+.lwlist { list-style: none; margin: 8px 0 0; padding: 0; }
+.lwrow { padding: 10px 0; border-top: 1px solid var(--line); }
+.lwhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lwmsg, .lwsrc, .lwnote { margin: 4px 0 0; overflow-wrap: anywhere; }
+.lwsrc, .lwmeta, .lwnote { font-size: 13px; color: var(--ink-soft); }
+.lwunread { margin-top: 10px; }
 </style>
 </head>
 <body class="shell">
@@ -11672,6 +11679,191 @@ button.seal { border-radius: var(--r-ctl); }
     else if (tab === "zaman") { renderMatterTimeline(panel); }
     else if (tab === "sureler") { renderMatterDeadlines(panel); }
     else if (tab === "notlar") { renderMatterNotes(panel); }
+    if (tab === "inceleme") { renderLegislationWatch(panel); }
+  }
+
+  /* ============ MEVZUAT DEĞİŞİKLİĞİ KONTROLÜ ============
+     "Atıf yaptığım mevzuat değişti mi?" Sunucu, bu dosyanın taslak,
+     araştırma ve belgelerindeki kanun atıflarını toplar; kontrol düğmesiyle
+     her kanunu sırayla resmî kaynağa sorar ve metni bu dosyadaki ilk
+     kontrolle karşılaştırır. Bu kart hiçbir cümleyi kendisi kurmaz: satır
+     cümlesi (`message`), durum adı (`stateLabel`) ve dürüstlük notları
+     (`notices`) sunucudan gelir. Kaynak bağlantısı yoksa düğme nedeniyle
+     birlikte KAPALI çizilir. Bekleme ilerleme kartıyla gösterilir; yüzde
+     yoktur. */
+  var LW_STATE_TONE = {
+    TEMEL_KAYDEDILDI: "mute",
+    DEGISMEDI: "ok",
+    DEGISMIS_OLABILIR: "warn",
+    ULASILAMADI: "bad",
+    BELIRLENEMEDI: "mute",
+    KONTROL_EDILMEDI: "mute"
+  };
+  var LW_STOP_TR = {
+    TIME_BUDGET: "Kontrolün süre sınırı doldu; sorulamayan kanunlar aşağıda “kontrol edilmedi” olarak duruyor. " +
+      "Kontrolü yeniden başlatın: en uzun süredir bakılmayan kanun önce sorulur.",
+    CALL_BUDGET: "Bir kontrolde yapılabilecek sorgu sayısı doldu; sorulamayan kanunlar aşağıda “kontrol edilmedi” olarak duruyor. " +
+      "Kontrolü yeniden başlatın.",
+    LAW_LIMIT: "Bir kontrolde sınırlı sayıda kanun sorulur; kalanlar sıradaki kontrolde, en uzun süredir bakılmayan önce olmak üzere sorulur.",
+    CANCELLED: "Kontrol durduruldu; o ana kadar karşılaştırılan kanunlar aşağıda."
+  };
+
+  function renderLegislationWatch(panel) {
+    var m = matterPageState.data.matter;
+    var card = el("section", "card lwcard");
+    card.id = "lw-card";
+    card.appendChild(el("h3", "fname", "Mevzuat değişikliği kontrolü"));
+    card.appendChild(el("p", "note-p",
+      "Taslaklarınızın, araştırmalarınızın ve belgelerinizin atıf yaptığı kanun maddelerinin resmî kaynaktaki " +
+      "metni, bu dosyadaki ilk kontrolle karşılaştırılır."));
+    var body = el("div");
+    body.id = "lw-body";
+    card.appendChild(body);
+    panel.appendChild(card);
+    body.appendChild(el("p", "statusline", "atıflar okunuyor…"));
+    getJson("/v1/matters/" + enc(m.id) + "/legislation-watch").then(function (res) {
+      if (res.status !== 200) {
+        errCard(body, "Mevzuat değişikliği kontrolü açılamadı", errMessage(res), errMessageTech(res));
+        return;
+      }
+      drawLegislationWatch(body, m, res.body);
+    }).catch(function (error) {
+      errCard(body, "Mevzuat değişikliği kontrolü açılamadı", humanError(error));
+    });
+  }
+
+  function drawLegislationWatch(body, m, info) {
+    body.textContent = "";
+    (info.notices || []).forEach(function (n) { body.appendChild(el("p", "lwnote", n)); });
+    var citations = info.citations || [];
+    var controls = el("div", "actions");
+    var rebaseLab = el("label", "checkline");
+    var rebase = document.createElement("input");
+    rebase.type = "checkbox";
+    rebase.id = "lw-rebase";
+    rebaseLab.appendChild(rebase);
+    rebaseLab.appendChild(el("span", null,
+      "Değişikliği incelediysem karşılaştırma noktasını bugünkü metinle yenile"));
+    var out = el("div");
+    out.id = "lw-out";
+    var go = ghostBtn(info.lastResult ? "Yeniden kontrol et" : "Kontrol et", function () {
+      runLegislationWatchCheck(body, out, m, info, rebase.checked);
+    }, "primary");
+    go.id = "lw-go";
+    controls.appendChild(go);
+    if (info.lastResult) { controls.appendChild(rebaseLab); }
+    body.appendChild(controls);
+    if (!info.available) {
+      go.disabled = true;
+      body.appendChild(el("p", "note-p", info.unavailableReason || "Resmî mevzuat kaynağına bağlantı bu sunucuda kurulmadı."));
+    } else if (!citations.length) {
+      go.disabled = true;
+      body.appendChild(el("p", "note-p",
+        "Bu dosyadaki taslak, araştırma ve belgelerde kanun atfı bulunamadı; kontrol edilecek bir şey yok."));
+    } else if (info.running) {
+      go.disabled = true;
+      body.appendChild(el("p", "note-p", "Bu dosya için bir kontrol zaten sürüyor; bitince sekmeyi yeniden açın."));
+    }
+    body.appendChild(out);
+    if (info.lastResult) {
+      drawLegislationWatchResult(out, info.lastResult);
+    } else if (citations.length) {
+      out.appendChild(el("p", "statusline", "Bu dosya için kontrol yapılmadı. Atıf yapılan kanun maddeleri:"));
+      var ul = el("ul", "lwlist");
+      citations.forEach(function (c) {
+        var li = el("li", "lwrow");
+        li.appendChild(el("b", null, c.label));
+        li.appendChild(el("p", "lwsrc", lwSourcesLine(c)));
+        ul.appendChild(li);
+      });
+      out.appendChild(ul);
+    }
+    lwUnread(out, info.unreadSources);
+  }
+
+  function lwSourcesLine(row) {
+    var parts = (row.sources || []).map(function (s) {
+      return s.kindLabel + " “" + (s.title || s.refId) + "”" + (s.count > 1 ? " (" + s.count + " kez)" : "");
+    });
+    var more = (row.sourcesTotal || 0) - (row.sources || []).length;
+    return "Atıf yapan: " + parts.join(" · ") + (more > 0 ? " ve " + more + " kayıt daha" : "");
+  }
+
+  function lwUnread(out, unread) {
+    if (!unread || !unread.length) { return; }
+    var box = el("div", "lwunread");
+    box.appendChild(el("p", "note-p",
+      "Şu kayıtların atıfları okunamadı; listede olmamaları atıf yapmadıkları anlamına gelmez:"));
+    var ul = el("ul", "reasons");
+    unread.forEach(function (u) {
+      ul.appendChild(el("li", null, u.kindLabel + " “" + (u.title || u.refId) + "” — " + u.reason));
+    });
+    box.appendChild(ul);
+    out.appendChild(box);
+  }
+
+  function drawLegislationWatchResult(out, r) {
+    var head = el("div", "partychips");
+    head.appendChild(chip(r.complete ? "kontrol tamamlandı" : "kısmi sonuç", r.complete ? "ok" : "warn"));
+    head.appendChild(el("span", "lwmeta", "son kontrol: " + fmtDateTimeTR(r.checkedAt)));
+    out.appendChild(head);
+    if (r.stopReason && LW_STOP_TR[r.stopReason]) { out.appendChild(el("p", "note-p", LW_STOP_TR[r.stopReason])); }
+    (r.warnings || []).forEach(function (w) { out.appendChild(el("p", "note-p", w)); });
+    var rows = r.rows || [];
+    if (!rows.length) {
+      out.appendChild(el("p", "statusline", "Bu dosyadaki taslak, araştırma ve belgelerde kanun atfı bulunamadı."));
+    }
+    var ul = el("ul", "lwlist");
+    rows.forEach(function (row) {
+      var li = el("li", "lwrow");
+      var line = el("div", "lwhead");
+      line.appendChild(el("b", null, row.label));
+      line.appendChild(chip(row.stateLabel, LW_STATE_TONE[row.state] || "mute"));
+      li.appendChild(line);
+      if (row.message) { li.appendChild(el("p", "lwmsg", row.message)); }
+      li.appendChild(el("p", "lwsrc", lwSourcesLine(row)));
+      ul.appendChild(li);
+    });
+    out.appendChild(ul);
+    lwUnread(out, r.unreadSources);
+  }
+
+  function runLegislationWatchCheck(body, out, m, info, rebaseline) {
+    var go = document.getElementById("lw-go");
+    if (go) { go.disabled = true; }
+    out.textContent = "";
+    var busy = beginBusy({
+      host: out,
+      title: "Mevzuat değişikliği kontrol ediliyor",
+      phase: "Atıf yapılan her kanun sırayla resmî kaynağa soruluyor ve metni bütün olarak okunuyor.",
+      longWait: "Her kanunun metni sayfa sayfa okunur; uzun kanunlar daha uzun sürer. Kontrolün süre sınırı " +
+        "dolarsa sonuç kısmi olarak gösterilir ve hangi kanunun sorulamadığı yazılır.",
+      onCancel: function (ms) {
+        if (go) { go.disabled = false; }
+        busyCancelledCard(out, ms, {
+          detail: "Durdurulan kontrolün o ana kadar karşılaştırdığı kanunlar kaydedilir; sekmeyi yeniden açtığınızda görünür.",
+          retryLabel: "Yeniden kontrol et",
+          onRetry: function () { runLegislationWatchCheck(body, out, m, info, rebaseline); }
+        });
+      }
+    });
+    sendJson("/v1/matters/" + enc(m.id) + "/legislation-watch", "POST",
+      rebaseline ? { rebaseline: true } : {}, busy.signal).then(function (res) {
+      if (busy.cancelled()) { return; }
+      busy.stop();
+      if (res.status !== 200) {
+        if (go) { go.disabled = false; }
+        errCard(out, "Mevzuat değişikliği kontrol edilemedi", errMessage(res), errMessageTech(res));
+        return;
+      }
+      info.lastResult = res.body;
+      drawLegislationWatch(body, m, info);
+    }).catch(function (error) {
+      busy.stop();
+      if (busy.cancelled() || isAbortError(error)) { return; }
+      if (go) { go.disabled = false; }
+      errCard(out, "Mevzuat değişikliği kontrol edilemedi", humanError(error));
+    });
   }
 
   /* ============ W20 · DOSYANIN TAMAMINI İNCELE ============

@@ -4702,6 +4702,164 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  # ------------------------------------------- legislation-change watch
+  /v1/matters/{id}/legislation-watch:
+    get:
+      operationId: getLegislationWatch
+      summary: Mevzuat değişikliği kontrolü — the matter's cited laws and the last check
+      description: >
+        Lists every statute citation the lawyer's OWN material in this matter
+        carries — drafts (their evidence records' `legislationNo`/`article` and
+        their paragraphs, parsed by the same reader as the citation audit),
+        answers linked to the matter (evidence their claims rest on, and the
+        question) and uploads (`analysis.references` written at intake) — keyed
+        on (instrument type, law number, article), with every citing record
+        named. A record that could not be read is listed in `unreadSources`,
+        never dropped. Makes NO upstream call. `available:false` (with
+        `unavailableReason`) when this server has no provider gateway.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Citations + the last stored result (or null)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegislationWatchInfo"
+        "404":
+          description: MATTER_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: STORE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: runLegislationWatch
+      summary: Run one legislation-change check for this matter
+      description: >
+        For each distinct cited law, SEQUENTIALLY: `search_mevzuat`
+        (`mevzuat_no`, `mevzuat_tur`, `page_size` 10) to resolve the law to one
+        `mevzuatId`, then every page of `get_mevzuat_content` (`page_size`
+        50000) — the text is sealed whole or not at all. The legislation tools
+        publish NO amendment or version date (their rows carry number, title,
+        type, mevzuatId, the ORIGINAL Resmî Gazete date and gerekceId), so the
+        check compares a fingerprint of the returned text (the cited article
+        when its heading occurs exactly once, otherwise the whole law) and
+        reports the newest date written in the text's own amendment notes
+        ("(Değişik: 26/6/2012-6352/99 md.)"). The first check records the
+        baseline (in `app_private.settings`, no migration). States:
+        TEMEL_KAYDEDILDI · DEGISMEDI · DEGISMIS_OLABILIR · ULASILAMADI (a call
+        failed — never "değişmedi") · BELIRLENEMEDI (no match, several matches,
+        repealed) · KONTROL_EDILMEDI (the run's own bound). Bounds: 120 s wall
+        budget read between calls, 60 calls, 12 laws by default (`maxLaws` may
+        only lower it, 25 at most), 30 pages per law. A bound that stops the
+        run still answers 200 with `complete:false` and `stopReason`; the next
+        run asks the longest-unasked law first. ColleX does not read WHAT
+        changed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LegislationWatchRequest"
+      responses:
+        "200":
+          description: The check (possibly partial — read `complete` and `stopReason`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegislationWatchResult"
+        "400":
+          description: INVALID_REQUEST (strict body; `issues[].path` names the field)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: MATTER_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: WATCH_RUNNING — a check of this matter is already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: LEGISLATION_SOURCE_UNAVAILABLE (no provider gateway) / STORE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /v1/legislation-watch:
+    get:
+      operationId: listLegislationWatch
+      summary: The last legislation-change check of every matter that has one
+      description: >
+        Counts per state and `complete`/`stopReason` of each matter's last
+        stored check, newest first. No upstream call; a deleted matter's
+        leftover document is not listed.
+      responses:
+        "200":
+          description: One summary per matter
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [available, matters, notices]
+                properties:
+                  available:
+                    type: boolean
+                  matters:
+                    type: array
+                    items:
+                      type: object
+                      required: [matterId, title, checkedAt, complete, stopReason, counts]
+                      properties:
+                        matterId:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        checkedAt:
+                          type: string
+                          format: date-time
+                        complete:
+                          type: boolean
+                        stopReason:
+                          type: string
+                          nullable: true
+                        counts:
+                          $ref: "#/components/schemas/LegislationWatchCounts"
+                  notices:
+                    type: array
+                    items:
+                      type: string
+        "503":
+          description: STORE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   # ----------------------------------------------------- global search (B-29)
   /v1/matters/search:
     get:
@@ -6591,6 +6749,283 @@ components:
               items:
                 type: object
                 additionalProperties: true
+    LegislationWatchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        maxLaws:
+          type: integer
+          minimum: 1
+          maximum: 25
+          description: Ask at most this many laws (may only lower the default of 12).
+        rebaseline:
+          type: boolean
+          description: >
+            After comparing, replace the baseline of every law read in this run
+            with today's text (the lawyer has reviewed the change).
+    LegislationWatchCounts:
+      type: object
+      description: Rows per state.
+      properties:
+        TEMEL_KAYDEDILDI:
+          type: integer
+        DEGISMEDI:
+          type: integer
+        DEGISMIS_OLABILIR:
+          type: integer
+        ULASILAMADI:
+          type: integer
+        BELIRLENEMEDI:
+          type: integer
+        KONTROL_EDILMEDI:
+          type: integer
+    LegislationWatchSource:
+      type: object
+      required: [kind, kindLabel, itemId, refId, title, spellings, count]
+      properties:
+        kind:
+          type: string
+          enum: [draft, answer, file]
+        kindLabel:
+          type: string
+        itemId:
+          type: string
+        refId:
+          type: string
+        title:
+          type: string
+        spellings:
+          type: array
+          items:
+            type: string
+        count:
+          type: integer
+    LegislationWatchCitation:
+      type: object
+      required: [key, lawKey, instrument, lawNo, article, articleKind, label, mulga, sources, sourcesTotal]
+      properties:
+        key:
+          type: string
+          description: "`<instrument>:<lawNo>|<articleKind>:<article>` (`-` when no article)."
+        lawKey:
+          type: string
+        instrument:
+          type: string
+          enum: [KANUN, KHK, CB_KARARNAME]
+        lawNo:
+          type: string
+        article:
+          type: string
+          nullable: true
+        articleKind:
+          type: string
+          enum: [madde, ek, gecici, mukerrer]
+        label:
+          type: string
+        mulga:
+          type: boolean
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegislationWatchSource"
+        sourcesTotal:
+          type: integer
+    LegislationWatchUnreadSource:
+      type: object
+      required: [kind, kindLabel, itemId, refId, title, reason]
+      properties:
+        kind:
+          type: string
+          enum: [draft, answer, file]
+        kindLabel:
+          type: string
+        itemId:
+          type: string
+        refId:
+          type: string
+        title:
+          type: string
+        reason:
+          type: string
+    LegislationWatchRow:
+      allOf:
+        - $ref: "#/components/schemas/LegislationWatchCitation"
+        - type: object
+          required: [state, stateLabel, granularity, message, latestNoteDate, baselineRecordedAt, reasonCode]
+          properties:
+            state:
+              type: string
+              enum: [TEMEL_KAYDEDILDI, DEGISMEDI, DEGISMIS_OLABILIR, ULASILAMADI, BELIRLENEMEDI, KONTROL_EDILMEDI]
+            stateLabel:
+              type: string
+            granularity:
+              type: string
+              enum: [madde, kanun]
+              description: What was compared — the isolated article, or the whole law.
+            message:
+              type: string
+              description: The one Turkish sentence the console prints for this row.
+            latestNoteDate:
+              type: string
+              format: date
+              nullable: true
+              description: >
+                Newest date written in the text's own amendment notes; null =
+                no note in a recognised form (never "never amended").
+            baselineRecordedAt:
+              type: string
+              format: date-time
+              nullable: true
+            reasonCode:
+              type: string
+              nullable: true
+              enum: [UPSTREAM_FAILED, UNEXPECTED_PAYLOAD, NO_MATCH, AMBIGUOUS, MULGA, TIME_BUDGET, CALL_BUDGET, LAW_LIMIT, PAGE_LIMIT, CANCELLED, null]
+    LegislationWatchLaw:
+      type: object
+      required: [lawKey, instrument, lawNo, title, state, stateLabel, reasonCode, reason, failureKind, mevzuatId, rgDate, latestNoteDate, baselineRecordedAt, baselineLatestNoteDate, baselineWritten, calls, pages]
+      properties:
+        lawKey:
+          type: string
+        instrument:
+          type: string
+        lawNo:
+          type: string
+        title:
+          type: string
+        state:
+          type: string
+        stateLabel:
+          type: string
+        reasonCode:
+          type: string
+          nullable: true
+        reason:
+          type: string
+        failureKind:
+          type: string
+          nullable: true
+        mevzuatId:
+          type: string
+          nullable: true
+        rgDate:
+          type: string
+          nullable: true
+          description: Resmî Gazete date of the law's ORIGINAL publication, as `search_mevzuat` prints it.
+        latestNoteDate:
+          type: string
+          nullable: true
+        baselineRecordedAt:
+          type: string
+          nullable: true
+        baselineLatestNoteDate:
+          type: string
+          nullable: true
+        baselineWritten:
+          type: boolean
+        calls:
+          type: integer
+        pages:
+          type: integer
+    LegislationWatchResult:
+      type: object
+      required: [schema, matterId, checkedAt, complete, stopReason, lawsTotal, lawsAsked, counts, laws, rows, unreadSources, citationsTruncated, budget, notices]
+      properties:
+        schema:
+          type: string
+          enum: [collex.legislation-watch/v1]
+        matterId:
+          type: string
+          format: uuid
+        checkedAt:
+          type: string
+          format: date-time
+        complete:
+          type: boolean
+          description: false when a law was KONTROL_EDILMEDI, a source was unread or the citation list was capped.
+        stopReason:
+          type: string
+          nullable: true
+          enum: [TIME_BUDGET, CALL_BUDGET, LAW_LIMIT, CANCELLED, null]
+        lawsTotal:
+          type: integer
+        lawsAsked:
+          type: integer
+        counts:
+          $ref: "#/components/schemas/LegislationWatchCounts"
+        laws:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegislationWatchLaw"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegislationWatchRow"
+        unreadSources:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegislationWatchUnreadSource"
+        citationsTruncated:
+          type: boolean
+        budget:
+          type: object
+          properties:
+            timeBudgetMs:
+              type: integer
+            maxCalls:
+              type: integer
+            maxLaws:
+              type: integer
+            callsUsed:
+              type: integer
+            elapsedMs:
+              type: integer
+        notices:
+          type: array
+          items:
+            type: string
+        persisted:
+          type: boolean
+          description: POST only — whether the result and baselines were stored.
+        warnings:
+          type: array
+          items:
+            type: string
+    LegislationWatchInfo:
+      type: object
+      required: [matterId, available, unavailableReason, running, citations, unreadSources, sourcesRead, citationsTruncated, baselineLaws, lastResult, notices]
+      properties:
+        matterId:
+          type: string
+          format: uuid
+        available:
+          type: boolean
+        unavailableReason:
+          type: string
+          nullable: true
+        running:
+          type: boolean
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegislationWatchCitation"
+        unreadSources:
+          type: array
+          items:
+            $ref: "#/components/schemas/LegislationWatchUnreadSource"
+        sourcesRead:
+          type: integer
+        citationsTruncated:
+          type: boolean
+        baselineLaws:
+          type: integer
+        lastResult:
+          allOf:
+            - $ref: "#/components/schemas/LegislationWatchResult"
+          nullable: true
+        notices:
+          type: array
+          items:
+            type: string
     ApiError:
       type: object
       required: [error]

@@ -148,6 +148,12 @@ import { createAiRouter, type ReviseFn } from "../ai/routes.js";
 // W14 mounts (see the block at the end of createApp): each lane owns its
 // router module; this file only wires it.
 import { createSourcesRouter } from "../sources/routes.js";
+import { createLegislationWatchRouter } from "../legislationWatch/routes.js";
+import {
+  InMemoryLegislationWatchStore,
+  PgLegislationWatchStore,
+  type LegislationWatchStore,
+} from "../legislationWatch/store.js";
 import type { EmbeddingResolution } from "../retrieval/embeddingConfig.js";
 import { createEmbeddingPort } from "../retrieval/semanticRerank.js";
 import {
@@ -345,6 +351,12 @@ export interface ApiDependencies {
    * mounted and always says the truth about what it can keep.
    */
   contacts?: ContactStore;
+  /**
+   * Legislation-change watch baselines (/v1/matters/{id}/legislation-watch).
+   * Defaults to app_private.settings when a database is given, memory
+   * otherwise; tests inject one.
+   */
+  legislationWatch?: LegislationWatchStore;
   /**
    * W14 B-20 (L-SOURCES IR-4, wired by L-FIX): the local library the
    * "tam metni getir" card files fetched documents into. Absent = the
@@ -1882,6 +1894,25 @@ export function createApp(deps: ApiDependencies): Hono {
             ),
           }
         : {}),
+    }),
+  );
+  // "Atıf yaptığım mevzuat değişti mi?" (/v1/matters/{id}/legislation-watch,
+  // /v1/legislation-watch): the SAME gateway as the sources lane, the SAME
+  // answer/draft/file stores as every other matter route; baselines live in
+  // app_private.settings (no migration). Without a gateway the GET still lists
+  // the citations and the POST answers a typed 503.
+  app.route(
+    "/",
+    createLegislationWatchRouter({
+      matters: matterStore,
+      store:
+        deps.legislationWatch ??
+        (deps.sql !== undefined ? new PgLegislationWatchStore({ sql: deps.sql }) : new InMemoryLegislationWatchStore()),
+      ...(sourcesGateway !== undefined ? { gateway: sourcesGateway } : {}),
+      drafts: draftStore,
+      answers: answerStore,
+      ...(filesStore !== undefined ? { files: filesStore } : {}),
+      now,
     }),
   );
   app.route(
