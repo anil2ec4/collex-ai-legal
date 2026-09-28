@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  ColleX DOGRULAMA — cift tikla (ColleX calisirken).
+rem  ColleX DOGRULAMA - cift tikla (ColleX calisirken).
 rem
 rem  Neden (W23): gelistirme ortaminin agi resmi kaynaklari engelliyor;
 rem  gercek bir dil modeli ve fiziksel bilgisayar orada yok. Bu betik

@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  ColleX baslatici — cift tikla: veritabani + sunucu + MCP + tarayici.
+rem  ColleX baslatici - cift tikla: veritabani + sunucu + MCP + tarayici.
 rem  Bu dosya yargi-mcp-independent kokunde durur; kendi konumuna gore calisir.
 rem  Kalici veritabani: scoop PostgreSQL kumesi (port 55432, yalnizca 127.0.0.1).
 rem
@@ -41,7 +41,7 @@ rem --- 1) Sarkan sunucu pencerelerini kapat (yeni baslatmadan once).
 rem     W14 B-34 (ENGRISK E12b): ONCE yasayan bir ColleX var mi diye bak.
 rem     Adim 0'daki saglik kontrolu sunucu ACILIS SIRASINDAYSA (60 sn'lik
 rem     pencere) HEALTHY=0 doner ve buradaki taskkill /F ACILMAKTA OLAN
-rem     sunucuyu oldururdu — sabirsiz bir kullanicinin ikinci tiki tam
+rem     sunucuyu oldururdu - sabirsiz bir kullanicinin ikinci tiki tam
 rem     olarak buydu. Pid dosyasi varsa ve o pid gercekten bir ColleX
 rem     surecine aitse hicbir sey oldurulmez; dogrudan beklemeye gecilir. ---
 set "COLLEX_VARDIR=var"
@@ -111,7 +111,7 @@ if "%CLUSTER_OK%"=="0" (
 
 rem --- 3) Kalici urun veritabani var mi? Yoksa olustur; eksik migrasyonlari uygula
 rem        (yalniz olusturur, silmez). W12-FIX2 (P2-16): basarisizlik ARTIK
-rem        sessizce gecilmez — STORE_UNAVAILABLE ya da baska bir hata Turkce
+rem        sessizce gecilmez - STORE_UNAVAILABLE ya da baska bir hata Turkce
 rem        aciklanir ve baslatma durur; sunucu sema olmadan acilmaz. ---
 if exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" -m intake.cli --dsn postgres://postgres@127.0.0.1:%PGPORT%/collex_local --ensure-db --list >"%ENSURELOG%" 2>&1
@@ -133,7 +133,7 @@ if exist ".venv\Scripts\python.exe" (
   rem --- 3b) W16: canli arastirmada getirilen kararlari kutuphaneye yayimla.
   rem        Kuyruk <veri>\library altindadir ve her "Tam metni getir" oraya
   rem        yazar. Yayimlama BASLATMAYI DURDURMAZ: kuyruk bos olabilir, bir
-  rem        zarf bozuk olabilir, veritabani mesgul olabilir — hicbiri avukatin
+  rem        zarf bozuk olabilir, veritabani mesgul olabilir - hicbiri avukatin
   rem        programi acmasina engel degildir. Bozuk zarf SILINMEZ, yerinde
   rem        kalir ve bir sonraki acilista yeniden denenir. ---
   if exist "%LIBDIR%" (

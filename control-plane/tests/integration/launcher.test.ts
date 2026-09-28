@@ -16,13 +16,40 @@
  * edit that reintroduces the port-based kill fails loudly.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const read = (name: string): string => readFileSync(resolve(REPO_ROOT, name), "utf8");
+
+describe("every double-click script is plain ASCII", () => {
+  // 28.09.2026, on the lawyer's Windows machine: ColleX-Baslat.cmd runs under
+  // `chcp 65001`, and cmd.exe misplaces its read position in a batch file that
+  // carries multi-byte UTF-8 characters. After `call :checkcluster` it went on
+  // in the MIDDLE of the cluster guard: the first four lines of the message
+  // never printed, the last two did, and the start stopped with "yanlis
+  // kumeye baglanmamak icin" while its own cluster was the one it had just
+  // started. The only multi-byte characters were "—" in rem lines.
+  const scripts = readdirSync(REPO_ROOT).filter((name) => name.toLowerCase().endsWith(".cmd"));
+
+  it("covers the five launchers", () => {
+    expect(scripts.sort()).toEqual([
+      "ColleX-Baslat.cmd",
+      "ColleX-Dogrula.cmd",
+      "ColleX-Durdur.cmd",
+      "ColleX-Geri-Yukle.cmd",
+      "ColleX-Yedekle.cmd",
+    ]);
+  });
+
+  it.each(scripts)("%s has no byte above 0x7F", (name) => {
+    const bytes = readFileSync(resolve(REPO_ROOT, name));
+    const offending = [...bytes.entries()].filter(([, b]) => b > 0x7f).map(([i]) => i);
+    expect(offending, `${name}: non-ASCII bytes at offsets ${offending.slice(0, 5).join(", ")}`).toEqual([]);
+  });
+});
 
 describe("ColleX-Durdur.cmd kills by command line, never by port", () => {
   const stopper = read("ColleX-Durdur.cmd");

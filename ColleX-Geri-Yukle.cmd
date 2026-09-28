@@ -116,7 +116,7 @@ echo [ColleX] Veritabani geri yukleniyor...
 if errorlevel 1 (
   echo.
   echo [ColleX] GERI YUKLEME BASARISIZ.
-  echo [ColleX] Eski veritabaniniz %DBNAME%_eski_%STAMP% adiyla DURUYOR — veri kaybi yok.
+  echo [ColleX] Eski veritabaniniz %DBNAME%_eski_%STAMP% adiyla DURUYOR - veri kaybi yok.
   echo [ColleX] Geri almak icin: psql -c "drop database %DBNAME%; alter database %DBNAME%_eski_%STAMP% rename to %DBNAME%;"
   pause
   exit /b 1

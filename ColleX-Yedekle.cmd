@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  ColleX YEDEKLEME — cift tikla.
+rem  ColleX YEDEKLEME - cift tikla.
 rem
 rem  Neden (W14 B-03): dosyalariniz, her taslak surumu, sureler ve
 rem  yukledigniz belgelerin ASILLARI tek diskte, tek veritabaninda duruyor.
@@ -58,7 +58,7 @@ if errorlevel 1 (
 
 echo.
 echo [ColleX] Bu klasoru harici bir diske veya bulut klasorune KOPYALAYIN.
-echo [ColleX] UYARI: yedek klasoru MUVEKKIL VERISI icerir — sifreli bir diske
+echo [ColleX] UYARI: yedek klasoru MUVEKKIL VERISI icerir - sifreli bir diske
 echo [ColleX] veya BitLocker'li bir klasore koyun.
 echo [ColleX] Geri yuklemek icin: ColleX-Geri-Yukle.cmd "klasor yolu"
 pause

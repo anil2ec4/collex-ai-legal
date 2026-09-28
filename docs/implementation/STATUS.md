@@ -45,6 +45,7 @@ kota, uzaktan kurulum yok.
 | W23-16 | Word'den geri yükleme, tarayıcıda (dışa aktar → düzelt → yükle → onayla) | önizleme 3 değişen paragraf, karşı içtihat bölümündeki düzenleme uygulanmadı ve bunu yazdı, onayla sürüm 1 → 2; kopyalanan paragrafın ayrı paragraf okunması (aşağıda D) | — |
 | W23-17 | Sayfalı mevzuat metni (`get_mevzuat_content`) | 1. sayfa "tam metin" diye mühürleniyordu → bütün sayfalar birleştirilip birebir mühürleniyor; gerekçe başlığı metne girmiyor | — |
 | W23-18 | Konsol sayfası Windows `git` çıkışında (CRLF satır sonu), Chromium | önce iç `<style>` ve `<script>` CSP tarafından **2/2 reddedildi** (boş, biçimsiz sayfa: tarayıcı CRLF'yi LF'ye çevirip özetliyor, sunucu CRLF ile özetliyordu) → yükleyici LF'ye çeviriyor: **0 ret**; `autocrlf=true` çıkışında `console.html` 0 CR satırı, iki metin sanılan PDF bayt bayt aynı, `.cmd` CRLF, macOS betikleri LF | 0 |
+| W23-19 | `ColleX-Baslat.cmd`, avukatın Windows makinesi (ekran görüntüsü, ölçüm değil) | küme denetiminin 6 satırlık uyarısından yalnız son 2'si yazıldı ve başlatma "yanlış kümeye bağlanmamak için" durdu — az önce kendi kümesini başlatmıştı; `chcp 65001` altında cmd.exe çok baytlı UTF-8 karakter taşıyan betikte okuma konumunu kaçırıyor. Beş `.cmd` dosyasındaki 11 "—" kaldırıldı, dosyalar ASCII; bir test sabitliyor. **Düzeltme o makinede henüz yeniden çalıştırılmadı** | — |
 
 ### Neler yapıldı
 

@@ -5,11 +5,11 @@ rem satiri gercekten ColleX ise) -> komut satirinda serve.mjs / serve-mcp.mjs /
 rem "uvicorn asgi_app" / "local_embedding_server --collex-managed" gecen
 rem surecler -> PostgreSQL.
 rem
-rem W14 B-34 (ENGRISK E10) — neden nazik durdurma once geliyor:
+rem W14 B-34 (ENGRISK E10) - neden nazik durdurma once geliyor:
 rem   Windows'ta taskkill /F sureci TerminateProcess ile oldurur; Node'un
 rem   SIGINT / SIGTERM / exit kancalari CALISMAZ. Yani serve.mjs'in shutdown()
-rem   yolu — answerStore.flush(), draftStore.flush(), pid temizligi,
-rem   sql.end() — bugune kadar URUNDE HIC KOSMADI; var\collex.pid her
+rem   yolu - answerStore.flush(), draftStore.flush(), pid temizligi,
+rem   sql.end() - bugune kadar URUNDE HIC KOSMADI; var\collex.pid her
 rem   kapanista yerinde kaldi (RISKS #22'nin gozledigi belirti, sebebi bu).
 rem   serve.mjs artik <veri>\collex.stop dosyasini 500 ms'de bir yokluyor.
 rem   Once o dosyayi olusturup 6 saniye bekleriz; surec kendi kapandiysa
