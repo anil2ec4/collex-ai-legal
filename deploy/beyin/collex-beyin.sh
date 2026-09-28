@@ -140,7 +140,7 @@ PLIST_EOF
   say "Windows'ta ColleX-Beyin-Bagla.cmd calistirin ve sunlari girin:"
   say "  Adres  : $ip"
   say "  Parola : $(cat "$KEY_FILE")"
-  say "Hazir olup olmadigini gormek icin: bash collex-beyin.sh durum"
+  say "Hazir olup olmadigini gormek icin: bash $0 durum"
 }
 
 cmd_durum() {
@@ -160,7 +160,7 @@ cmd_durum() {
 
 cmd_anahtar() {
   if [ ! -s "$KEY_FILE" ]; then
-    say "Parola yok; once: bash collex-beyin.sh kur"
+    say "Parola yok; once: bash $0 kur"
     exit 1
   fi
   cat "$KEY_FILE"
@@ -178,7 +178,7 @@ case "${1:-}" in
   anahtar) cmd_anahtar ;;
   kaldir) cmd_kaldir ;;
   *)
-    say "Kullanim: bash collex-beyin.sh kur | durum | anahtar | kaldir"
+    say "Kullanim: bash $0 kur | durum | anahtar | kaldir"
     exit 2
     ;;
 esac

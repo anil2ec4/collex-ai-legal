@@ -1433,7 +1433,7 @@ kalitesi de ölçülmedi; ilk kurulum bir deneme sayılmalıdır.
    klasörüne geçin ve şunu yazın: `bash collex-beyin.sh kur`. Homebrew
    yoksa betik size nasıl kuracağınızı söyler. Bittiğinde ekrana bir
    **adres** (100. ile başlar) ve bir **parola** yazar. İlk açılışta model
-   (yaklaşık 5 GB) iner; `bash collex-beyin.sh durum` "HAZIR" diyene kadar
+   (yaklaşık 5 GB) iner; `bash deploy/beyin/collex-beyin.sh durum` "HAZIR" diyene kadar
    bekleyin.
 3. **Windows'ta** `ColleX-Beyin-Bagla.cmd`'ye çift tıklayın; adresi ve
    parolayı girin. Mac mini cevap vermezse hiçbir ayar değişmez. Sonra

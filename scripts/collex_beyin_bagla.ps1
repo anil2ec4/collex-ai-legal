@@ -17,7 +17,7 @@ $port = 8080
 
 Write-Host ''
 Write-Host '[ColleX] Mac mini beyin baglantisi'
-Write-Host '[ColleX] Mac mini''de "bash collex-beyin.sh kur" komutunun yazdigi adres ve parolayi girin.'
+Write-Host '[ColleX] Mac mini''de "bash deploy/beyin/collex-beyin.sh kur" komutunun yazdigi adres ve parolayi girin.'
 Write-Host ''
 
 $ip = (Read-Host 'Mac mini adresi (100. ile baslar)').Trim()
@@ -41,14 +41,14 @@ try {
     Write-Host '[ColleX] Mac mini cevap veriyor ama model henuz yukleniyor ya da indiriliyor. Birkac dakika sonra yeniden calistirin.'
   } else {
     Write-Host '[ColleX] Mac mini cevap vermedi. Iki bilgisayarda da Tailscale acik mi, Mac mini uyanik mi,'
-    Write-Host '[ColleX] orada "bash collex-beyin.sh durum" HAZIR diyor mu? Hicbir sey degistirilmedi.'
+    Write-Host '[ColleX] orada "bash deploy/beyin/collex-beyin.sh durum" HAZIR diyor mu? Hicbir sey degistirilmedi.'
   }
   exit 1
 }
 try {
   Invoke-RestMethod -TimeoutSec 8 -Uri "$base/v1/models" -Headers @{ Authorization = "Bearer $key" } | Out-Null
 } catch {
-  Write-Host '[ColleX] Mac mini parolayi kabul etmedi. Mac mini''de "bash collex-beyin.sh anahtar" ile parolayi yeniden okuyun.'
+  Write-Host '[ColleX] Mac mini parolayi kabul etmedi. Mac mini''de "bash deploy/beyin/collex-beyin.sh anahtar" ile parolayi yeniden okuyun.'
   exit 1
 }
 
