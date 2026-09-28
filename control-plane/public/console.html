@@ -19764,6 +19764,7 @@ button.seal { border-radius: var(--r-ctl); }
     return String(s || "").toLocaleLowerCase("tr-TR").replace(/[ıçğöşüâîû]/g, function (c) { return to.charAt(from.indexOf(c)); });
   }
   var PAL_INTENTS = [
+    { all: [/tebligat|uets|mazbata|teblig (belgesi|alindi|evraki)/], notice: true, title: "Tebligattan süre çıkar" },
     { all: [/odeme emr/, /itiraz/], rule: "iik-odeme-emri-itiraz", title: "Ödeme emrine itiraz süresini hesapla (İİK m.62)" },
     { all: [/kambiyo/], rule: "iik-kambiyo-itiraz", title: "Kambiyo takibinde itiraz süresini hesapla" },
     { all: [/istinaf/, /ceza|cmk/, /sure|son gun|ne zaman|kac gun/], rule: "cmk-istinaf", title: "Ceza istinaf süresini hesapla (CMK)" },
@@ -19796,7 +19797,7 @@ button.seal { border-radius: var(--r-ctl); }
     for (var i = 0; i < PAL_INTENTS.length; i += 1) {
       var it = PAL_INTENTS[i];
       if (!it.all.every(function (re) { return re.test(f); })) { continue; }
-      var key = it.rule !== undefined ? "rule" : it.view;
+      var key = it.notice ? "notice" : it.rule !== undefined ? "rule" : it.view;
       if (seen[key]) { continue; }
       seen[key] = true;
       out.push(it);
@@ -19807,6 +19808,11 @@ button.seal { border-radius: var(--r-ctl); }
     var text = String(q || "").trim();
     if (text.length < 4) { return []; }
     var out = paletteIntents(text).map(function (it) {
+      if (it.notice) {
+        return palItem("Önerilen iş", it.title, "Tebligat belgesini seçer ya da yapıştırırsınız; tarih ve süre belgedeki alıntıyla gösterilir.", function () {
+          openNoticeModal({});
+        });
+      }
       if (it.rule !== undefined) {
         return palItem("Önerilen iş", it.title, "Süre penceresi bu kural seçili açılır; tebliğ tarihini siz girersiniz.", function () {
           openDeadlineModal(it.rule ? { ruleId: it.rule } : {});

@@ -18,6 +18,7 @@ function run(q: string) {
     String,
     palItem: (kind: string, title: string, sub: string, fn: () => void) => ({ kind, title, sub, fn }),
     openDeadlineModal: (opts: unknown) => calls.push({ fn: "deadline", arg: opts }),
+    openNoticeModal: (opts: unknown) => calls.push({ fn: "notice", arg: opts }),
     gotoView: (v: string) => calls.push({ fn: "goto", arg: v }),
     document: { getElementById: () => null },
     out: null,
@@ -64,6 +65,13 @@ describe("W23 önerilen iş", () => {
     const r = run(q);
     r.press(0);
     expect(r.calls[0]).toEqual({ fn: "goto", arg: view });
+  });
+
+  it("“e-tebligat geldi, süre ne zaman bitiyor” opens the tebligat reader first", () => {
+    const r = run("e-tebligat geldi, süre ne zaman bitiyor");
+    expect(r.items[0]?.title).toBe("Tebligattan süre çıkar");
+    r.press(0);
+    expect(r.calls).toEqual([{ fn: "notice", arg: {} }]);
   });
 
   it("proposes nothing it cannot justify, but always offers to research a sentence", () => {
