@@ -15,6 +15,14 @@
  * `connect-src 'self'` so the page can call `/v1/answer` on its own origin,
  * and `img-src 'none'` because the console shows no images at all (the
  * "remote image off" row of the brief's exfiltration threat table).
+ *
+ * Line endings (28.09.2026, measured in Chromium): a browser folds CRLF and a
+ * lone CR to LF BEFORE it hashes an inline block, so a page hashed with its
+ * carriage returns pins a hash the browser never computes — both blocks are
+ * refused and the lawyer sees a blank, unstyled page. A Windows `git`
+ * checkout writes CRLF (`* text=auto`), so the page is folded to LF on load
+ * and the CSP is built from the folded text. `.gitattributes` also pins the
+ * file to LF; this fold is what makes the page work even where it does not.
  */
 
 import { createHash } from "node:crypto";
@@ -55,10 +63,16 @@ function hashesOf(html: string, pattern: RegExp): string[] {
   return out;
 }
 
+/** Fold CRLF and a lone CR to LF — the HTML parser's own newline normalization. */
+export function foldNewlines(text: string): string {
+  return text.replace(/\r\n?/gu, "\n");
+}
+
 /** Build the CSP for a given page body. Pure — exported for the tests. */
 export function buildConsoleCsp(html: string): string {
-  const scripts = hashesOf(html, SCRIPT_BLOCK);
-  const styles = hashesOf(html, STYLE_BLOCK);
+  const folded = foldNewlines(html);
+  const scripts = hashesOf(folded, SCRIPT_BLOCK);
+  const styles = hashesOf(folded, STYLE_BLOCK);
   return [
     "default-src 'none'",
     `script-src ${scripts.length > 0 ? scripts.join(" ") : "'none'"}`,
@@ -71,6 +85,20 @@ export function buildConsoleCsp(html: string): string {
     "frame-ancestors 'none'",
     "object-src 'none'",
   ].join("; ");
+}
+
+/**
+ * The served page for a given file text: folded to LF, so the bytes the
+ * browser receives, the bytes it hashes and the bytes the CSP pins agree on
+ * every platform. Pure — exported for the tests.
+ */
+export function consolePageFromSource(source: string): ConsolePage {
+  const html = foldNewlines(source);
+  return {
+    html,
+    csp: buildConsoleCsp(html),
+    sha256: createHash("sha256").update(html, "utf8").digest("hex"),
+  };
 }
 
 let cached: ConsolePage | undefined;
@@ -87,12 +115,7 @@ export function loadConsolePage(options: { reload?: boolean } = {}): ConsolePage
     const path = fileURLToPath(new URL(candidate, import.meta.url));
     searched.push(path);
     if (!existsSync(path)) continue;
-    const html = readFileSync(path, "utf8");
-    const page: ConsolePage = {
-      html,
-      csp: buildConsoleCsp(html),
-      sha256: createHash("sha256").update(html, "utf8").digest("hex"),
-    };
+    const page = consolePageFromSource(readFileSync(path, "utf8"));
     cached = page;
     return page;
   }

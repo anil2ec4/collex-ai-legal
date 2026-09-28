@@ -44,6 +44,7 @@ kota, uzaktan kurulum yok.
 | W23-15 | Tebligattan süre, tarayıcıda, UETS alındı belgesi (ulaşma 27.10.2026) | tebliğ 01.11.2026 (Pazar ve ay sonu uyarılarıyla), gönderim ve okunma tarihleri gerekçeyle reddedildi, öneri `hmk-istinaf` → son gün 16.11.2026; 1440/390 px taşma 0 | — |
 | W23-16 | Word'den geri yükleme, tarayıcıda (dışa aktar → düzelt → yükle → onayla) | önizleme 3 değişen paragraf, karşı içtihat bölümündeki düzenleme uygulanmadı ve bunu yazdı, onayla sürüm 1 → 2; kopyalanan paragrafın ayrı paragraf okunması (aşağıda D) | — |
 | W23-17 | Sayfalı mevzuat metni (`get_mevzuat_content`) | 1. sayfa "tam metin" diye mühürleniyordu → bütün sayfalar birleştirilip birebir mühürleniyor; gerekçe başlığı metne girmiyor | — |
+| W23-18 | Konsol sayfası Windows `git` çıkışında (CRLF satır sonu), Chromium | önce iç `<style>` ve `<script>` CSP tarafından **2/2 reddedildi** (boş, biçimsiz sayfa: tarayıcı CRLF'yi LF'ye çevirip özetliyor, sunucu CRLF ile özetliyordu) → yükleyici LF'ye çeviriyor: **0 ret**; `autocrlf=true` çıkışında `console.html` 0 CR satırı, iki metin sanılan PDF bayt bayt aynı, `.cmd` CRLF, macOS betikleri LF | 0 |
 
 ### Neler yapıldı
 

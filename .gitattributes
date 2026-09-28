@@ -1,2 +1,15 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# The operator console pins SHA-256 hashes of its inline <style> and <script>
+# in its CSP. A browser folds CRLF to LF before hashing, so a CRLF copy on a
+# Windows checkout had both blocks refused (blank page, 28.09.2026). The file
+# stays LF everywhere; control-plane/src/api/consolePage.ts also folds on load.
+control-plane/public/console.html text eol=lf
+
+# Binary fixtures. Two of the PDFs carry no NUL byte, so auto-detection read
+# them as text and a Windows checkout would rewrite their bytes with CRLF.
+*.pdf -text
+*.docx -text
+*.udf -text
+*.zip -text

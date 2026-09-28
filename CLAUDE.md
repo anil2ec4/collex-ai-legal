@@ -537,7 +537,10 @@ ceiling.
   (no markup-assigning API, no dynamic code evaluation, no remote asset;
   the served CSP pins the inline hashes). Enforced by
   `control-plane/tests/pipeline/console.test.ts`. Do not "improve" it by
-  injecting HTML.
+  injecting HTML. **A browser hashes the inline blocks AFTER folding CRLF
+  to LF** (STATUS W23-18: a Windows checkout's CRLF copy had both blocks
+  refused — a blank page), so `.gitattributes` pins the file to `eol=lf`
+  and `consolePageFromSource` folds it on load; keep both.
 - **The upload cap has ONE source: `UPLOAD_CAP_MIB = 25` in
   `intake/quarantine.py`**; `control-plane/src/files/routes.ts` mirrors it and
   `tests/files/uploadCap.test.ts` parses the Python line. Change both or

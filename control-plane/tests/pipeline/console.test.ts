@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
-import { buildConsoleCsp, loadConsolePage } from "../../src/api/consolePage.js";
+import { buildConsoleCsp, consolePageFromSource, loadConsolePage } from "../../src/api/consolePage.js";
 import {
   CONTRARY_LANE_LABEL_TR,
   CONTRARY_LANE_MEANING_TR,
@@ -816,6 +816,21 @@ describe("Content-Security-Policy", () => {
   it("pins nothing when there is nothing to pin", () => {
     expect(buildConsoleCsp("<p>hi</p>")).toContain("script-src 'none'");
     expect(buildConsoleCsp("<p>hi</p>")).toContain("style-src 'none'");
+  });
+
+  it("serves a Windows (CRLF) checkout exactly as the LF file, so the browser's hash still matches", () => {
+    // 28.09.2026, Chromium: the same page with CRLF, hashed as written, had
+    // BOTH inline blocks refused (blank, unstyled console). A browser folds
+    // CRLF/CR to LF before hashing, so the loader folds first.
+    const lf = loadConsolePage({ reload: true });
+    const crlf = consolePageFromSource(lf.html.replace(/\n/gu, "\r\n"));
+    expect(crlf.html.includes("\r")).toBe(false);
+    expect(crlf.html).toBe(lf.html);
+    expect(crlf.csp).toBe(lf.csp);
+    expect(crlf.sha256).toBe(lf.sha256);
+    const oldMac = consolePageFromSource(lf.html.replace(/\n/gu, "\r"));
+    expect(oldMac.csp).toBe(lf.csp);
+    expect(buildConsoleCsp("<script>a\r\nb</script>")).toBe(buildConsoleCsp("<script>a\nb</script>"));
   });
 });
 
