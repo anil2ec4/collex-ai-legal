@@ -203,6 +203,36 @@ async def test_uyusmazlik_pdf_is_still_a_document():
     assert "Uyusmazlik Mahkemesi karari" in payload["markdown_content"]
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.example/karar.pdf",
+        "http://kararlar.uyusmazlik.gov.tr/Karar/Getir/123",  # not https
+        "https://uyusmazlik.gov.tr.evil.example/x.pdf",
+        "https://kararlar.uyusmazlik.gov.tr@evil.example/x.pdf",
+        "file:///etc/passwd",
+    ],
+)
+@respx.mock
+async def test_uyusmazlik_fetches_only_the_courts_own_domain(url):
+    """W23: the tool takes a caller-supplied URL; an off-domain, non-https or
+    userinfo-smuggled address is refused as INVALID_REQUEST before any
+    connection (the same guard KİK's document client has)."""
+    route = respx.route().mock(return_value=httpx.Response(200, content=b"%PDF-1.4"))
+    result = await _call("get_uyusmazlik_document_markdown_from_url", {"document_url": url})
+    assert result.isError is True
+    assert result.content[0].text.startswith("INVALID_REQUEST"), result.content[0].text
+    assert route.called is False
+
+
+def test_uyusmazlik_domain_guard_accepts_the_court_hosts():
+    from uyusmazlik_mcp_module.client import is_uyusmazlik_document_url
+
+    assert is_uyusmazlik_document_url("https://kararlar.uyusmazlik.gov.tr/Karar/Getir/123")
+    assert is_uyusmazlik_document_url("https://www.uyusmazlik.gov.tr/uploads/karar.pdf")
+    assert not is_uyusmazlik_document_url("https://notuyusmazlik.gov.tr/x.pdf")
+
+
 # --- KİK (an HTML source reached through GetSorgulamaUrl) --------------------
 
 KIK_API = "https://ekapv2.kik.gov.tr/b_ihalearaclari/api/KurulKararlari/GetSorgulamaUrl"

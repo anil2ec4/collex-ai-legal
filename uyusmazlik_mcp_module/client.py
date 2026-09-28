@@ -12,12 +12,13 @@ import io
 import logging
 import re
 from typing import Dict, List, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
 from markitdown import MarkItDown
 
+from legal_contracts.outcomes import InvalidToolInput
 from legal_contracts.pages import check_document_body, require_document_text
 from legal_contracts.tls import verified_ssl_context
 
@@ -34,6 +35,16 @@ if not logger.hasHandlers():
 
 # ASP.NET hidden fields that must be round-tripped on every postback.
 _HIDDEN_FIELDS = ("__VIEWSTATE", "__VIEWSTATEGENERATOR", "__EVENTVALIDATION")
+
+
+def is_uyusmazlik_document_url(url: str) -> bool:
+    """True only for https URLs on uyusmazlik.gov.tr or one of its subdomains."""
+    try:
+        parts = urlsplit(str(url).strip())
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower().rstrip(".")
+    return parts.scheme == "https" and (host == "uyusmazlik.gov.tr" or host.endswith(".uyusmazlik.gov.tr"))
 
 
 class UyusmazlikApiClient:
@@ -166,6 +177,13 @@ class UyusmazlikApiClient:
 
     async def get_decision_document_as_markdown(self, document_url: str) -> UyusmazlikDocumentMarkdown:
         """Fetch an Uyuşmazlık decision PDF and return its content as Markdown."""
+        # W23: the tool takes a caller-supplied URL. Only the court's own
+        # domain over https is fetched (the same guard KİK's document client
+        # has); anything else is refused before a connection is opened.
+        if not is_uyusmazlik_document_url(document_url):
+            raise InvalidToolInput(
+                "document_url must be an https address on uyusmazlik.gov.tr (from the search results)."
+            )
         logger.info("UyusmazlikApiClient: Fetching document PDF from %s", document_url)
         try:
             response = await self.http_client.get(
