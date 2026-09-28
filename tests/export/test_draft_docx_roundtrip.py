@@ -232,6 +232,33 @@ def test_a_tracked_deletion_of_a_paragraph_mark_joins_the_two_paragraphs(tmp_pat
     assert len(merged["marks"]) == 2 and merged["pendingChange"] is True
 
 
+def test_a_copied_paragraph_does_not_inherit_the_original_identity(tmp_path: Path):
+    """W23, measured in a browser: a paragraph duplicated with its hidden
+    _cxp<n> bookmark (copy/paste, or a tool) was read as part of the paragraph
+    it was copied from, and the two list items were saved as one. A second
+    start of the same bookmark name is not an identity (Word keeps bookmark
+    names unique); the copy aligns by its text and reads as new."""
+    import copy
+
+    out = _export(tmp_path)
+    document = Document(str(out))
+    original = next(p for p in document.paragraphs if "yatırım vaadinde" in p.text)
+    assert original._p.find(qn("w:bookmarkStart")) is not None or original._p.getprevious() is not None
+    clone = copy.deepcopy(original._p)
+    original._p.addnext(clone)
+    for t in clone.iter(qn("w:t")):
+        t.text = ""
+    next(clone.iter(qn("w:t"))).text = "Kopyalanıp yeni yazılmış bir paragraf."
+    edited = tmp_path / "kopya.docx"
+    document.save(str(edited))
+    readback = read_draft_docx(edited)
+    ids = {p["n"]: p["id"] for p in readback["identity"]["paragraphs"]}
+    kept = next(b for b in readback["blocks"] if "yatırım vaadinde" in b["text"])
+    copied = next(b for b in readback["blocks"] if b["text"] == "Kopyalanıp yeni yazılmış bir paragraf.")
+    assert [ids[n] for n in kept["marks"]] == ["p-aciklamalar-4"]
+    assert copied["marks"] == []
+
+
 def _cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-X", "utf8", "-m", "export.draft_identity", *args],

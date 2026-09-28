@@ -514,6 +514,11 @@ def read_body_blocks(document: Any) -> tuple[list[_Block], dict[str, int]]:
     """Body blocks as they read with every tracked change accepted."""
     styles = _style_names(document)
     open_marks: dict[str, int] = {}  # bookmark w:id -> render number
+    # A bookmark name is unique in a Word document; a SECOND start of the same
+    # _cxp<n> (a copied paragraph, or a tool that duplicated the markup) is not
+    # the paragraph's identity. It is ignored, so the copy aligns by its text
+    # (W23: a copied list item was read as part of the item it was copied from).
+    started: set[int] = set()
     blocks: list[_Block] = []
     counts = {"insertions": 0, "deletions": 0, "moves": 0, "formatting": 0}
     carry: _Block | None = None
@@ -536,7 +541,8 @@ def read_body_blocks(document: Any) -> tuple[list[_Block], dict[str, int]]:
         tag = element.tag
         if tag == _W + "bookmarkStart":
             number = _bookmark_number(element.get(_W + "name"))
-            if number is not None:
+            if number is not None and number not in started:
+                started.add(number)
                 open_marks[element.get(_W + "id", "")] = number
             continue
         if tag == _W + "bookmarkEnd":
@@ -552,7 +558,8 @@ def read_body_blocks(document: Any) -> tuple[list[_Block], dict[str, int]]:
         for node in element.iter(_W + "bookmarkStart", _W + "bookmarkEnd"):
             if node.tag == _W + "bookmarkStart":
                 number = _bookmark_number(node.get(_W + "name"))
-                if number is not None:
+                if number is not None and number not in started:
+                    started.add(number)
                     open_marks[node.get(_W + "id", "")] = number
                     if number not in marks:
                         marks.append(number)
