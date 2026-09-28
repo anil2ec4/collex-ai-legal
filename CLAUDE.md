@@ -35,6 +35,13 @@ Rules it leaves behind:
 - **`ColleX-Dogrula` is the measurement for what this environment cannot
   reach** (live sources, a real model, the Mac). It writes nothing into the
   lawyer's records; its report is the evidence to cite.
+- **The `.cmd` launchers have two cmd.exe traps, both pinned by
+  `launcher.test.ts`** (STATUS W23-19 — the launcher refused to start on
+  every double-click): never run a command that STARTS with a quote inside
+  `for /f` (`cmd /c` strips its first and last quote), and never expand a
+  value from outside the script (a database answer, a typed folder) unquoted
+  inside a parenthesized block — its `)` closes the block and the lines
+  after it run unconditionally. Keep the scripts plain ASCII.
 
 Previous line: **W22 (2026-09-27) — the product met realistic documents and a real browser.**
 Six independent investigators drove the live server with realistic Turkish

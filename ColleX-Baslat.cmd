@@ -96,18 +96,14 @@ rem     Kullanici ileride normal bir PostgreSQL kurup bu portu kaparsa ColleX
 rem     BOS bir kumeye baglanir ve avukat "butun dosyalarim gitti" gorur.
 rem     Yanlis kumeye baglanmaktansa durmak dogrudur. (Blogun DISINDA:
 rem     parantezli blok icinde %CLUSTER_OK% gecikmeli genisletme olmadan
-rem     eski degerini okurdu.) ---
+rem     eski degerini okurdu.)
+rem     28.09.2026: uyari satirlari PARANTEZLI BLOKTA DEGIL, :clusterbad
+rem     etiketindedir. Blok icinde CLUSTER_DIR acilinca degerdeki ")"
+rem     blogu kapatiyordu ("(okunamadi)" yer tutucusu tam olarak buydu):
+rem     son iki uyari satiri, pause ve exit /b 1 KOSULSUZ calisti ve
+rem     ColleX her acilista "yanlis kume" diyerek durdu. ---
 call :checkcluster
-if "%CLUSTER_OK%"=="0" (
-  echo [ColleX] DURDURULDU: 127.0.0.1:%PGPORT% portunu ColleX'in veritabani DEGIL,
-  echo [ColleX] baska bir PostgreSQL kumesi dinliyor.
-  echo [ColleX]   Beklenen veri dizini: %PGDATA_DIR%
-  echo [ColleX]   Bulunan veri dizini : %CLUSTER_DIR%
-  echo [ColleX] Dosyalariniz duruyor; yanlis kumeye baglanmamak icin baslatma durduruldu.
-  echo [ColleX] Diger PostgreSQL hizmetini kapatip yeniden deneyin.
-  pause
-  exit /b 1
-)
+if "%CLUSTER_OK%"=="0" goto clusterbad
 
 rem --- 3) Kalici urun veritabani var mi? Yoksa olustur; eksik migrasyonlari uygula
 rem        (yalniz olusturur, silmez). W12-FIX2 (P2-16): basarisizlik ARTIK
@@ -178,8 +174,20 @@ exit /b 0
 :failed
 echo [ColleX] Sunucu 60 saniye icinde hazir olmadi.
 echo [ColleX] "ColleX Sunucu" penceresindeki mesaja bakin:
-echo [ColleX]   - "veritabani: CALISMIYOR"  -> PostgreSQL ayaga kalkmadi; %TEMP%\collex-postgres.log
-echo [ColleX]   - "portu kullanimda"        -> eski bir sunucu aciktir; ColleX-Durdur.cmd calistirin
+echo [ColleX]   - "veritabani: CALISMIYOR"  -^> PostgreSQL ayaga kalkmadi; %TEMP%\collex-postgres.log
+echo [ColleX]   - "portu kullanimda"        -^> eski bir sunucu aciktir; ColleX-Durdur.cmd calistirin
+pause
+exit /b 1
+
+rem --- 55432'deki kume bizim degil (E18). Blok DISINDA: yollardaki parantez
+rem     ya da baska ozel karakter bu satirlari bozamaz. ---
+:clusterbad
+echo [ColleX] DURDURULDU: 127.0.0.1:%PGPORT% portunu ColleX'in veritabani DEGIL,
+echo [ColleX] baska bir PostgreSQL kumesi dinliyor.
+echo [ColleX]   Beklenen veri dizini: %PGDATA_DIR%
+echo [ColleX]   Bulunan veri dizini : %CLUSTER_DIR%
+echo [ColleX] Dosyalariniz duruyor; yanlis kumeye baglanmamak icin baslatma durduruldu.
+echo [ColleX] Diger PostgreSQL hizmetini kapatip yeniden deneyin.
 pause
 exit /b 1
 
@@ -191,14 +199,32 @@ for /f "usebackq" %%p in ("%COLLEX_VARDIR%\collex.pid") do (
 )
 exit /b 0
 
-rem --- 55432'yi dinleyen kumenin veri dizini bizimki mi? (E18) ---
+rem --- 55432'yi dinleyen kumenin veri dizini bizimki mi? (E18)
+rem     28.09.2026: psql artik "for /f" ICINDE calismaz. for /f komutu
+rem     "cmd /c" ile calistirir; komut tirnakla basliyor ve icinde baska
+rem     tirnak da oldugu icin cmd /c ILK ve SON tirnagi siliyordu: psql hic
+rem     calismadi, veri dizini hic okunmadi. Cikti gecici bir dosyaya yazilir
+rem     ve "set /p" ile okunur. -w: parola sorup beklemez. Yollar PowerShell'e
+rem     ortam degiskeniyle gecer (tirnak ya da kesme isareti bozamaz). ---
 :checkcluster
 set "CLUSTER_OK=1"
-set "CLUSTER_DIR=(okunamadi)"
-for /f "usebackq delims=" %%d in (`"%PGBIN%\psql.exe" -h 127.0.0.1 -p %PGPORT% -U postgres -d postgres -Atc "show data_directory" 2^>nul`) do set "CLUSTER_DIR=%%d"
-if "%CLUSTER_DIR%"=="(okunamadi)" exit /b 0
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$sep=[IO.Path]::DirectorySeparatorChar; $a=[IO.Path]::GetFullPath('%CLUSTER_DIR%').TrimEnd($sep,'/'); $b=[IO.Path]::GetFullPath('%PGDATA_DIR%').TrimEnd($sep,'/'); if ($a -ieq $b) { exit 0 } else { exit 1 }"
+set "CLUSTER_DIR="
+set "CLUSTERTXT=%TEMP%\collex-cluster.txt"
+del /q "%CLUSTERTXT%" >nul 2>nul
+"%PGBIN%\psql.exe" -h 127.0.0.1 -p %PGPORT% -U postgres -d postgres -w -Atc "show data_directory" >"%CLUSTERTXT%" 2>nul
+if errorlevel 1 goto clusterunknown
+if exist "%CLUSTERTXT%" set /p CLUSTER_DIR=<"%CLUSTERTXT%"
+del /q "%CLUSTERTXT%" >nul 2>nul
+if not defined CLUSTER_DIR goto clusterunknown
+rem 0 = ayni dizin, 1 = BASKA dizin, 2 = karsilastirilamadi (denetim atlanir;
+rem PowerShell'in kendi hatasi "yanlis kume" diye okunmaz).
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $a=[IO.Path]::GetFullPath($env:CLUSTER_DIR.Trim()).TrimEnd([char]92,[char]47); $b=[IO.Path]::GetFullPath($env:PGDATA_DIR.Trim()).TrimEnd([char]92,[char]47); if ($a -ieq $b) { exit 0 } else { exit 1 } } catch { exit 2 }"
+if errorlevel 2 goto clusterunknown
 if errorlevel 1 set "CLUSTER_OK=0"
+exit /b 0
+:clusterunknown
+set "CLUSTER_DIR=okunamadi"
+echo [ColleX] Veritabani kumesinin veri dizini okunamadi; bu denetim atlandi.
 exit /b 0
 
 rem --- Saglik kontrolu: HEALTHY=1 yalnizca HTTP 200 donerse. ---

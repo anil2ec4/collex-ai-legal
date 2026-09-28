@@ -51,16 +51,11 @@ set "DUMPNAME="
 rem stderr bastirilir: avukat asagidaki Turkce cumleyi gorur, surucunun
 rem dosya-yolu mesajini degil. Basarisizlik bos %DUMPNAME% ile anlasilir.
 for /f "usebackq delims=" %%D in (`node control-plane\scripts\backup.mjs --dump-name "%SRC%" 2^>nul`) do set "DUMPNAME=%%D"
-if "%DUMPNAME%"=="" (
-  echo [ColleX] Bu klasor bir ColleX yedegi degil ^(yedek.json okunamadi^): %SRC%
-  pause
-  exit /b 1
-)
-if not exist "%SRC%\%DUMPNAME%" (
-  echo [ColleX] Yedek dosyasi yok: %SRC%\%DUMPNAME%
-  pause
-  exit /b 1
-)
+rem Klasor yolu (SRC) parantezli bloklarin ICINDE yazilmaz: "Yedek (eski)"
+rem gibi bir klasor adindaki ")" blogu kapatir ve sonraki satirlar kosulsuz
+rem calisir (ColleX-Baslat.cmd'de 28.09.2026'da tam olarak bu oldu).
+if "%DUMPNAME%"=="" goto notbackup
+if not exist "%SRC%\%DUMPNAME%" goto nodumpfile
 
 rem --- 1) YAZMADAN ONCE DOGRULA. ---
 echo [ColleX] Yedek dogrulaniyor ^(arsiv: %DUMPNAME%; her dosyanin SHA-256 ozeti^)...
@@ -143,3 +138,13 @@ echo [ColleX]   psql -c "drop database %DBNAME%_eski_%STAMP%;"
 echo [ColleX] ColleX-Baslat.cmd ile acip kontrol edin.
 pause
 exit /b 0
+
+:notbackup
+echo [ColleX] Bu klasor bir ColleX yedegi degil ^(yedek.json okunamadi^): %SRC%
+pause
+exit /b 1
+
+:nodumpfile
+echo [ColleX] Yedek dosyasi yok: %SRC%\%DUMPNAME%
+pause
+exit /b 1

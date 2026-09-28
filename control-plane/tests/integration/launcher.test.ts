@@ -25,13 +25,12 @@ const REPO_ROOT = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 const read = (name: string): string => readFileSync(resolve(REPO_ROOT, name), "utf8");
 
 describe("every double-click script is plain ASCII", () => {
-  // 28.09.2026, on the lawyer's Windows machine: ColleX-Baslat.cmd runs under
-  // `chcp 65001`, and cmd.exe misplaces its read position in a batch file that
-  // carries multi-byte UTF-8 characters. After `call :checkcluster` it went on
-  // in the MIDDLE of the cluster guard: the first four lines of the message
-  // never printed, the last two did, and the start stopped with "yanlis
-  // kumeye baglanmamak icin" while its own cluster was the one it had just
-  // started. The only multi-byte characters were "—" in rem lines.
+  // The scripts run under `chcp 65001`, where cmd.exe is known to misread
+  // batch files that carry multi-byte UTF-8 characters. This was first
+  // suspected for the 28.09.2026 stop on the lawyer's machine; that stop had
+  // a different, deterministic cause (see "the cmd.exe parsing traps" below),
+  // but the only multi-byte characters were "—" in rem/echo lines and the
+  // scripts stay plain ASCII as a precaution.
   const scripts = readdirSync(REPO_ROOT).filter((name) => name.toLowerCase().endsWith(".cmd"));
 
   it("covers the five launchers", () => {
@@ -274,12 +273,91 @@ describe("B-34/B-45 launcher: never kill a starting server, never trust a foreig
     expect(launcher).toContain("call :checkcluster");
     expect(launcher).toMatch(/:checkcluster[\s\S]*show data_directory/u);
     expect(launcher).toContain("butun dosyalarim gitti");
-    const guard = launcher.slice(
-      launcher.indexOf('if "%CLUSTER_OK%"=="0"'),
-      launcher.indexOf("rem --- 3)"),
-    );
-    expect(guard).toContain("Dosyalariniz duruyor");
-    expect(guard).toContain("exit /b 1");
+    // One line, no parenthesized block: the message lives under a label.
+    expect(launcher).toContain('if "%CLUSTER_OK%"=="0" goto clusterbad');
+    const bad = launcher.slice(launcher.indexOf("\n:clusterbad"));
+    expect(bad.indexOf("\n:clusterbad")).toBe(0);
+    const badBody = bad.slice(0, bad.indexOf("exit /b 1") + "exit /b 1".length);
+    expect(badBody).toContain("Bulunan veri dizini : %CLUSTER_DIR%");
+    expect(badBody).toContain("Dosyalariniz duruyor");
+    expect(badBody).toContain("pause");
+  });
+
+  it("reads the data directory with psql outside for /f, without a password prompt (28.09.2026)", () => {
+    const check = launcher.slice(launcher.indexOf("\n:checkcluster"), launcher.indexOf("\n:health"));
+    const psqlLine = check.split(/\r?\n/u).find((line) => line.includes("show data_directory")) ?? "";
+    expect(psqlLine.trimStart().startsWith('"%PGBIN%\\psql.exe"')).toBe(true);
+    expect(psqlLine).toContain(" -w ");
+    expect(psqlLine).toContain('>"%CLUSTERTXT%"');
+    expect(check).toContain('set /p CLUSTER_DIR=<"%CLUSTERTXT%"');
+    // The paths reach PowerShell through the environment, never spliced into its source.
+    expect(check).toContain("$env:CLUSTER_DIR");
+    expect(check).toContain("$env:PGDATA_DIR");
+    expect(check).not.toContain("'%CLUSTER_DIR%'");
+    // PowerShell failing is "could not compare" (2), never "a foreign cluster" (1).
+    expect(check).toContain("catch { exit 2 }");
+    expect(check.indexOf("if errorlevel 2 goto clusterunknown")).toBeGreaterThan(-1);
+    expect(check.indexOf("if errorlevel 2 goto clusterunknown")).toBeLessThan(check.indexOf('if errorlevel 1 set "CLUSTER_OK=0"'));
+    // An unreadable directory is said out loud and does not stop the start.
+    expect(check).toContain(":clusterunknown");
+    expect(check).toContain("bu denetim atlandi");
+    const executable = launcher.split(/\r?\n/u).filter((line) => !/^\s*rem\b/iu.test(line));
+    expect(executable.join("\n")).not.toContain("(okunamadi)");
+  });
+});
+
+describe("the cmd.exe parsing traps (28.09.2026, ColleX-Baslat.cmd on the lawyer's machine)", () => {
+  // What happened: `for /f` ran `"%PGBIN%\psql.exe" ... "show data_directory"`
+  // through `cmd /c`, which strips the FIRST and LAST quote of a command that
+  // starts with a quote and holds more quotes, so psql never ran and the
+  // directory stayed "(okunamadi)". That placeholder was then expanded INSIDE
+  // `if "%CLUSTER_OK%"=="0" ( ... )`, where its ")" closed the block early:
+  // the last two warning lines, `pause` and `exit /b 1` ran unconditionally
+  // and ColleX refused to start on every double-click.
+  const scripts = readdirSync(REPO_ROOT)
+    .filter((name) => name.toLowerCase().endsWith(".cmd"))
+    .map((name) => ({ name, lines: read(name).split(/\r?\n/u) }));
+
+  it.each(scripts.map((s) => [s.name, s.lines] as const))(
+    "%s: no for /f runs a command that starts with a quote",
+    (_name, lines) => {
+      for (const line of lines) {
+        expect(line, line).not.toMatch(/for \/f\b[^`]*\(`\s*"/iu);
+      }
+    },
+  );
+
+  // Values that come from outside the script — the database, a folder the
+  // lawyer typed, a manifest — may carry ")" and are never echoed inside a
+  // parenthesized block.
+  const OUTSIDE_VALUES = ["%CLUSTER_DIR%", "%PGDATA_DIR%", "%SRC%", "%DUMPNAME%"];
+
+  it.each(scripts.map((s) => [s.name, s.lines] as const))(
+    "%s: no outside value is expanded inside a parenthesized block",
+    (_name, lines) => {
+      let depth = 0;
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (/^rem\b/iu.test(line) || line.startsWith("::")) continue;
+        if (line.startsWith(")")) depth = Math.max(0, depth - 1);
+        if (depth > 0) {
+          // Inside double quotes a ")" is literal; only an unquoted expansion closes the block.
+          const unquoted = line.replace(/"[^"]*"/gu, '""');
+          for (const value of OUTSIDE_VALUES) {
+            expect(unquoted.includes(value), `inside a block: ${line}`).toBe(false);
+          }
+        }
+        // ") else (" closes one block above and opens the next one here.
+        if (/\($/u.test(line) && !/\^\($/u.test(line)) depth += 1;
+      }
+      expect(depth).toBe(0);
+    },
+  );
+
+  it.each(scripts.map((s) => [s.name, s.lines] as const))("%s: no echo writes an unescaped '->'", (_name, lines) => {
+    for (const line of lines) {
+      if (/^\s*echo\b/iu.test(line)) expect(line, line).not.toContain("->");
+    }
   });
 });
 
