@@ -91,6 +91,21 @@ def test_classifier_http_status_codes():
     assert f400.kind is FailureKind.INVALID_REQUEST
 
 
+def test_an_upstream_access_rule_is_not_the_lawyers_query():
+    # 29.09.2026, live: KİK answered 428 Precondition Required and the report
+    # told the lawyer the query was invalid. No rephrasing fixes that.
+    for status in (405, 406, 409, 412, 426, 428, 451):
+        failure = classify_exception(_status_error(status))
+        assert failure.kind is FailureKind.UNAVAILABLE, status
+        assert failure.retryable is False, status
+        assert failure.upstream_status == status
+    for status in (400, 413, 414, 422):
+        assert classify_exception(_status_error(status)).kind is FailureKind.INVALID_REQUEST, status
+    f408 = classify_exception(_status_error(408))
+    assert f408.kind is FailureKind.TIMEOUT and f408.retryable is True
+    assert classify_exception(_status_error(410)).kind is FailureKind.NOT_FOUND
+
+
 def test_classifier_connect_error_and_parse_error():
     unavailable = classify_exception(httpx.ConnectError("refused"))
     assert unavailable.kind is FailureKind.UNAVAILABLE

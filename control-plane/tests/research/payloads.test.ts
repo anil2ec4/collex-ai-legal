@@ -147,3 +147,68 @@ describe("parseFetchPayload", () => {
     expect(parsed.failure.kind).toBe("RATE_LIMITED");
   });
 });
+
+describe("provider rows the parser used to drop (29.09.2026, the lawyer's machine)", () => {
+  // Each of these sources answered, and every row was dropped: the report
+  // then read "no result" for an archive that had one.
+  it("keeps Sayıştay rows whose id is an integer, and shows the FILTERED count", () => {
+    const parsed = parseSearchPayload("search_sayistay_unified", {
+      decision_type: "daire",
+      decisions: [
+        { id: 101, yargilama_dairesi: 3, karar_no: "45", ilam_no: "" },
+        { id: 102, yargilama_dairesi: 4, karar_no: "46", ilam_no: "" },
+      ],
+      total_records: 727,
+      total_filtered: 12,
+    });
+    expect(parsed.kind).toBe("hits");
+    if (parsed.kind !== "hits") return;
+    expect(parsed.hits.map((h) => h.externalId)).toEqual(["101", "102"]);
+    expect(parsed.hits[0]?.title).toBe("45");
+    // 727 is the whole archive (DataTables recordsTotal); 12 matched the query.
+    expect(parsed.totalRecords).toBe(12);
+  });
+
+  it("reads GİB's `ozelgeler` list, its integer ids and `total_results`", () => {
+    const parsed = parseSearchPayload("search_gib_ozelge", {
+      ozelgeler: [{ id: 38849, ozelgeNo: "B.07.1.GİB.4.34.16.01-KDV-1", title: "İhracat istisnası" }],
+      total_results: 204,
+      total_pages: 21,
+    });
+    expect(parsed.kind).toBe("hits");
+    if (parsed.kind !== "hits") return;
+    expect(parsed.hits).toHaveLength(1);
+    expect(parsed.hits[0]).toMatchObject({ externalId: "38849", title: "İhracat istisnası", provider: "GIB" });
+    expect(parsed.totalRecords).toBe(204);
+  });
+
+  it("reads AYM's `decision_page_url` and `total_records_found`", () => {
+    const url = "https://normkararlarbilgibankasi.anayasa.gov.tr/ND/2023/45";
+    const parsed = parseSearchPayload("search_anayasa_unified", {
+      decision_type: "norm_denetimi",
+      decisions: [{ decision_reference_no: "E.2022/10, K.2023/45", decision_page_url: url }],
+      total_records_found: 31,
+    });
+    expect(parsed.kind).toBe("hits");
+    if (parsed.kind !== "hits") return;
+    expect(parsed.hits[0]).toMatchObject({ externalId: url, title: "E.2022/10, K.2023/45" });
+    expect(parsed.totalRecords).toBe(31);
+  });
+
+  it("reads Sigorta Tahkim's `document_id`", () => {
+    const parsed = parseSearchPayload("search_sigorta_tahkim_decisions", {
+      decisions: [{ title: "Hakem Kararları Dergisi Sayı 64", document_id: "64", content: "…", url: "" }],
+    });
+    expect(parsed.kind).toBe("hits");
+    if (parsed.kind !== "hits") return;
+    expect(parsed.hits[0]?.externalId).toBe("64");
+  });
+
+  it("still refuses an id that is not a safe non-negative integer or text", () => {
+    const parsed = parseSearchPayload("search_sayistay_unified", {
+      decisions: [{ id: -1 }, { id: 1.5 }, { id: null }, { id: true }],
+      total_records: 4,
+    });
+    expect(parsed.kind === "hits" ? parsed.hits : null).toEqual([]);
+  });
+});

@@ -264,11 +264,38 @@ def _failure_from_http_status(status: int, response: Any = None) -> ProviderFail
             upstream_status=status,
             safe_message=f"Upstream server error (HTTP {status}).",
         )
+    if status == 408:
+        return ProviderFailure(
+            kind=FailureKind.TIMEOUT,
+            retryable=True,
+            upstream_status=status,
+            safe_message="Upstream timed out waiting for the request (HTTP 408).",
+        )
+    if status == 410:
+        return ProviderFailure(
+            kind=FailureKind.NOT_FOUND,
+            retryable=False,
+            upstream_status=status,
+            safe_message="Requested resource is gone upstream (HTTP 410).",
+        )
+    if status in (400, 413, 414, 422):
+        return ProviderFailure(
+            kind=FailureKind.INVALID_REQUEST,
+            retryable=False,
+            upstream_status=status,
+            safe_message=f"Upstream rejected the request (HTTP {status}).",
+        )
+    # Every other 4xx (405, 406, 409, 412, 415, 426, 428, 451, ...) is a rule
+    # of the upstream's that this CLIENT does not meet - an access or contract
+    # change on their side, not something the lawyer's query caused. 29.09.2026,
+    # live: KİK answered 428 Precondition Required and the lawyer read "arama
+    # isteği bu kaynak için geçersiz", i.e. "rephrase" - which no rephrasing
+    # can fix (W22: an outage must never tell the lawyer to rephrase).
     return ProviderFailure(
-        kind=FailureKind.INVALID_REQUEST,
+        kind=FailureKind.UNAVAILABLE,
         retryable=False,
         upstream_status=status,
-        safe_message=f"Upstream rejected the request (HTTP {status}).",
+        safe_message=f"Upstream refused the request (HTTP {status}); its access rules may have changed.",
     )
 
 

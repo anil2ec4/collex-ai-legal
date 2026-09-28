@@ -383,12 +383,22 @@ function textFailure(text: string, safeMessage: string): ParsedFailure {
  *    as text, but nothing else is coerced.
  */
 const TOTAL_RECORD_FIELDS = [
+  // A count AFTER the search's filter wins over the archive's size: Sayıştay
+  // (DataTables) sends both, and 29.09.2026 its unfiltered recordsTotal (727)
+  // was shown as "kaynağın bildirdiği toplam" for a query that matched none.
+  "total_filtered",
+  "recordsFiltered",
   "total_records",
   "totalRecords",
+  // AYM, Rekabet, Uyuşmazlık (…SearchResult.total_records_found): unread
+  // until 29.09.2026, so their count always read "bildirmedi".
+  "total_records_found",
   "total_count",
   "totalCount",
   "total",
   "recordsTotal",
+  // GİB (GibSearchResult.total_results).
+  "total_results",
 ] as const;
 
 export function readTotalRecords(rec: Record<string, unknown>): number | undefined {
@@ -670,9 +680,17 @@ function parseMevzuatSearchText(toolName: string, data: unknown): SearchParse {
   return { kind: "hits", hits, warnings: [] };
 }
 
-/** Generic id-field priority per JSON search tool (matches each fetch idParam). */
-const GENERIC_ID_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  search_anayasa_unified: ["document_url", "documentUrl", "url_path", "url", "id"],
+/**
+ * Generic id-field priority per JSON search tool (matches each fetch idParam).
+ *
+ * Every list must name a field the provider's row model REALLY carries:
+ * tests/test_search_row_contract.py reads this table and checks it against
+ * the Python models. 29.09.2026, the lawyer's machine: AYM rows carry
+ * `decision_page_url` and Sigorta rows `document_id`, neither listed, so
+ * every row was dropped and the source read "no result".
+ */
+export const GENERIC_ID_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  search_anayasa_unified: ["decision_page_url", "document_url", "documentUrl", "url_path", "url", "id"],
   search_uyusmazlik_decisions: ["document_url", "documentUrl", "pdf_url", "url", "id"],
   search_emsal_detailed_decisions: ["id", "documentId"],
   search_kik_v2_decisions: ["gundemMaddesiId", "id"],
@@ -682,15 +700,18 @@ const GENERIC_ID_FIELDS: Readonly<Record<string, readonly string[]>> = Object.fr
   search_bddk_decisions: ["document_id", "documentId", "id"],
   search_btk_decisions: ["pdf_url", "url", "id"],
   search_gib_ozelge: ["ozelge_id", "id"],
-  search_sigorta_tahkim_decisions: ["issue_number", "id"],
+  search_sigorta_tahkim_decisions: ["issue_number", "document_id", "id"],
 });
 
-const GENERIC_ARRAY_KEYS = [
+export const GENERIC_ARRAY_KEYS = [
   "decisions",
   "results",
   "items",
   "documents",
   "kararlar",
+  // GİB (GibSearchResult.ozelgeler): unread until 29.09.2026, so every GİB
+  // search read "no result" whatever the archive held.
+  "ozelgeler",
 ] as const;
 
 const GENERIC_TITLE_FIELDS = [
@@ -701,6 +722,8 @@ const GENERIC_TITLE_FIELDS = [
   "kararNo",
   "name",
   "subject",
+  "decision_reference_no",
+  "ozelgeNo",
 ] as const;
 
 function firstStringField(
@@ -709,6 +732,29 @@ function firstStringField(
 ): string | undefined {
   for (const field of fields) {
     const value = asString(row[field]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+/**
+ * An identifier may arrive as a JSON number: Sayıştay (`id: int`) and GİB
+ * (`id` / `ozelge_id: int`) publish numeric ids. 29.09.2026, the lawyer's
+ * machine: Sayıştay reported 727 records and every row was dropped because
+ * only a string id was accepted, so the report read "no result". A safe
+ * non-negative integer becomes its decimal string (the fetch tools accept it
+ * and coerce it back); anything else is still no id.
+ */
+function asIdString(value: unknown): string | undefined {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value >= 0 ? String(value) : undefined;
+  }
+  return asString(value);
+}
+
+function firstIdField(row: Record<string, unknown>, fields: readonly string[]): string | undefined {
+  for (const field of fields) {
+    const value = asIdString(row[field]);
     if (value !== undefined) return value;
   }
   return undefined;
@@ -753,7 +799,7 @@ function parseGenericSearch(toolName: string, data: unknown): SearchParse {
   for (const item of rows) {
     const row = asRecord(item);
     if (row === undefined) continue;
-    const externalId = firstStringField(row, idFields);
+    const externalId = firstIdField(row, idFields);
     if (externalId === undefined) continue;
     hits.push({
       hitId: `${provider.toLowerCase()}-${hits.length}-${externalId.slice(0, 40)}`,
