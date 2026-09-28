@@ -75,11 +75,17 @@ if not exist "%PGBIN%\pg_ctl.exe" (
   exit /b 1
 )
 
-rem --- 2) Veritabani ayakta mi? Degilse baslat (hazir olana kadar bekler). ---
+rem --- 2) Veritabani ayakta mi? Degilse baslat (hazir olana kadar bekler).
+rem     28.09.2026: pg_ctl BU pencerenin konsolunda baslatildiginda, pencere
+rem     kapaninca PostgreSQL de kapaniyordu - avukatin makinesinde acilistan
+rem     saniyeler sonra "recovery mode" ve ardindan ECONNREFUSED. Artik kendi
+rem     GIZLI konsolunda baslar: bu pencere kapansa da veritabani calisir.
+rem     Start-Process -Wait KULLANILMAZ: PowerShell 5.1 onunla butun alt
+rem     surecleri, yani calisan PostgreSQL'i de bekler. ---
 "%PGBIN%\pg_isready.exe" -h 127.0.0.1 -p %PGPORT% >nul 2>nul
 if errorlevel 1 (
   echo [ColleX] Veritabani baslatiliyor ^(port %PGPORT%^)...
-  "%PGBIN%\pg_ctl.exe" -D "%PGDATA_DIR%" -o "-p %PGPORT% -c listen_addresses=127.0.0.1" -l "%TEMP%\collex-postgres.log" -w start >nul 2>nul
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$q=[char]34; $a='-D '+$q+$env:PGDATA_DIR+$q+' -o '+$q+'-p '+$env:PGPORT+' -c listen_addresses=127.0.0.1'+$q+' -l '+$q+$env:TEMP+'\collex-postgres.log'+$q+' -w start'; $p=Start-Process -FilePath (Join-Path $env:PGBIN 'pg_ctl.exe') -ArgumentList $a -WindowStyle Hidden -PassThru; $null=$p.WaitForExit(90000)" >nul 2>nul
   "%PGBIN%\pg_isready.exe" -h 127.0.0.1 -p %PGPORT% >nul 2>nul
   if errorlevel 1 (
     echo [ColleX] Veritabani baslatilamadi. Gunluk: %TEMP%\collex-postgres.log

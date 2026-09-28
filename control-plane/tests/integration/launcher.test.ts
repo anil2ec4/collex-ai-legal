@@ -283,6 +283,26 @@ describe("B-34/B-45 launcher: never kill a starting server, never trust a foreig
     expect(badBody).toContain("pause");
   });
 
+  it("starts PostgreSQL in its own hidden console, so closing this window cannot stop it (28.09.2026)", () => {
+    // On the lawyer's machine the database went to "recovery mode" and then
+    // refused connections seconds after the launcher window closed itself:
+    // pg_ctl had started it on THIS console.
+    const start = launcher.split(/\r?\n/u).find((line) => line.includes("pg_ctl.exe") && line.includes("start")) ?? "";
+    expect(start.trimStart().startsWith("powershell ")).toBe(true);
+    expect(start).toContain("Start-Process");
+    expect(start).toContain("-WindowStyle Hidden");
+    expect(start).toContain("-w start");
+    expect(start).toContain("listen_addresses=127.0.0.1");
+    // -Wait would wait for the whole process tree, i.e. the running server.
+    expect(start).not.toMatch(/-Wait\b/u);
+    expect(start).toContain("WaitForExit(");
+    // pg_ctl is never run directly on this console any more.
+    for (const line of launcher.split(/\r?\n/u)) {
+      if (/^\s*rem\b/iu.test(line)) continue;
+      expect(line, line).not.toMatch(/^\s*"%PGBIN%\\pg_ctl\.exe"[^\n]*\bstart\b/u);
+    }
+  });
+
   it("reads the data directory with psql outside for /f, without a password prompt (28.09.2026)", () => {
     const check = launcher.slice(launcher.indexOf("\n:checkcluster"), launcher.indexOf("\n:health"));
     const psqlLine = check.split(/\r?\n/u).find((line) => line.includes("show data_directory")) ?? "";

@@ -24,6 +24,11 @@ from .models import (
 from .enums import DaireEnum, KamuIdaresiTuruEnum, WebKararKonusuEnum, WEB_KARAR_KONUSU_MAPPING
 
 logger = logging.getLogger(__name__)
+
+
+def _text(value: Any) -> str:
+    """A text column the upstream may send as null: null is the empty string."""
+    return "" if value is None else str(value)
 if not logger.hasHandlers():
     logging.basicConfig(
         level=logging.INFO,
@@ -421,9 +426,9 @@ class SayistayApiClient:
             for item in response_json.get('data', []):
                 decisions.append(GenelKurulDecision(
                     id=item['Id'],
-                    karar_no=item['KARARNO'],
-                    karar_tarih=item['KARARTARIH'],
-                    karar_ozeti=item['KARAROZETI']
+                    karar_no=_text(item.get('KARARNO')),
+                    karar_tarih=_text(item.get('KARARTARIH')),
+                    karar_ozeti=_text(item.get('KARAROZETI'))
                 ))
             
             return GenelKurulSearchResponse(
@@ -481,9 +486,9 @@ class SayistayApiClient:
             for item in response_json.get('data', []):
                 decisions.append(TemyizKuruluDecision(
                     id=item['Id'],
-                    temyiz_tutanak_tarihi=item['TEMYIZTUTANAKTARIHI'],
+                    temyiz_tutanak_tarihi=_text(item.get('TEMYIZTUTANAKTARIHI')),
                     ilam_dairesi=item['ILAMDAIRESI'],
-                    temyiz_karar=item['TEMYIZKARAR']
+                    temyiz_karar=_text(item.get('TEMYIZKARAR'))
                 ))
             
             return TemyizKuruluSearchResponse(
@@ -542,14 +547,17 @@ class SayistayApiClient:
                 decisions.append(DaireDecision(
                     id=item['Id'],
                     yargilama_dairesi=item['YARGILAMADAIRESI'],
-                    karar_tarih=item['KARARTRH'],
-                    karar_no=item['KARARNO'],
-                    ilam_no=item.get('ILAMNO'),  # Use get() to handle None values
+                    karar_tarih=_text(item.get('KARARTRH')),
+                    karar_no=_text(item.get('KARARNO')),
+                    # 28.09.2026, live: ILAMNO arrives as null; passing None
+                    # explicitly bypassed the model's "" default and the whole
+                    # Daire search failed validation.
+                    ilam_no=_text(item.get('ILAMNO')),
                     madde_no=item['MADDENO'],
-                    kamu_idaresi_turu=item['KAMUIDARESITURU'],
+                    kamu_idaresi_turu=_text(item.get('KAMUIDARESITURU')),
                     hesap_yili=item['HESAPYILI'],
-                    web_karar_konusu=item['WEBKARARKONUSU'],
-                    web_karar_metni=item['WEBKARARMETNI']
+                    web_karar_konusu=_text(item.get('WEBKARARKONUSU')),
+                    web_karar_metni=_text(item.get('WEBKARARMETNI'))
                 ))
             
             return DaireSearchResponse(
